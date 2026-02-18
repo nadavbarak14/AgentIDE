@@ -52,13 +52,30 @@ export function useTerminal(options: UseTerminalOptions = {}) {
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
 
-    // Handle container resize — debounced to avoid rapid fit/resize during panel transitions
+    // Handle container resize — hide terminal during resize to prevent visible re-flow glitch.
+    // On size change: immediately hide content, then after layout settles, fit and reveal.
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+    let lastWidth = container.offsetWidth;
+    let lastHeight = container.offsetHeight;
+    const termElement = container.querySelector('.xterm') as HTMLElement | null;
+
     const resizeObserver = new ResizeObserver(() => {
+      const w = container.offsetWidth;
+      const h = container.offsetHeight;
+      // Ignore sub-pixel / no-op changes
+      if (Math.abs(w - lastWidth) < 2 && Math.abs(h - lastHeight) < 2) return;
+
+      // Hide terminal content immediately to avoid visible re-flow
+      if (termElement) termElement.style.opacity = '0';
+
       if (resizeTimer) clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => {
+        lastWidth = container.offsetWidth;
+        lastHeight = container.offsetHeight;
         fitAddon.fit();
-      }, 150);
+        // Reveal after fit
+        if (termElement) termElement.style.opacity = '1';
+      }, 100);
     });
     resizeObserver.observe(container);
 
