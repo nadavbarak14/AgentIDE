@@ -49,35 +49,33 @@ npm test --workspace=frontend
 npm run test:system --workspace=frontend
 ```
 
-## Key Files to Modify (v4 Update)
+## Key Files to Modify (v5 Update)
 
-### Frontend (v4 changes)
-
-| File | Changes |
-|------|---------|
-| `frontend/src/hooks/usePanel.ts` | **MODIFY**: Dual-panel state (leftPanel + rightPanel instead of single activePanel) |
-| `frontend/src/components/SessionCard.tsx` | **MODIFY**: Three-column layout, two drag handles, independent panel toggles |
-| `frontend/src/components/FileViewer.tsx` | **MODIFY**: Writable Monaco editor, Ctrl+S save, modified indicator |
-| `frontend/src/hooks/useTerminal.ts` | **MODIFY**: Load clipboard addon for copy/paste support |
-| `frontend/src/services/api.ts` | **ADD**: files.save() method |
-
-### Backend (v4 changes)
+### Frontend (v5 changes — all frontend-only)
 
 | File | Changes |
 |------|---------|
-| `backend/src/worker/file-reader.ts` | **ADD**: writeFile() function |
-| `backend/src/api/routes/files.ts` | **ADD**: PUT endpoint for file save |
+| `frontend/src/components/DiffViewer.tsx` | **MODIFY**: Fix overflow-hidden → overflow-x-auto, full-width for new files, gutter drag + text selection for comments |
+| `frontend/src/components/SessionCard.tsx` | **MODIFY**: Responsive min-widths (200px panel, 300px terminal), internal port detection state |
+| `frontend/src/components/SessionGrid.tsx` | **MODIFY**: Remove unused detectedPort prop passthrough |
 
-### Unchanged
+### Backend (v5 changes)
+
+None — all v5 changes are frontend-only.
+
+### Unchanged in v5
 
 | File | Status |
 |------|--------|
 | `frontend/src/components/FileTree.tsx` | Unchanged |
-| `frontend/src/components/DiffViewer.tsx` | Unchanged |
-| `frontend/src/components/LivePreview.tsx` | Unchanged |
-| `frontend/src/components/SessionGrid.tsx` | Unchanged |
+| `frontend/src/components/FileViewer.tsx` | Unchanged (v4 changes complete) |
+| `frontend/src/components/LivePreview.tsx` | Unchanged (already functional) |
 | `frontend/src/components/TerminalView.tsx` | Unchanged |
+| `frontend/src/hooks/usePanel.ts` | Unchanged (v4 changes complete) |
+| `frontend/src/hooks/useTerminal.ts` | Unchanged (v4 changes complete) |
+| `frontend/src/services/api.ts` | Unchanged (v4 changes complete) |
 | `frontend/src/utils/diff-parser.ts` | Unchanged |
+| `backend/src/*` | Unchanged |
 
 ## Feature Flags / Configuration
 
@@ -85,47 +83,49 @@ No feature flags needed. IDE panels are shown/hidden based on grid layout:
 - `grid_layout === '1x1'` → Show IDE toolbar and panels
 - Any other layout → Hide toolbar and panels
 
-## Architecture Overview (v4 Update)
+## Architecture Overview (v5 Update)
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │  Browser (Frontend)                                                │
 │  ┌────────────────────────────────────────────────────────────┐  │
-│  │  SessionCard (1-view mode) — v4 Dual Panel                  │  │
+│  │  SessionCard (1-view mode) — v5 Responsive + Port Detection │  │
 │  │                                                              │  │
 │  │  Both Files + Git active (three-column):                     │  │
+│  │  min 200px   min 300px      min 200px                       │  │
 │  │  ┌──────────────┬───────────────┬───────────────────────┐  │  │
 │  │  │ Files Panel   │ Terminal       │ Git Panel             │  │  │
 │  │  │ ┌────┬──────┐│ (xterm.js +    │ ┌────────┬──────────┐│  │  │
 │  │  │ │Tree│Editor││  clipboard     │ │Sidebar │Diff View ││  │  │
-│  │  │ │    │(R/W) ││  addon)        │ │        │+ comments││  │  │
-│  │  │ └────┴──────┘│               │ └────────┴──────────┘│  │  │
+│  │  │ │    │(R/W) ││  addon)        │ │        │(v5 fixes)││  │  │
+│  │  │ └────┴──────┘│               │ │        │• overflow ││  │  │
+│  │  │              │               │ │        │• gutter   ││  │  │
+│  │  │              │               │ │        │  drag     ││  │  │
+│  │  │              │               │ │        │• text sel ││  │  │
+│  │  │              │               │ └────────┴──────────┘│  │  │
 │  │  └──────────────┴───────────────┴───────────────────────┘  │  │
 │  │                                                              │  │
-│  │  Files only: [Files | Terminal]                              │  │
-│  │  Git only:   [Terminal | Git]                                │  │
-│  │  Preview:    [Terminal | Preview]                             │  │
+│  │  Port detection: WS port_detected → state → LivePreview     │  │
 │  └────────────────────────────────────────────────────────────┘  │
 │                                                                    │
-│  REST API calls (+ PUT files/content)    WebSocket events          │
-│    ↕                                       ↕                       │
+│  REST API calls                          WebSocket events          │
+│    ↕                                       ↕ (port_detected)       │
 └────────────────────────────────────────────────────────────────────┘
-         │                                    │
-         ↓                                    ↓
-┌────────────────────────────────────────────────────────────────────┐
-│  Backend (Express + WS)                                             │
-│  ┌──────────┐  ┌───────────┐  ┌──────────────────────┐           │
-│  │ Panel    │  │ Comment   │  │ File/Git/Port APIs   │           │
-│  │ State    │  │ CRUD +    │  │ + PUT file save (v4) │           │
-│  │ API      │  │ Delivery  │  │                      │           │
-│  └────┬─────┘  └────┬──────┘  └──────────────────────┘           │
-│       │              │                                             │
-│       ↓              ↓                                             │
-│  ┌──────────────────────────┐                                     │
-│  │  SQLite (better-sqlite3) │                                     │
-│  │  panel_states | comments │                                     │
-│  └──────────────────────────┘                                     │
-└────────────────────────────────────────────────────────────────────┘
+```
+
+### Multi-Line Comment Selection (v5)
+
+```
+Method 1 — Gutter Drag:
+  mousedown on line number → start tracking
+  mousemove across lines → highlight range
+  mouseup → open comment input for range
+
+Method 2 — Text Selection:
+  Select text across lines in diff content
+  mouseup → detect selection range from DOM
+  Floating "Comment" button appears
+  Click button → open comment input for range
 ```
 
 ### Batch Comment Flow (v3)

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { files as filesApi, comments as commentsApi, type DiffResult, type CommentData } from '../services/api';
 import { parseDiff, type ParsedFile, type SideBySideLine } from '../utils/diff-parser';
 
@@ -123,6 +123,11 @@ export function DiffViewer({ sessionId, onClose, refreshKey = 0 }: DiffViewerPro
     setSubmittingAll(false);
   }, [sessionId, draftComments]);
 
+  // Handler for gutter drag / text selection — sets selected lines without opening comment input
+  const handleSelectLines = useCallback((start: number, end: number) => {
+    setSelectedLines({ start, end });
+  }, []);
+
   const selectedParsedFile = parsedFiles.find((f) => f.path === selectedFile);
 
   return (
@@ -208,6 +213,7 @@ export function DiffViewer({ sessionId, onClose, refreshKey = 0 }: DiffViewerPro
                 existingComments={existingComments}
                 draftComments={draftComments.filter((d) => d.filePath === selectedFile)}
                 onGutterPlusClick={handleGutterPlusClick}
+                onSelectLines={handleSelectLines}
                 onCommentTextChange={setCommentText}
                 onCommentSubmit={handleAddComment}
                 onCommentCancel={() => {
@@ -240,6 +246,7 @@ interface SideBySideDiffProps {
   existingComments: CommentData[];
   draftComments: DraftComment[];
   onGutterPlusClick: (lineNum: number, shiftKey: boolean) => void;
+  onSelectLines: (start: number, end: number) => void;
   onCommentTextChange: (text: string) => void;
   onCommentSubmit: () => void;
   onCommentCancel: () => void;
@@ -255,20 +262,150 @@ function SideBySideDiff({
   existingComments,
   draftComments,
   onGutterPlusClick,
+  onSelectLines,
   onCommentTextChange,
   onCommentSubmit,
   onCommentCancel,
   onRemoveDraft,
 }: SideBySideDiffProps) {
   const rows = file.sideBySideLines;
+  const isNewFile = file.changeType === 'A';
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // --- Gutter drag state ---
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartLineRef = useRef<number | null>(null);
+
+  const handleGutterMouseDown = useCallback((lineNum: number) => {
+    setIsDragging(true);
+    dragStartLineRef.current = lineNum;
+    // Highlight just this line immediately
+    onSelectLines(lineNum, lineNum);
+  }, [onSelectLines]);
+
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      // Find the closest gutter element under cursor
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const gutterEl = el?.closest('[data-line-number]');
+      if (gutterEl && dragStartLineRef.current !== null) {
+        const lineNum = parseInt(gutterEl.getAttribute('data-line-number')!, 10);
+        const start = Math.min(dragStartLineRef.current, lineNum);
+        const end = Math.max(dragStartLineRef.current, lineNum);
+        onSelectLines(start, end);
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+      dragStartLineRef.current = null;
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging, onSelectLines]);
+
+  // --- Text selection → floating "Comment" button ---
+  const [floatingBtn, setFloatingBtn] = useState<{ top: number; left: number } | null>(null);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleMouseUp = () => {
+      // Small delay to let browser finalize selection
+      requestAnimationFrame(() => {
+        const sel = window.getSelection();
+        if (!sel || sel.isCollapsed || !sel.rangeCount) {
+          setFloatingBtn(null);
+          return;
+        }
+
+        // Check selection is within this container
+        const range = sel.getRangeAt(0);
+        if (!container.contains(range.commonAncestorContainer)) {
+          setFloatingBtn(null);
+          return;
+        }
+
+        // Walk up from start and end to find data-line-number attributes
+        const findLineNumber = (node: Node): number | null => {
+          let el: Element | null = node instanceof Element ? node : node.parentElement;
+          while (el && el !== container) {
+            if (el.hasAttribute('data-line-number')) {
+              return parseInt(el.getAttribute('data-line-number')!, 10);
+            }
+            // Check siblings and parent for line number context
+            const parent = el.closest('[data-line-number]');
+            if (parent) return parseInt(parent.getAttribute('data-line-number')!, 10);
+            el = el.parentElement;
+          }
+          return null;
+        };
+
+        const startLine = findLineNumber(range.startContainer);
+        const endLine = findLineNumber(range.endContainer);
+
+        if (startLine !== null && endLine !== null && (startLine !== endLine || sel.toString().trim().length > 0)) {
+          const rect = range.getBoundingClientRect();
+          const containerRect = container.getBoundingClientRect();
+          setFloatingBtn({
+            top: rect.bottom - containerRect.top + 4,
+            left: rect.left - containerRect.left + rect.width / 2,
+          });
+          onSelectLines(Math.min(startLine, endLine), Math.max(startLine, endLine));
+        } else {
+          setFloatingBtn(null);
+        }
+      });
+    };
+
+    container.addEventListener('mouseup', handleMouseUp);
+    return () => container.removeEventListener('mouseup', handleMouseUp);
+  }, [onSelectLines]);
+
+  const handleFloatingCommentClick = useCallback(() => {
+    if (selectedLines) {
+      onGutterPlusClick(selectedLines.start, false);
+      // Re-set the range since onGutterPlusClick resets to single line
+      onSelectLines(selectedLines.start, selectedLines.end);
+    }
+    setFloatingBtn(null);
+    window.getSelection()?.removeAllRanges();
+  }, [selectedLines, onGutterPlusClick, onSelectLines]);
+
+  // Dismiss floating button on outside click
+  useEffect(() => {
+    if (!floatingBtn) return;
+    const handleClick = (e: MouseEvent) => {
+      const target = e.target as Element;
+      if (!target.closest('.floating-comment-btn')) {
+        setFloatingBtn(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [floatingBtn]);
 
   return (
-    <div>
+    <div ref={containerRef} className="relative" style={{ cursor: isDragging ? 'row-resize' : undefined }}>
       {/* Column headers */}
-      <div className="grid grid-cols-2 border-b border-gray-700 text-[10px] text-gray-500 uppercase tracking-wide">
-        <div className="px-3 py-1 border-r border-gray-700">Old</div>
-        <div className="px-3 py-1">New</div>
-      </div>
+      {isNewFile ? (
+        <div className="border-b border-gray-700 text-[10px] text-gray-500 uppercase tracking-wide">
+          <div className="px-3 py-1">New File</div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 border-b border-gray-700 text-[10px] text-gray-500 uppercase tracking-wide">
+          <div className="px-3 py-1 border-r border-gray-700">Old</div>
+          <div className="px-3 py-1">New</div>
+        </div>
+      )}
 
       {/* Diff rows */}
       {rows.map((pair, rowIdx) => {
@@ -297,23 +434,34 @@ function SideBySideDiff({
 
         return (
           <div key={rowIdx}>
-            {/* The side-by-side row */}
-            <div className="grid grid-cols-2">
-              {/* Left column (old) */}
-              <DiffCell
-                line={pair.left}
-                side="left"
-                isSelected={!!(isSelectedLeft)}
-                onPlusClick={null}
-              />
-              {/* Right column (new) */}
+            {/* The side-by-side row (or full-width for new files) */}
+            {isNewFile ? (
               <DiffCell
                 line={pair.right}
                 side="right"
                 isSelected={!!isSelected}
                 onPlusClick={onGutterPlusClick}
+                onGutterDragStart={handleGutterMouseDown}
               />
-            </div>
+            ) : (
+              <div className="grid grid-cols-2">
+                {/* Left column (old) */}
+                <DiffCell
+                  line={pair.left}
+                  side="left"
+                  isSelected={!!(isSelectedLeft)}
+                  onPlusClick={null}
+                />
+                {/* Right column (new) */}
+                <DiffCell
+                  line={pair.right}
+                  side="right"
+                  isSelected={!!isSelected}
+                  onPlusClick={onGutterPlusClick}
+                  onGutterDragStart={handleGutterMouseDown}
+                />
+              </div>
+            )}
 
             {/* Existing comments — full width below the row */}
             {lineComments.length > 0 && (
@@ -390,6 +538,18 @@ function SideBySideDiff({
           </div>
         );
       })}
+
+      {/* Floating "Comment" button for text selection */}
+      {floatingBtn && !showCommentInput && (
+        <button
+          className="floating-comment-btn absolute z-20 px-2 py-1 text-xs bg-blue-500 text-white rounded shadow-lg hover:bg-blue-600 -translate-x-1/2"
+          style={{ top: floatingBtn.top, left: floatingBtn.left }}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={handleFloatingCommentClick}
+        >
+          Comment
+        </button>
+      )}
     </div>
   );
 }
@@ -401,9 +561,10 @@ interface DiffCellProps {
   side: 'left' | 'right';
   isSelected: boolean;
   onPlusClick: ((lineNum: number, shiftKey: boolean) => void) | null;
+  onGutterDragStart?: ((lineNum: number) => void) | null;
 }
 
-function DiffCell({ line, side, isSelected, onPlusClick }: DiffCellProps) {
+function DiffCell({ line, side, isSelected, onPlusClick, onGutterDragStart }: DiffCellProps) {
   if (!line) {
     // Empty placeholder
     return (
@@ -429,9 +590,18 @@ function DiffCell({ line, side, isSelected, onPlusClick }: DiffCellProps) {
       : 'text-gray-400';
 
   return (
-    <div className={`group flex leading-5 ${bgClass} ${side === 'left' ? 'border-r border-gray-700' : ''}`}>
+    <div className={`group flex leading-5 ${bgClass} ${side === 'left' ? 'border-r border-gray-700' : ''}`} data-line-number={line.lineNumber}>
       {/* Line number + gutter "+" */}
-      <div className="w-10 flex-shrink-0 flex items-center justify-end pr-1 text-gray-600 select-none text-xs relative">
+      <div
+        className="w-10 flex-shrink-0 flex items-center justify-end pr-1 text-gray-600 select-none text-xs relative cursor-pointer"
+        data-line-number={line.lineNumber}
+        onMouseDown={(e) => {
+          if (onGutterDragStart && e.button === 0) {
+            e.preventDefault();
+            onGutterDragStart(line.lineNumber);
+          }
+        }}
+      >
         <span>{line.lineNumber}</span>
         {onPlusClick && (
           <span
@@ -447,7 +617,7 @@ function DiffCell({ line, side, isSelected, onPlusClick }: DiffCellProps) {
         )}
       </div>
       {/* Content */}
-      <div className={`flex-1 px-2 whitespace-pre overflow-hidden ${textClass}`}>
+      <div className={`flex-1 px-2 whitespace-pre overflow-x-auto ${textClass}`} data-line-number={line.lineNumber}>
         {line.content}
       </div>
     </div>

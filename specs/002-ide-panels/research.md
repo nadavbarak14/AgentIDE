@@ -246,3 +246,77 @@ Comment: This variable should be named `userCount` not `count` to avoid ambiguit
 **Alternatives considered**:
 - **Custom event handler for copy**: More code, less reliable than the official addon. Rejected.
 - **Enable `user-select: text` via CSS override**: Would conflict with xterm.js canvas rendering. Rejected.
+
+## R18: Multi-Line Comment Selection — Gutter Drag + Text Selection (v5)
+
+**Decision**: Support two methods for selecting lines to comment on in the diff view:
+1. **Gutter drag**: Click-and-drag on line numbers in the gutter to select a contiguous range. Track `mousedown` → `mousemove` → `mouseup` on gutter elements to build a range.
+2. **Text selection**: When the user selects text across lines in the diff content area, detect the selection via `document.getSelection()`, determine the start/end line numbers from the DOM, and show a floating "Comment" button near the selection.
+
+**Rationale**: User explicitly chose "both" methods. Gutter drag is intuitive for developers accustomed to IDE line selection. Text selection is natural for highlighting specific code snippets. Both methods produce the same result — a line range for the inline comment box.
+
+**Implementation approach**:
+- Gutter drag: Add `onMouseDown` handler to gutter elements that starts tracking, `onMouseMove` extends range (highlight lines as drag proceeds), `onMouseUp` opens comment input. Use React state to track `isDragging`, `dragStartLine`, `dragEndLine`.
+- Text selection: Add a `mouseup` event listener on the diff content area. On `mouseup`, check `window.getSelection()` for a non-empty selection. Walk the DOM to find the closest line-number ancestors, derive start/end line numbers. Show a floating action button positioned near the selection. Clicking it opens the inline comment box.
+- Both methods set `selectedLines` state and open `showCommentInput`, reusing the existing comment flow.
+
+**Alternatives considered**:
+- **Only gutter drag**: Misses the natural text-selection pattern. User wanted both.
+- **Only text selection**: Less precise for selecting whole lines. User wanted both.
+- **Keyboard shortcuts (Ctrl+/ for comment)**: Not discoverable, supplementary at best. Not requested.
+
+## R19: Diff Content Cutoff Fix — Overflow + New File Layout (v5)
+
+**Decision**: Fix two issues causing diff content to appear "cut off":
+1. **Horizontal overflow**: Change `overflow-hidden` on `DiffCell` content div (line 450 of DiffViewer.tsx) to `overflow-x-auto`. This allows horizontal scrolling for long lines instead of clipping them.
+2. **New file layout**: For files that are 100% additions (change type "A"), use a single-column full-width layout instead of the 50/50 `grid-cols-2` split. The left "Old" column is entirely empty for new files, wasting half the space. Detection: check `file.changeType === 'A'` in the parsed file.
+
+**Rationale**: Users reported content being "kind of cut" when viewing diff. The `overflow-hidden` CSS class clips long lines without any scroll affordance. For new files, the empty left column wastes space and makes content appear cramped.
+
+**Implementation approach**:
+- Change the `overflow-hidden` class on the DiffCell content div to `overflow-x-auto`
+- In `SideBySideDiff`, check if the file is a new file (all additions). If so, render a single-column layout with just the "New" content at full width, skipping the empty left column.
+- Add `overflow-x-auto` to the column headers grid as well for consistency
+
+**Alternatives considered**:
+- **Word wrap instead of horizontal scroll**: Would break code formatting and make diffs harder to read. Rejected.
+- **Auto-fit columns based on content**: Complex CSS that may break alignment. Rejected.
+
+## R20: Responsive Panel Layout for Smaller Screens (v5)
+
+**Decision**: Enforce minimum widths to prevent panels from becoming unusable on smaller screens:
+- Each panel: minimum 200px
+- Terminal: minimum 300px
+- When the viewport is too narrow for all three columns at minimums (700px), prevent the second panel from opening. The first panel that's already open stays; toggling the second panel shows a brief toast/warning.
+- Drag handles enforce minimums during resize — clamp the calculated percentage so neither the panel nor the terminal goes below its minimum pixel width.
+
+**Rationale**: User specifically said "we need to make sure it supports smaller screens." The current implementation uses percentages without pixel minimums, so on a narrow viewport, panels can shrink to unusable sizes.
+
+**Implementation approach**:
+- In `SessionCard.tsx` resize handler, calculate pixel widths from container width and enforce minimums. Clamp both panel width and terminal width.
+- In the toolbar button handlers, check if opening a second panel would violate minimums. If so, prevent it.
+- The `usePanel.ts` hook doesn't need changes — the width clamping is in the view layer.
+- Use `containerRef.current.getBoundingClientRect().width` to get actual pixel width for calculations.
+
+**Alternatives considered**:
+- **Auto-collapse panels on narrow viewports**: Would be surprising — user clicks a button and nothing happens. Rejected — better to prevent opening with a brief message.
+- **Overlay/modal panels on small screens**: Over-engineered for this use case. The dashboard is a desktop tool. Rejected.
+- **Media queries to hide panels entirely**: Too aggressive — 1200px laptop screens should still work with one panel. Rejected.
+
+## R21: WebSocket Port Detection → LivePreview Wiring (v5)
+
+**Decision**: Wire the `port_detected` WebSocket event from the terminal connection through to the `SessionCard` component so the `LivePreview` receives the detected port. Currently, the `detectedPort` prop exists in `SessionCard`'s interface but is never provided by `SessionGrid`.
+
+**Rationale**: User reported "preview doesn't really work." Investigation shows the `LivePreview` component is functional but always receives `port=0, localPort=0` because the port detection events aren't propagated from the WebSocket handler to the component tree.
+
+**Implementation approach**:
+- In `SessionCard.tsx`, listen for `port_detected` WebSocket messages in the existing `handleWsMessage` callback. Store detected ports in React state: `const [detectedPort, setDetectedPort] = useState<{port: number, localPort: number} | null>(null)`.
+- When `msg.type === 'port_detected'`, set `detectedPort` from the message payload.
+- Pass the state-managed `detectedPort` to `LivePreview` instead of the prop (which was always null).
+- Remove the `detectedPort` prop from `SessionCardProps` since it will now be managed internally.
+- This means `SessionGrid` no longer needs to provide it — the port detection is handled per-session by the WebSocket connection that already exists.
+
+**Alternatives considered**:
+- **Lift port detection to SessionGrid**: Would require passing WebSocket state up the tree. More complex, no benefit since each SessionCard already has its own WS connection. Rejected.
+- **Separate REST endpoint to query ports**: Polling-based, less responsive than WebSocket events. Rejected.
+- **Store detected ports in database**: Over-engineered — ports are ephemeral and session-specific. Rejected.
