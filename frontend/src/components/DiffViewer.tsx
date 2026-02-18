@@ -8,6 +8,15 @@ interface DiffViewerProps {
   refreshKey?: number;
 }
 
+interface DraftComment {
+  id: string;
+  filePath: string;
+  startLine: number;
+  endLine: number;
+  codeSnippet: string;
+  commentText: string;
+}
+
 export function DiffViewer({ sessionId, onClose, refreshKey = 0 }: DiffViewerProps) {
   const [diff, setDiff] = useState<DiffResult | null>(null);
   const [loading, setLoading] = useState(true);
@@ -16,8 +25,11 @@ export function DiffViewer({ sessionId, onClose, refreshKey = 0 }: DiffViewerPro
   const [selectedLines, setSelectedLines] = useState<{ start: number; end: number } | null>(null);
   const [showCommentInput, setShowCommentInput] = useState(false);
   const [commentText, setCommentText] = useState('');
-  const [submitting, setSubmitting] = useState(false);
   const [existingComments, setExistingComments] = useState<CommentData[]>([]);
+
+  // Draft comments — local state for batch submission
+  const [draftComments, setDraftComments] = useState<DraftComment[]>([]);
+  const [submittingAll, setSubmittingAll] = useState(false);
 
   // Load diff
   useEffect(() => {
@@ -52,7 +64,8 @@ export function DiffViewer({ sessionId, onClose, refreshKey = 0 }: DiffViewerPro
     setCommentText('');
   }, [selectedLines]);
 
-  const handleCommentSubmit = useCallback(async () => {
+  // "Add Comment" — saves to local draft state (not to backend)
+  const handleAddComment = useCallback(() => {
     if (!selectedFile || !selectedLines || !commentText.trim()) return;
 
     const file = parsedFiles.find((f) => f.path === selectedFile);
@@ -67,25 +80,48 @@ export function DiffViewer({ sessionId, onClose, refreshKey = 0 }: DiffViewerPro
       .map((pair) => (pair.right?.content ?? pair.left?.content ?? ''))
       .join('\n');
 
-    setSubmitting(true);
-    try {
-      const created = await commentsApi.create(sessionId, {
-        filePath: selectedFile,
-        startLine: selectedLines.start,
-        endLine: selectedLines.end,
-        codeSnippet: selectedContent || '(selected code)',
-        commentText: commentText.trim(),
-      });
-      setExistingComments((prev) => [...prev, created]);
-      setCommentText('');
-      setShowCommentInput(false);
-      setSelectedLines(null);
-    } catch {
-      // Error handled silently
-    } finally {
-      setSubmitting(false);
+    const draft: DraftComment = {
+      id: crypto.randomUUID(),
+      filePath: selectedFile,
+      startLine: selectedLines.start,
+      endLine: selectedLines.end,
+      codeSnippet: selectedContent || '(selected code)',
+      commentText: commentText.trim(),
+    };
+
+    setDraftComments((prev) => [...prev, draft]);
+    setCommentText('');
+    setShowCommentInput(false);
+    setSelectedLines(null);
+  }, [selectedFile, selectedLines, commentText, parsedFiles]);
+
+  // Remove a draft comment
+  const handleRemoveDraft = useCallback((draftId: string) => {
+    setDraftComments((prev) => prev.filter((d) => d.id !== draftId));
+  }, []);
+
+  // "Submit All" — sends all drafts to backend
+  const handleSubmitAll = useCallback(async () => {
+    if (draftComments.length === 0) return;
+    setSubmittingAll(true);
+    const remaining: DraftComment[] = [];
+    for (const draft of draftComments) {
+      try {
+        const created = await commentsApi.create(sessionId, {
+          filePath: draft.filePath,
+          startLine: draft.startLine,
+          endLine: draft.endLine,
+          codeSnippet: draft.codeSnippet,
+          commentText: draft.commentText,
+        });
+        setExistingComments((prev) => [...prev, created]);
+      } catch {
+        remaining.push(draft);
+      }
     }
-  }, [sessionId, selectedFile, selectedLines, commentText, parsedFiles]);
+    setDraftComments(remaining);
+    setSubmittingAll(false);
+  }, [sessionId, draftComments]);
 
   const selectedParsedFile = parsedFiles.find((f) => f.path === selectedFile);
 
@@ -120,25 +156,28 @@ export function DiffViewer({ sessionId, onClose, refreshKey = 0 }: DiffViewerPro
       ) : !diff || !diff.diff ? (
         <div className="flex-1 flex items-center justify-center text-gray-500">No uncommitted changes</div>
       ) : (
-        <div className="flex-1 flex flex-col overflow-hidden">
-          {/* File List */}
-          <div className="border-b border-gray-700 overflow-x-auto flex-shrink-0">
-            <div className="flex gap-0">
-              {parsedFiles.map((file) => (
-                <button
-                  key={file.path}
-                  onClick={() => {
-                    setSelectedFile(file.path);
-                    setSelectedLines(null);
-                    setShowCommentInput(false);
-                  }}
-                  className={`px-3 py-1.5 text-xs border-r border-gray-700 flex items-center gap-1.5 flex-shrink-0 ${
-                    selectedFile === file.path
-                      ? 'bg-gray-900 text-white border-b-2 border-b-blue-400'
-                      : 'text-gray-400 hover:bg-gray-700/50'
-                  }`}
-                >
-                  <span className={`font-mono text-[10px] px-1 rounded ${
+        <div className="flex-1 flex overflow-hidden">
+          {/* File Sidebar — vertical list */}
+          <div className="w-[180px] min-w-[140px] flex-shrink-0 border-r border-gray-700 overflow-y-auto bg-gray-800/30">
+            <div className="px-2 py-1 text-[10px] text-gray-500 uppercase tracking-wide border-b border-gray-700">
+              Files
+            </div>
+            {parsedFiles.map((file) => (
+              <button
+                key={file.path}
+                onClick={() => {
+                  setSelectedFile(file.path);
+                  setSelectedLines(null);
+                  setShowCommentInput(false);
+                }}
+                className={`w-full text-left px-2 py-1.5 text-xs border-b border-gray-700/50 ${
+                  selectedFile === file.path
+                    ? 'bg-gray-900 text-white border-l-2 border-l-blue-400'
+                    : 'text-gray-400 hover:bg-gray-700/50 border-l-2 border-l-transparent'
+                }`}
+              >
+                <div className="flex items-center gap-1.5">
+                  <span className={`font-mono text-[10px] px-1 rounded flex-shrink-0 ${
                     file.changeType === 'A' ? 'bg-green-500/20 text-green-400' :
                     file.changeType === 'D' ? 'bg-red-500/20 text-red-400' :
                     file.changeType === 'R' ? 'bg-purple-500/20 text-purple-400' :
@@ -146,18 +185,19 @@ export function DiffViewer({ sessionId, onClose, refreshKey = 0 }: DiffViewerPro
                   }`}>
                     {file.changeType}
                   </span>
-                  <span className="truncate max-w-[150px]">{file.path.split('/').pop()}</span>
-                  <span className="text-[10px]">
-                    <span className="text-green-400">+{file.additions}</span>
-                    <span className="text-red-400">-{file.deletions}</span>
-                  </span>
-                </button>
-              ))}
-            </div>
+                  <span className="truncate">{file.path.split('/').pop()}</span>
+                </div>
+                <div className="text-[10px] mt-0.5 pl-6">
+                  <span className="text-green-400">+{file.additions}</span>{' '}
+                  <span className="text-red-400">-{file.deletions}</span>
+                  <span className="text-gray-600 ml-1 truncate">{file.path.includes('/') ? file.path.substring(0, file.path.lastIndexOf('/')) : ''}</span>
+                </div>
+              </button>
+            ))}
           </div>
 
           {/* Side-by-Side Diff Content */}
-          <div className="flex-1 overflow-auto bg-gray-900 font-mono text-sm">
+          <div className="flex-1 overflow-auto bg-gray-900 font-mono text-sm min-w-0">
             {selectedParsedFile ? (
               <SideBySideDiff
                 file={selectedParsedFile}
@@ -165,16 +205,17 @@ export function DiffViewer({ sessionId, onClose, refreshKey = 0 }: DiffViewerPro
                 selectedLines={selectedLines}
                 showCommentInput={showCommentInput}
                 commentText={commentText}
-                submitting={submitting}
                 existingComments={existingComments}
+                draftComments={draftComments.filter((d) => d.filePath === selectedFile)}
                 onGutterPlusClick={handleGutterPlusClick}
                 onCommentTextChange={setCommentText}
-                onCommentSubmit={handleCommentSubmit}
+                onCommentSubmit={handleAddComment}
                 onCommentCancel={() => {
                   setShowCommentInput(false);
                   setCommentText('');
                   setSelectedLines(null);
                 }}
+                onRemoveDraft={handleRemoveDraft}
               />
             ) : (
               <div className="flex items-center justify-center h-full text-gray-500 text-xs">
@@ -196,12 +237,13 @@ interface SideBySideDiffProps {
   selectedLines: { start: number; end: number } | null;
   showCommentInput: boolean;
   commentText: string;
-  submitting: boolean;
   existingComments: CommentData[];
+  draftComments: DraftComment[];
   onGutterPlusClick: (lineNum: number, shiftKey: boolean) => void;
   onCommentTextChange: (text: string) => void;
   onCommentSubmit: () => void;
   onCommentCancel: () => void;
+  onRemoveDraft: (draftId: string) => void;
 }
 
 function SideBySideDiff({
@@ -210,12 +252,13 @@ function SideBySideDiff({
   selectedLines,
   showCommentInput,
   commentText,
-  submitting,
   existingComments,
+  draftComments,
   onGutterPlusClick,
   onCommentTextChange,
   onCommentSubmit,
   onCommentCancel,
+  onRemoveDraft,
 }: SideBySideDiffProps) {
   const rows = file.sideBySideLines;
 
@@ -230,12 +273,13 @@ function SideBySideDiff({
       {/* Diff rows */}
       {rows.map((pair, rowIdx) => {
         const rightLineNum = pair.right?.lineNumber ?? null;
+        const lineNum = rightLineNum ?? pair.left?.lineNumber ?? 0;
         const isSelected = selectedLines && rightLineNum !== null &&
           rightLineNum >= selectedLines.start && rightLineNum <= selectedLines.end;
         const isSelectedLeft = selectedLines && pair.left?.lineNumber != null && pair.right === null &&
           pair.left.lineNumber >= selectedLines.start && pair.left.lineNumber <= selectedLines.end;
 
-        // Check if inline comment box or existing comments should appear after this row
+        // Check if inline comment box should appear after this row
         const showInputAfterRow = showCommentInput && selectedLines &&
           rightLineNum === selectedLines.end;
         const showInputAfterLeftRow = showCommentInput && selectedLines && pair.right === null &&
@@ -243,7 +287,12 @@ function SideBySideDiff({
 
         // Existing comments anchored to this line
         const lineComments = existingComments.filter(
-          (c) => c.filePath === filePath && c.startLine === (rightLineNum ?? pair.left?.lineNumber ?? 0)
+          (c) => c.filePath === filePath && c.startLine === lineNum
+        );
+
+        // Draft comments anchored to this line
+        const lineDrafts = draftComments.filter(
+          (d) => d.startLine === lineNum
         );
 
         return (
@@ -282,6 +331,29 @@ function SideBySideDiff({
               </div>
             )}
 
+            {/* Draft comments — yellow "Draft" badge with remove button */}
+            {lineDrafts.length > 0 && (
+              <div className="border-l-2 border-yellow-500 bg-yellow-500/5 px-3 py-1.5">
+                {lineDrafts.map((d) => (
+                  <div key={d.id} className="text-xs mb-1 flex items-start justify-between">
+                    <div>
+                      <span className="inline-block px-1.5 py-0.5 rounded mr-2 text-[10px] bg-yellow-500/20 text-yellow-400">
+                        Draft
+                      </span>
+                      <span className="text-gray-300">{d.commentText}</span>
+                    </div>
+                    <button
+                      onClick={() => onRemoveDraft(d.id)}
+                      className="text-gray-500 hover:text-red-400 text-xs ml-2 flex-shrink-0"
+                      title="Remove draft"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {/* Inline comment input — full width below the selected line */}
             {(showInputAfterRow || showInputAfterLeftRow) && (
               <div className="border-l-2 border-blue-500 bg-gray-800 p-2">
@@ -301,10 +373,10 @@ function SideBySideDiff({
                 <div className="flex gap-2 mt-1">
                   <button
                     onClick={onCommentSubmit}
-                    disabled={submitting || !commentText.trim()}
-                    className="px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
+                    disabled={!commentText.trim()}
+                    className="px-2 py-1 text-xs bg-yellow-500 text-black rounded hover:bg-yellow-400 disabled:opacity-50"
                   >
-                    {submitting ? 'Sending...' : 'Submit'}
+                    Add Comment
                   </button>
                   <button
                     onClick={onCommentCancel}

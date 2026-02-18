@@ -1,29 +1,25 @@
-# Implementation Plan: IDE Panels (v2 — Clarification Update)
+# Implementation Plan: IDE Panels v3
 
-**Branch**: `002-ide-panels` | **Date**: 2026-02-18 | **Spec**: [spec.md](./spec.md)
-**Input**: Feature specification from `/specs/002-ide-panels/spec.md` (post-clarification)
+**Branch**: `002-ide-panels` | **Date**: 2026-02-18 | **Spec**: `specs/002-ide-panels/spec.md`
+**Input**: Feature specification from `/specs/002-ide-panels/spec.md`
 
 ## Summary
 
-Transform the single-session terminal view into an IDE-like workspace with three contextual side panels: **File Explorer** (tree + editor side-by-side), **Git Changes** (side-by-side two-column diff with gutter "+" commenting), and **Web Preview** (iframe). Panel state persists per session via SQLite. Only active in 1-view mode.
+v3 update to IDE Panels implementing 4 user clarifications: (1) Files panel opens on the LEFT side of the terminal like a traditional IDE, Git/Preview panels on the RIGHT; (2) Git changed files shown in a vertical sidebar instead of horizontal tabs; (3) Multi-line comment selection made more visible; (4) Batch commenting — add multiple comments across files before submitting all at once.
 
-This is a **v2 update** to the existing implementation. The v1 code is already committed. The following changes are required based on user clarifications:
-
-1. **DiffViewer**: Rewrite from unified diff to **side-by-side two-column** layout (old left, new right, line-aligned). Add **"+" gutter icon** for inline comments instead of select-then-click.
-2. **Files panel**: Change from tree-replaces-editor to **tree + editor side-by-side** (tree always visible on left, editor on right within the panel).
-3. **Diff parser**: Rewrite `parseDiff()` to produce paired left/right line arrays for side-by-side rendering.
+This is a focused frontend delta. The v1 backend (90 tests) and v2 diff parser (10 tests) are unchanged.
 
 ## Technical Context
 
 **Language/Version**: TypeScript 5.7, Node.js 20 LTS
-**Primary Dependencies**: React 18, Tailwind CSS 3, Monaco Editor (@monaco-editor/react 4.6), xterm.js 5, Express 4, ws, chokidar, diff2html, better-sqlite3
-**Storage**: SQLite (better-sqlite3) with WAL mode
-**Testing**: Vitest 2.1 (unit + integration)
-**Target Platform**: Linux server (single-machine deployment)
+**Primary Dependencies**: React 18, Tailwind CSS 3, Vite 6, @monaco-editor/react, xterm.js 5
+**Storage**: SQLite via better-sqlite3 (existing — no schema changes)
+**Testing**: Vitest 2.1 (100 tests currently passing)
+**Target Platform**: Linux server (Ubuntu), browser client
 **Project Type**: Web application (backend + frontend npm workspaces)
-**Performance Goals**: File open <2s, diff render <3s for 500 modified lines, panel state restore instant
-**Constraints**: Side-by-side diff must align old/new lines vertically; "+" icon must be discoverable
-**Scale/Scope**: Single developer, 1-10 concurrent sessions
+**Performance Goals**: File open <2s, diff render <3s, panel switch instant
+**Constraints**: Frontend-only changes. No backend modifications.
+**Scale/Scope**: 2 frontend files modified, 0 new files
 
 ## Constitution Check
 
@@ -31,14 +27,14 @@ This is a **v2 update** to the existing implementation. The v1 code is already c
 
 | Principle | Status | Notes |
 |-----------|--------|-------|
-| I. Comprehensive Testing | PASS | Existing 90 tests cover panel state + comments. New tests needed for side-by-side diff parser and tree+editor layout |
-| II. UX-First Design | PASS | Clarifications directly address UX (side-by-side diff, tree+editor, gutter "+") |
-| III. UI Quality & Consistency | PASS | Side-by-side diff with green/red highlights follows standard code review patterns |
-| IV. Simplicity | PASS | Changes are focused on 3 frontend components, no new abstractions |
-| V. CI/CD Pipeline | PASS | Work on feature branch, PR to main with rebase merge |
-| VI. Frontend Plugin Quality | PASS | No new plugins needed — Monaco and existing deps sufficient |
-| VII. Backend Security | PASS | No backend changes in this update — only frontend rendering |
-| VIII. Observability & Logging | PASS | No new logging needed — existing infrastructure covers API calls |
+| I. Comprehensive Testing | PASS | All 100 existing tests must continue passing. No new testable logic (rendering-only changes). |
+| II. UX-First Design | PASS | All 4 changes are direct user feedback — UX-driven. |
+| III. UI Quality & Consistency | PASS | Files panel left = IDE convention. Sidebar = consistent with file tree pattern. |
+| IV. Simplicity | PASS | Minimal changes: 2 files modified, 0 new files, 0 backend changes. |
+| V. CI/CD Pipeline | PASS | Will push branch, CI, PR, rebase merge. |
+| VI. Frontend Plugin Quality | PASS | No new dependencies. |
+| VII. Backend Security | N/A | No backend changes. |
+| VIII. Observability | N/A | No backend changes. |
 
 ## Project Structure
 
@@ -46,10 +42,10 @@ This is a **v2 update** to the existing implementation. The v1 code is already c
 
 ```text
 specs/002-ide-panels/
-├── plan.md              # This file (v2 update)
-├── research.md          # Phase 0 output (updated with R9)
+├── plan.md              # This file (v3 update)
+├── research.md          # R1-R14 (R12-R14 new for v3)
 ├── data-model.md        # Unchanged from v1
-├── quickstart.md        # Updated with v2 changes
+├── quickstart.md        # Updated for v3 file changes
 ├── contracts/api.md     # Unchanged from v1
 └── tasks.md             # Will be regenerated by /speckit.tasks
 ```
@@ -57,76 +53,90 @@ specs/002-ide-panels/
 ### Source Code (repository root)
 
 ```text
-backend/
+backend/                 # UNCHANGED in v3
 ├── src/
-│   ├── models/          # db.ts, types.ts, repository.ts — UNCHANGED
-│   ├── services/        # session-manager.ts — UNCHANGED
-│   ├── api/routes/      # sessions.ts — UNCHANGED
-│   └── worker/          # git-operations.ts — UNCHANGED
-└── tests/               # Existing tests remain valid
+│   ├── models/
+│   ├── services/
+│   └── api/
+└── tests/
 
 frontend/
 ├── src/
 │   ├── components/
-│   │   ├── SessionCard.tsx   # MODIFY: files panel layout (tree + editor side-by-side)
-│   │   ├── DiffViewer.tsx    # REWRITE: side-by-side two-column diff + gutter "+" comments
-│   │   ├── FileTree.tsx      # UNCHANGED
-│   │   ├── FileViewer.tsx    # UNCHANGED (but now rendered alongside FileTree)
-│   │   ├── LivePreview.tsx   # UNCHANGED
-│   │   ├── SessionGrid.tsx   # UNCHANGED
-│   │   └── TerminalView.tsx  # UNCHANGED
+│   │   ├── SessionCard.tsx    # MODIFY: panel positioning (left/right)
+│   │   ├── DiffViewer.tsx     # MODIFY: vertical file sidebar + batch comments
+│   │   ├── FileTree.tsx       # Unchanged
+│   │   ├── FileViewer.tsx     # Unchanged
+│   │   ├── LivePreview.tsx    # Unchanged
+│   │   └── ...
 │   ├── hooks/
-│   │   └── usePanel.ts       # UNCHANGED
+│   │   └── usePanel.ts        # Unchanged
+│   ├── utils/
+│   │   └── diff-parser.ts     # Unchanged
 │   └── services/
-│       └── api.ts            # UNCHANGED
+│       └── api.ts             # Unchanged
 └── tests/
     └── unit/
-        └── api.test.ts       # Add tests for side-by-side diff parser
+        └── diff-parser.test.ts  # Unchanged
 ```
 
-**Structure Decision**: Existing web application structure (backend + frontend workspaces). No structural changes needed for v2.
+**Structure Decision**: Existing web application structure with backend/ and frontend/ workspaces. No structural changes for v3.
 
-## Changes Required (v2 Delta)
+## v3 Change Details
 
-### Change 1: Side-by-Side Diff Rendering (DiffViewer.tsx)
+### Change 1: Panel Positioning — Files LEFT, Git/Preview RIGHT
 
-**Current**: Unified diff — single column, lines prefixed with +/-, green/red highlighting.
+**Current**: All panels (files, git, preview) render on the RIGHT side of the terminal in `SessionCard.tsx`. The layout is: `[Terminal | Panel]`.
 
-**Target**: Two-column layout — old file on left, new file on right, aligned by line number. Context lines appear in both columns. Added lines appear only in the right column (green). Deleted lines appear only in the left column (red). Empty placeholder rows maintain alignment.
+**Target**: The files panel renders on the LEFT: `[Files Panel | Terminal]`. Git and preview panels remain on the RIGHT: `[Terminal | Git/Preview Panel]`.
 
-**Implementation approach**:
-- Rewrite `parseDiff()` to produce `SideBySideLine[]` pairs: `{ left: DiffLine | null, right: DiffLine | null }`
-- For context lines: both left and right populated with same content, different line numbers
-- For added lines: left is null (empty placeholder), right has the added content
-- For deleted lines: left has the deleted content, right is null (empty placeholder)
-- Render as a table/grid with two columns, each showing line number + content
-- Each column has its own gutter with "+" icon for commenting
+**Implementation**: In `SessionCard.tsx`, the main content `<div>` renders terminal first, then panel. For files panel, reverse the order: render files panel first, then terminal. This can be achieved by conditionally ordering the children based on `panel.activePanel`.
 
-### Change 2: Gutter "+" Comment Icon (DiffViewer.tsx)
+**File**: `frontend/src/components/SessionCard.tsx`
 
-**Current**: Click line number in gutter → line selected → "Comment" button appears at bottom → click to open text input.
+### Change 2: Git Changed Files — Vertical Sidebar
 
-**Target**: Each line in the right column gutter has a "+" icon (visible on hover). Clicking "+" immediately opens an inline comment box below that row. Shift-click extends to a range. No intermediate "Comment" button needed.
+**Current**: `DiffViewer.tsx` renders changed files as horizontal tab buttons in a top bar. Clicking a tab shows the diff below.
 
-**Implementation approach**:
-- Add a "+" icon element in each gutter cell, visible on `:hover`
-- On click: immediately show inline comment textarea below the clicked row
-- On shift-click: extend selection range, comment box moves to end of range
-- Remove the separate "Comment" button that currently appears after selection
+**Target**: Changed files are rendered in a vertical sidebar (left side of the DiffViewer), similar to the file tree layout in the files panel. The diff viewer area is on the right.
 
-### Change 3: Files Panel Tree+Editor Layout (SessionCard.tsx)
+**Implementation**: Restructure `DiffViewer.tsx` layout from:
+```
+[Header]
+[File Tabs (horizontal)]
+[Diff Content]
+```
+to:
+```
+[Header]
+[File Sidebar (vertical, ~180px) | Diff Content]
+```
 
-**Current**: When files panel is open, if no tabs → show FileTree; if tabs exist → show FileViewer (tree disappears).
+The file sidebar lists files vertically with change type badges (M/A/D/R) and addition/deletion counts. The selected file is highlighted. The sidebar scrolls independently.
 
-**Target**: When files panel is open, always show both: FileTree on left (~30% width), FileViewer on right (~70% width). If no file is selected, right side shows "Select a file to view" placeholder.
+**File**: `frontend/src/components/DiffViewer.tsx`
 
-**Implementation approach**:
-- In SessionCard's files panel section, render `FileTree` and `FileViewer` side-by-side within a flex container
-- FileTree gets a fixed narrow width (~200px or 30% of panel)
-- FileViewer takes remaining space
-- When no file tabs exist, show a placeholder in the editor area
-- Remove the current conditional that swaps between tree and viewer
+### Change 3: Batch Commenting
+
+**Current**: Each comment is submitted immediately — "Submit" calls `commentsApi.create()` which saves to DB and potentially injects into the PTY.
+
+**Target**: "Submit" becomes "Add Comment" which saves the comment to local React state as a "draft." A "Submit All" button (with count badge) appears in the DiffViewer header. Clicking "Submit All" sends all draft comments to the backend at once. Drafts persist across file switches within the Git panel.
+
+**Implementation**:
+- Add `draftComments` state to `DiffViewer` (array of comment objects with draft status)
+- "Add Comment" button adds to `draftComments` state, not to backend
+- Draft comments render inline on their respective lines with a "Draft" badge
+- "Submit All" button in the header iterates through `draftComments`, calls `commentsApi.create()` for each, moves them to `existingComments` with status updated
+- Badge on "Submit All" shows `draftComments.length`
+
+**File**: `frontend/src/components/DiffViewer.tsx`
+
+### Change 4: Multi-Line Comments (Documentation Only)
+
+**Current**: Multi-line selection via shift-click already works in v2. The "+" gutter icon and shift-click behavior are implemented.
+
+**Target**: No code change needed. The spec has been updated to explicitly document this capability.
 
 ## Complexity Tracking
 
-No violations. All changes are focused frontend rendering updates within existing components.
+No constitution violations. All changes are minimal frontend rendering adjustments.
