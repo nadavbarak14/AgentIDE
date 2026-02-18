@@ -20,6 +20,7 @@ import type {
   RightPanel,
   Comment,
   CommentStatus,
+  CommentSide,
 } from './types.js';
 
 // Helper: convert SQLite row to Session
@@ -98,6 +99,7 @@ function rowToComment(row: Record<string, unknown>): Comment {
     codeSnippet: row.code_snippet as string,
     commentText: row.comment_text as string,
     status: row.status as CommentStatus,
+    side: (row.side as CommentSide) || 'new',
     createdAt: row.created_at as string,
     sentAt: (row.sent_at as string) || null,
   };
@@ -492,14 +494,16 @@ export class Repository {
     endLine: number;
     codeSnippet: string;
     commentText: string;
+    side?: CommentSide;
   }): Comment {
     const id = uuid();
+    const side = input.side || 'new';
     this.db
       .prepare(
-        `INSERT INTO comments (id, session_id, file_path, start_line, end_line, code_snippet, comment_text, status, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', datetime('now'))`,
+        `INSERT INTO comments (id, session_id, file_path, start_line, end_line, code_snippet, comment_text, status, side, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, datetime('now'))`,
       )
-      .run(id, input.sessionId, input.filePath, input.startLine, input.endLine, input.codeSnippet, input.commentText);
+      .run(id, input.sessionId, input.filePath, input.startLine, input.endLine, input.codeSnippet, input.commentText, side);
 
     const row = this.db.prepare('SELECT * FROM comments WHERE id = ?').get(id) as Record<string, unknown>;
     return rowToComment(row);
@@ -523,6 +527,27 @@ export class Repository {
     this.db
       .prepare("UPDATE comments SET status = 'sent', sent_at = datetime('now') WHERE id = ?")
       .run(commentId);
+  }
+
+  updateComment(commentId: string, commentText: string): Comment | null {
+    const result = this.db
+      .prepare(
+        `UPDATE comments SET comment_text = ?
+         WHERE id = ? AND status = 'pending'`,
+      )
+      .run(commentText, commentId);
+    if (result.changes === 0) return null;
+    const row = this.db.prepare('SELECT * FROM comments WHERE id = ?').get(commentId) as
+      | Record<string, unknown>
+      | undefined;
+    return row ? rowToComment(row) : null;
+  }
+
+  deleteComment(commentId: string): boolean {
+    const result = this.db
+      .prepare("DELETE FROM comments WHERE id = ? AND status = 'pending'")
+      .run(commentId);
+    return result.changes > 0;
   }
 
   deleteCommentsByIds(ids: string[]): number {

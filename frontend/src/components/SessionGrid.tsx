@@ -52,7 +52,9 @@ export function SessionGrid({
                 return next;
               });
             }}
-            className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wide hover:bg-gray-800/50 transition-colors"
+            className={`w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wide hover:bg-gray-800/50 transition-colors${
+              overflowCollapsed && overflowSessions.some((s) => s.needsInput) ? ' bg-amber-500/20' : ''
+            }`}
           >
             <span className="flex items-center gap-1.5">
               {overflowCollapsed
