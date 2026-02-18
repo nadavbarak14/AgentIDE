@@ -64,6 +64,7 @@ export function SessionCard({
 
   const showToolbar = isSingleView && (session.status === 'active' || session.status === 'completed');
   const showSidePanel = showToolbar && panel.activePanel !== 'none';
+  const panelOnLeft = panel.activePanel === 'files';
 
   // Drag handle resize logic
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -79,8 +80,13 @@ export function SessionCard({
       const rect = containerRef.current.getBoundingClientRect();
       const percent = ((e.clientX - rect.left) / rect.width) * 100;
       const clamped = Math.max(20, Math.min(80, percent));
-      // panelWidthPercent is the right panel width, terminal is left
-      panel.setPanelWidth(Math.round(100 - clamped));
+      // For left panel (files): drag right = wider panel = percent directly
+      // For right panel (git/preview): drag right = wider terminal = 100 - percent
+      if (panelOnLeft) {
+        panel.setPanelWidth(Math.round(clamped));
+      } else {
+        panel.setPanelWidth(Math.round(100 - clamped));
+      }
     };
 
     const handleMouseUp = () => {
@@ -205,6 +211,48 @@ export function SessionCard({
 
       {/* Main Content */}
       <div ref={containerRef} className="flex-1 flex min-h-[300px]" style={{ cursor: isResizing ? 'col-resize' : undefined }}>
+        {/* Left Panel — Files panel renders on LEFT (like a traditional IDE) */}
+        {showSidePanel && panelOnLeft && (
+          <div
+            className="border-r border-gray-700 flex flex-col overflow-hidden min-w-0"
+            style={{ width: `${panel.panelWidthPercent}%` }}
+          >
+            <div className="flex h-full">
+              {/* File tree — always visible on left */}
+              <div className="w-[200px] min-w-[150px] flex-shrink-0 border-r border-gray-700 overflow-hidden">
+                <FileTree sessionId={session.id} onFileSelect={handleFileSelect} refreshKey={fileChangeVersion} />
+              </div>
+              {/* Editor area — right side */}
+              <div className="flex-1 min-w-0">
+                {panel.fileTabs.length > 0 ? (
+                  <FileViewer
+                    sessionId={session.id}
+                    filePath={panel.fileTabs[panel.activeTabIndex] || panel.fileTabs[0]}
+                    fileTabs={panel.fileTabs}
+                    activeTabIndex={panel.activeTabIndex}
+                    onTabSelect={panel.setActiveTab}
+                    onTabClose={panel.removeFileTab}
+                    onClose={panel.closePanel}
+                    refreshKey={fileChangeVersion}
+                  />
+                ) : (
+                  <div className="flex items-center justify-center h-full text-gray-500 text-sm">
+                    Select a file to view
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Drag Handle (left side) */}
+        {showSidePanel && panelOnLeft && (
+          <div
+            className="w-1 cursor-col-resize bg-gray-700 hover:bg-blue-500 transition-colors flex-shrink-0"
+            onMouseDown={handleMouseDown}
+          />
+        )}
+
         {/* Terminal or Status */}
         <div
           className="flex flex-col min-w-0"
@@ -234,47 +282,20 @@ export function SessionCard({
           )}
         </div>
 
-        {/* Drag Handle */}
-        {showSidePanel && (
+        {/* Drag Handle (right side) */}
+        {showSidePanel && !panelOnLeft && (
           <div
             className="w-1 cursor-col-resize bg-gray-700 hover:bg-blue-500 transition-colors flex-shrink-0"
             onMouseDown={handleMouseDown}
           />
         )}
 
-        {/* Side Panel */}
-        {showSidePanel && (
+        {/* Right Panel — Git and Preview render on RIGHT */}
+        {showSidePanel && !panelOnLeft && (
           <div
             className="border-l border-gray-700 flex flex-col overflow-hidden min-w-0"
             style={{ width: `${panel.panelWidthPercent}%` }}
           >
-            {panel.activePanel === 'files' && (
-              <div className="flex h-full">
-                {/* File tree — always visible on left */}
-                <div className="w-[200px] min-w-[150px] flex-shrink-0 border-r border-gray-700 overflow-hidden">
-                  <FileTree sessionId={session.id} onFileSelect={handleFileSelect} refreshKey={fileChangeVersion} />
-                </div>
-                {/* Editor area — right side */}
-                <div className="flex-1 min-w-0">
-                  {panel.fileTabs.length > 0 ? (
-                    <FileViewer
-                      sessionId={session.id}
-                      filePath={panel.fileTabs[panel.activeTabIndex] || panel.fileTabs[0]}
-                      fileTabs={panel.fileTabs}
-                      activeTabIndex={panel.activeTabIndex}
-                      onTabSelect={panel.setActiveTab}
-                      onTabClose={panel.removeFileTab}
-                      onClose={panel.closePanel}
-                      refreshKey={fileChangeVersion}
-                    />
-                  ) : (
-                    <div className="flex items-center justify-center h-full text-gray-500 text-sm">
-                      Select a file to view
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
             {panel.activePanel === 'git' && (
               <DiffViewer sessionId={session.id} onClose={panel.closePanel} refreshKey={fileChangeVersion} />
             )}

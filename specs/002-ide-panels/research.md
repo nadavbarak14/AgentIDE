@@ -143,3 +143,57 @@ Comment: This variable should be named `userCount` not `count` to avoid ambiguit
 **Alternatives considered**:
 - **Select-then-Comment (v1)**: Two-step process, slower. User wanted direct interaction. Rejected.
 - **Right-click context menu**: Not discoverable. Rejected.
+
+## R12: Panel Positioning — Files LEFT, Git/Preview RIGHT (v3 Clarification)
+
+**Decision**: In `SessionCard.tsx`, conditionally render the panel on the left or right side of the terminal based on `activePanel`. When `activePanel === 'files'`, render: `[Files Panel | Drag Handle | Terminal]`. When `activePanel === 'git'` or `'preview'`, render: `[Terminal | Drag Handle | Panel]`.
+
+**Rationale**: User explicitly requested "files should be in the left, like IDE." Traditional IDEs (VS Code, IntelliJ, Sublime) place the file explorer on the left of the editor. Git and preview panels on the right keep the terminal in its natural "primary" position.
+
+**Implementation approach**: Use conditional rendering order in the flex container. The `panelWidthPercent` state already controls the panel width. For left-side panels, the terminal gets `(100 - panelWidthPercent)%` width on the right. For right-side panels (current behavior), the terminal gets `(100 - panelWidthPercent)%` width on the left.
+
+**Alternatives considered**:
+- **CSS `flex-direction: row-reverse`**: Would flip the entire layout but also flip the drag handle direction. More confusing. Rejected.
+- **Separate left and right panel containers**: Over-engineered — only one panel can be open at a time. Rejected.
+
+## R13: Git Changed Files — Vertical Sidebar (v3 Clarification)
+
+**Decision**: Replace the horizontal file tab bar in `DiffViewer.tsx` with a vertical sidebar on the left side (~180px). The sidebar lists files vertically, each showing: change type badge (M/A/D/R), truncated filename, and +/- counts. The selected file is highlighted with the same blue accent used for active tabs. The diff viewer occupies the remaining space on the right.
+
+**Rationale**: User explicitly said "instead of top bar that is hard to navigate in git changes, i want side bar, like tree file, regular files." A vertical sidebar is more natural for file lists — it mirrors the file tree layout in the Files panel and handles long file lists (many changed files) better than a horizontal scrolling tab bar.
+
+**Layout**:
+```
+┌──────────────────────────────────────────┐
+│ Changes Header (stats, close button)     │
+├──────────┬───────────────────────────────┤
+│ File     │ Side-by-Side Diff             │
+│ Sidebar  │ ┌─────────┬─────────┐        │
+│ --------  │ │ Old     │ New     │        │
+│ M app.tsx │ │ content │ content │        │
+│ A new.ts  │ │         │         │        │
+│ D old.ts  │ │         │         │        │
+│           │ └─────────┴─────────┘        │
+└──────────┴───────────────────────────────┘
+```
+
+**Alternatives considered**:
+- **Keep horizontal tabs**: User explicitly rejected this as "hard to navigate." Rejected.
+- **Accordion/collapsible list**: Unnecessary complexity for a flat file list. Rejected.
+
+## R14: Batch Commenting — Draft + Submit All (v3 Clarification)
+
+**Decision**: Change the comment workflow from immediate submission to a two-phase batch model:
+
+1. **Add Comment**: When the user types a comment and clicks "Add Comment," the comment is stored in local React state (`draftComments` array) with a `draft` status. The comment renders inline on the diff at its anchor line, with a yellow "Draft" badge. The user can continue reviewing and adding more comments on different lines and different files.
+
+2. **Submit All**: A "Submit All" button appears in the DiffViewer header whenever `draftComments.length > 0`. The button shows a count badge. Clicking it iterates through all drafts, calls `commentsApi.create()` for each, and moves them to the `existingComments` array with status `pending` or `sent`.
+
+**State management**: Draft comments live in `DiffViewer`'s React state (not persisted to backend). Each draft has: `{ id, filePath, startLine, endLine, codeSnippet, commentText, status: 'draft' }`. When switching files in the sidebar, drafts for the previous file are preserved in state and re-rendered when returning.
+
+**Rationale**: User explicitly said "multiple comments before submitting." The batch model lets users build up a complete code review before sending feedback, which produces more coherent and actionable feedback for the agent.
+
+**Alternatives considered**:
+- **Persist drafts to backend**: Would require a new `draft` status in the DB and a new API endpoint. Over-engineered for local-only state. Rejected.
+- **Multi-select comments then submit**: More complex UX with checkboxes. Rejected — "Submit All" is simpler.
+- **Auto-save drafts to localStorage**: Would add complexity for a marginal benefit. Drafts are ephemeral within a review session. Rejected.
