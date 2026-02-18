@@ -126,9 +126,11 @@ A developer has Session A in 1-view mode with the Files panel open, viewing `src
 - **FR-022**: System MUST support text selection and copy-to-clipboard in the terminal view. The xterm.js terminal MUST have clipboard handling enabled so users can select text and copy it (Ctrl+C when text is selected, or right-click copy). The clipboard-addon for xterm.js MUST be loaded
 - **FR-023**: System MUST provide a backend API endpoint for saving file contents. When the user edits a file in the Monaco editor and triggers save, the frontend MUST call the save endpoint with the file path and new content. The endpoint writes the content to disk in the session's working directory
 - **FR-024**: System MUST support multi-line comment selection via two methods: (a) gutter drag — click-and-drag on line numbers in the diff gutter to select a contiguous range of lines, and (b) text selection — select text across lines in the diff content, then use a floating action button or right-click context menu to create a comment on the selected range. Both methods MUST open the inline comment box anchored to the selected line range
-- **FR-025**: System MUST NOT clip diff content with CSS overflow-hidden. Long lines in the side-by-side diff MUST scroll horizontally. For newly added files (100% additions with no old version), the diff view MUST use the full width for the new content rather than forcing a 50/50 split with an empty left column
+- **FR-025**: System MUST NOT clip diff content with CSS overflow-hidden. Long lines in the side-by-side diff MUST wrap using `whitespace-pre-wrap` and `word-break: break-word` — NO horizontal scrollbars on individual lines or the diff container. For newly added files (100% additions with no old version), the diff view MUST use the full width for the new content rather than forcing a 50/50 split with an empty left column
 - **FR-026**: System MUST support responsive panel layout on smaller screens. Each panel MUST have a minimum width of 200px. The terminal MUST maintain a minimum width of 300px. If opening a panel would violate these minimum widths, the system MUST prevent the panel from opening or use a stacked/overlay layout. Drag handles MUST enforce minimum widths during resize
 - **FR-027**: System MUST connect WebSocket port detection events (`port_detected` messages) to the LivePreview component. When a dev server starts and the backend detects a listening port, the detected port MUST be passed through to the SessionCard and LivePreview so the embedded preview loads automatically
+- **FR-028**: System MUST provide a toggle button in the top bar to show/hide the SessionQueue sidebar (the right sidebar containing the "New Session" form and session lists). When hidden, only a small toggle button remains visible. The sidebar state (shown/hidden) MUST persist across page reloads. Default state is shown
+- **FR-029**: The "More Sessions" overflow strip at the bottom of the SessionGrid MUST be collapsible. When collapsed, it shows a single compact bar displaying the count of overflow sessions (e.g., "+5 more"). Clicking the bar expands it to show the mini-cards. The collapsed/expanded state MUST persist per user preference
 
 ### Key Entities
 
@@ -172,9 +174,16 @@ A developer has Session A in 1-view mode with the Files panel open, viewing `src
 ### Session 2026-02-18 (v5)
 
 - Q: How should multi-line comment selection work with the mouse? → A: Both methods — (1) gutter drag: click-and-drag on line numbers in the gutter to select a range, and (2) text selection: select text across lines in the diff, then right-click or use a floating button to comment on the selection. Both methods open the inline comment box anchored to the selected range
-- Informed decision: Diff content cutoff — The side-by-side diff view MUST NOT clip long lines with overflow-hidden. Lines MUST use horizontal scrolling (overflow-x-auto). For new files (100% additions, no old version), the diff MUST use full-width for the new content instead of forcing a 50/50 split with an empty left column
+- Informed decision: Diff content cutoff — The side-by-side diff view MUST NOT clip long lines with overflow-hidden. Long lines MUST wrap (whitespace-pre-wrap, word-break: break-word) — no horizontal scrollbars anywhere in the diff. For new files (100% additions, no old version), the diff MUST use full-width for the new content instead of forcing a 50/50 split with an empty left column
 - Informed decision: Small screen / responsive support — When the viewport is narrow, panels MUST remain functional. Minimum panel width is 200px. If opening a panel would make the terminal narrower than 300px, a stacked/overlay approach MUST be used instead of side-by-side. Panel drag handles MUST enforce these minimums
 - Informed decision: Preview not working — The port detection via WebSocket `port_detected` messages MUST be wired to the SessionCard component so the LivePreview receives detected ports. Currently the `detectedPort` prop is defined but never passed from SessionGrid. This needs to be connected
+
+### Session 2026-02-18 (v6)
+
+- Q: How should the "new session" sidebar be hidden? → A: Toggle button in top bar — click to show/hide the right sidebar. When hidden, only a thin icon strip or button remains
+- Q: What should "more sessions collapsible" mean? → A: The "More Sessions" overflow strip at the bottom collapses to a single bar showing count (e.g., "+5 more"), expandable on click
+- Informed decision: Diff scrollbars — The diff view MUST NOT show any horizontal scrollbars (neither on individual lines nor the diff container). Long lines MUST wrap using whitespace-pre-wrap and word-break: break-word. The previous overflow-x-auto approach created per-line scrollbar sliders which is unacceptable
+- Bug fix: The diff view rendering was broken by the v5 CSS change — needs investigation and fix to ensure the side-by-side diff renders correctly with the wrapping approach
 
 ## Assumptions
 

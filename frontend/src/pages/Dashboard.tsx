@@ -29,6 +29,7 @@ export function Dashboard() {
   } = useSession(sessions);
 
   const [appSettings, setAppSettings] = useState<Settings | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem('c3-sidebar-open') !== 'false');
 
   useEffect(() => {
     settingsApi.get().then(setAppSettings).catch(() => {});
@@ -173,6 +174,19 @@ export function Dashboard() {
             </span>
           </div>
           <div className="flex items-center gap-3">
+            <button
+              onClick={() => {
+                setSidebarOpen((prev) => {
+                  const next = !prev;
+                  localStorage.setItem('c3-sidebar-open', String(next));
+                  return next;
+                });
+              }}
+              className="px-2 py-1 text-xs text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors"
+              title={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
+            >
+              {sidebarOpen ? '»' : '«'}
+            </button>
             {appSettings && (
               <SettingsPanel
                 settings={appSettings}
@@ -195,17 +209,19 @@ export function Dashboard() {
       </div>
 
       {/* Sidebar */}
-      <SessionQueue
-        activeSessions={activeSessions}
-        queuedSessions={queuedSessions}
-        completedSessions={completedSessions}
-        failedSessions={failedSessions}
-        onCreateSession={createSession}
-        onDeleteSession={deleteSession}
-        onContinueSession={continueSession}
-        onFocusSession={handleFocusSession}
-        onKillSession={(id) => killSession(id).catch(() => {})}
-      />
+      <div className={`transition-all duration-200 flex-shrink-0 ${sidebarOpen ? 'w-80' : 'w-0 overflow-hidden'}`}>
+        <SessionQueue
+          activeSessions={activeSessions}
+          queuedSessions={queuedSessions}
+          completedSessions={completedSessions}
+          failedSessions={failedSessions}
+          onCreateSession={createSession}
+          onDeleteSession={deleteSession}
+          onContinueSession={continueSession}
+          onFocusSession={handleFocusSession}
+          onKillSession={(id) => killSession(id).catch(() => {})}
+        />
+      </div>
     </div>
   );
 }
