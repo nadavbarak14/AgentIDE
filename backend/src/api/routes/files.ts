@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import type { Repository } from '../../models/repository.js';
 import { validateUuid, sanitizePath } from '../middleware.js';
-import { listDirectory, readFile } from '../../worker/file-reader.js';
+import { listDirectory, readFile, writeFile } from '../../worker/file-reader.js';
 import { getDiff } from '../../worker/git-operations.js';
 
 export function createFilesRouter(repo: Repository): Router {
@@ -74,6 +74,42 @@ export function createFilesRouter(repo: Repository): Router {
         res.status(413).json({ error: message });
       } else if (message.includes('not a file')) {
         res.status(400).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
+    }
+  });
+
+  // PUT /api/sessions/:id/files/content — save file content
+  router.put('/:id/files/content', validateUuid('id'), (req, res) => {
+    const sessionId = req.params.id as string;
+    const session = repo.getSession(sessionId);
+    if (!session) {
+      res.status(404).json({ error: 'Session not found' });
+      return;
+    }
+
+    const { path: filePath, content } = req.body as { path?: string; content?: string };
+    if (!filePath || content === undefined) {
+      res.status(400).json({ error: 'Missing required fields: path and content' });
+      return;
+    }
+
+    const sanitized = sanitizePath(filePath);
+    if (!sanitized) {
+      res.status(400).json({ error: 'Invalid path: directory traversal is not allowed' });
+      return;
+    }
+
+    try {
+      writeFile(session.workingDirectory, sanitized, content);
+      res.json({ success: true });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      if (message.includes('traversal')) {
+        res.status(400).json({ error: message });
+      } else if (message.includes('not found')) {
+        res.status(404).json({ error: message });
       } else {
         res.status(500).json({ error: message });
       }

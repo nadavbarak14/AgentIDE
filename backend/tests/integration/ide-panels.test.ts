@@ -7,6 +7,7 @@ import path from 'node:path';
 import { createTestDb, closeDb } from '../../src/models/db.js';
 import { Repository } from '../../src/models/repository.js';
 import { createSessionsRouter } from '../../src/api/routes/sessions.js';
+import { createFilesRouter } from '../../src/api/routes/files.js';
 import { QueueManager } from '../../src/services/queue-manager.js';
 import { PtySpawner } from '../../src/worker/pty-spawner.js';
 import { SessionManager } from '../../src/services/session-manager.js';
@@ -45,6 +46,7 @@ describe('IDE Panels API', () => {
     app = express();
     app.use(express.json());
     app.use('/api/sessions', createSessionsRouter(repo, sessionManager));
+    app.use('/api/sessions', createFilesRouter(repo));
   });
 
   afterEach(() => {
@@ -282,6 +284,60 @@ describe('IDE Panels API', () => {
       expect(res.status).toBe(200);
       expect(res.body.count).toBe(2);
       expect(res.body.delivered).toHaveLength(2);
+    });
+  });
+
+  describe('File Save', () => {
+    it('saves file content via PUT', async () => {
+      const dir = path.join(tmpDir, 'save-test');
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'hello.txt'), 'original', 'utf-8');
+
+      const session = repo.createSession({ workingDirectory: dir, title: 'Save Test' });
+
+      const res = await request(app)
+        .put(`/api/sessions/${session.id}/files/content`)
+        .send({ path: 'hello.txt', content: 'modified content' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+
+      const written = fs.readFileSync(path.join(dir, 'hello.txt'), 'utf-8');
+      expect(written).toBe('modified content');
+    });
+
+    it('rejects path traversal in file save', async () => {
+      const dir = path.join(tmpDir, 'save-traverse');
+      fs.mkdirSync(dir, { recursive: true });
+
+      const session = repo.createSession({ workingDirectory: dir, title: 'Traverse Test' });
+
+      const res = await request(app)
+        .put(`/api/sessions/${session.id}/files/content`)
+        .send({ path: '../../../etc/passwd', content: 'hacked' });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('rejects missing path or content', async () => {
+      const dir = path.join(tmpDir, 'save-missing');
+      fs.mkdirSync(dir, { recursive: true });
+
+      const session = repo.createSession({ workingDirectory: dir, title: 'Missing Test' });
+
+      const res = await request(app)
+        .put(`/api/sessions/${session.id}/files/content`)
+        .send({ path: 'hello.txt' });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('returns 404 for non-existent session', async () => {
+      const res = await request(app)
+        .put('/api/sessions/00000000-0000-0000-0000-000000000000/files/content')
+        .send({ path: 'hello.txt', content: 'test' });
+
+      expect(res.status).toBe(404);
     });
   });
 });
