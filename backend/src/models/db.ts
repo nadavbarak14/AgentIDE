@@ -69,6 +69,12 @@ CREATE TABLE IF NOT EXISTS panel_states (
   session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
   active_panel TEXT NOT NULL DEFAULT 'none'
     CHECK(active_panel IN ('none', 'files', 'git', 'preview')),
+  left_panel TEXT NOT NULL DEFAULT 'none'
+    CHECK(left_panel IN ('none', 'files')),
+  right_panel TEXT NOT NULL DEFAULT 'none'
+    CHECK(right_panel IN ('none', 'git', 'preview')),
+  left_width_percent INTEGER NOT NULL DEFAULT 25,
+  right_width_percent INTEGER NOT NULL DEFAULT 35,
   file_tabs TEXT NOT NULL DEFAULT '[]',
   active_tab_index INTEGER NOT NULL DEFAULT 0,
   tab_scroll_positions TEXT NOT NULL DEFAULT '{}',
@@ -100,6 +106,21 @@ const SEED = `
 INSERT OR IGNORE INTO settings (id) VALUES (1);
 `;
 
+/** Run forward-only migrations for existing databases */
+function migrate(database: Database.Database): void {
+  // Check if panel_states has left_panel column
+  const cols = database.pragma('table_info(panel_states)') as Array<{ name: string }>;
+  const colNames = new Set(cols.map((c) => c.name));
+  if (!colNames.has('left_panel')) {
+    database.exec(`
+      ALTER TABLE panel_states ADD COLUMN left_panel TEXT NOT NULL DEFAULT 'none';
+      ALTER TABLE panel_states ADD COLUMN right_panel TEXT NOT NULL DEFAULT 'none';
+      ALTER TABLE panel_states ADD COLUMN left_width_percent INTEGER NOT NULL DEFAULT 25;
+      ALTER TABLE panel_states ADD COLUMN right_width_percent INTEGER NOT NULL DEFAULT 35;
+    `);
+  }
+}
+
 export function getDb(dbPath?: string): Database.Database {
   if (db) return db;
 
@@ -115,6 +136,7 @@ export function getDb(dbPath?: string): Database.Database {
   db.pragma('busy_timeout = 5000');
   db.exec(SCHEMA);
   db.exec(SEED);
+  migrate(db);
   return db;
 }
 
@@ -136,6 +158,7 @@ export function createTestDb(): Database.Database {
   testDb.pragma('foreign_keys = ON');
   testDb.exec(SCHEMA);
   testDb.exec(SEED);
+  migrate(testDb);
   // Override the module-level db so getDb() returns this in tests
   db = testDb;
   return testDb;

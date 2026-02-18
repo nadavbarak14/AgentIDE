@@ -52,16 +52,51 @@ export function Dashboard() {
 
   const [displayedIds, setDisplayedIds] = useState<string[]>([]);
 
-  // Keep a ref to latest focusSessions for use in rebuild
+  // Keep refs to latest data for use in callbacks without stale closures
   const focusSessionsRef = useRef(focusSessions);
   focusSessionsRef.current = focusSessions;
+  const sessionsRef = useRef(sessions);
+  sessionsRef.current = sessions;
 
-  // Rebuild displayed list from current priority order
+  // Rebuild displayed list from current priority order.
+  // Pinned sessions that are currently displayed AND still active keep their slots.
+  // Remaining slots are filled from the priority queue.
   const rebuildDisplay = useCallback(() => {
-    const ids = focusSessionsRef.current
-      .slice(0, maxVisible)
-      .map((s) => s.id);
-    setDisplayedIds(ids);
+    setDisplayedIds((prev) => {
+      const allFocus = focusSessionsRef.current;
+
+      // Identify pinned sessions in current slots that are still active
+      const pinnedInSlots: (string | null)[] = prev.map((id) => {
+        const sess = allFocus.find((s) => s.id === id);
+        return sess?.lock ? id : null;
+      });
+
+      // Collect IDs already placed (pinned)
+      const placed = new Set(pinnedInSlots.filter((id): id is string => id !== null));
+
+      // Fill remaining slots from priority order, skipping already-placed
+      const fillQueue = allFocus
+        .filter((s) => !placed.has(s.id))
+        .map((s) => s.id);
+
+      const result: string[] = [];
+      let fillIdx = 0;
+      for (let i = 0; i < Math.max(maxVisible, pinnedInSlots.length); i++) {
+        if (result.length >= maxVisible) break;
+        if (i < pinnedInSlots.length && pinnedInSlots[i] !== null) {
+          result.push(pinnedInSlots[i]!);
+        } else if (fillIdx < fillQueue.length) {
+          result.push(fillQueue[fillIdx++]);
+        }
+      }
+
+      // Fill any remaining capacity
+      while (result.length < maxVisible && fillIdx < fillQueue.length) {
+        result.push(fillQueue[fillIdx++]);
+      }
+
+      return result;
+    });
   }, [maxVisible]);
 
   // Initialize when first active sessions appear
@@ -130,14 +165,26 @@ export function Dashboard() {
   }, [maxVisible, displayedIds.length, rebuildDisplay]);
 
   // Trigger 3: User clicks a session → swap it into view
+  // Replaces the last non-pinned slot to preserve pinned sessions.
+  // If all slots are pinned, replaces the last slot as fallback.
   const handleFocusSession = useCallback(
     (id: string) => {
       setDisplayedIds((prev) => {
         if (prev.includes(id)) return prev;
         const next = [...prev];
         if (next.length >= maxVisible) {
-          // Replace the last slot with the clicked session
-          next[next.length - 1] = id;
+          // Find the last non-pinned slot to replace
+          let replaceIdx = -1;
+          for (let i = next.length - 1; i >= 0; i--) {
+            const sess = sessionsRef.current.find((s) => s.id === next[i]);
+            if (!sess?.lock) {
+              replaceIdx = i;
+              break;
+            }
+          }
+          // If all slots are pinned, replace the last one anyway
+          if (replaceIdx === -1) replaceIdx = next.length - 1;
+          next[replaceIdx] = id;
         } else {
           next.push(id);
         }
@@ -168,7 +215,7 @@ export function Dashboard() {
         {/* Top Bar */}
         <div className="flex items-center justify-between px-4 py-2 border-b border-gray-700 bg-gray-800/50 flex-shrink-0">
           <div className="flex items-center gap-4">
-            <h1 className="text-lg font-bold">C3 Dashboard</h1>
+            <h1 className="text-lg font-bold">Multy</h1>
             <span className="text-sm text-gray-400">
               {activeCount} active / {queuedCount} queued / {totalCount} total
             </span>
