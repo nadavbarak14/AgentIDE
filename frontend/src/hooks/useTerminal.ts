@@ -53,11 +53,11 @@ export function useTerminal(options: UseTerminalOptions = {}) {
     fitAddonRef.current = fitAddon;
 
     // Handle container resize — hide terminal during resize to prevent visible re-flow glitch.
-    // On size change: immediately hide content, then after layout settles, fit and reveal.
+    // xterm.js adds .xterm class to the container itself, so we hide the container's children
+    // (the xterm-screen canvas) during resize, then reveal after fit completes.
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
     let lastWidth = container.offsetWidth;
     let lastHeight = container.offsetHeight;
-    const termElement = container.querySelector('.xterm') as HTMLElement | null;
 
     const resizeObserver = new ResizeObserver(() => {
       const w = container.offsetWidth;
@@ -65,8 +65,10 @@ export function useTerminal(options: UseTerminalOptions = {}) {
       // Ignore sub-pixel / no-op changes
       if (Math.abs(w - lastWidth) < 2 && Math.abs(h - lastHeight) < 2) return;
 
-      // Hide terminal content immediately to avoid visible re-flow
-      if (termElement) termElement.style.opacity = '0';
+      // Hide terminal children immediately so the re-flow is invisible.
+      // The container background stays visible (solid dark), preventing a flash.
+      const screen = container.querySelector('.xterm-screen') as HTMLElement | null;
+      if (screen) screen.style.visibility = 'hidden';
 
       if (resizeTimer) clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => {
@@ -74,7 +76,7 @@ export function useTerminal(options: UseTerminalOptions = {}) {
         lastHeight = container.offsetHeight;
         fitAddon.fit();
         // Reveal after fit
-        if (termElement) termElement.style.opacity = '1';
+        if (screen) screen.style.visibility = 'visible';
       }, 100);
     });
     resizeObserver.observe(container);
