@@ -617,7 +617,7 @@ function DiffCell({ line, side, isSelected, onPlusClick, onGutterDragStart }: Di
         )}
       </div>
       {/* Content */}
-      <div className={`flex-1 px-2 whitespace-pre overflow-x-auto ${textClass}`} data-line-number={line.lineNumber}>
+      <div className={`flex-1 px-2 whitespace-pre-wrap break-all ${textClass}`} data-line-number={line.lineNumber}>
         {line.content}
       </div>
     </div>
