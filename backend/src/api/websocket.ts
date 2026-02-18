@@ -3,6 +3,7 @@ import type { Server } from 'node:http';
 import type { Repository } from '../models/repository.js';
 import type { SessionManager } from '../services/session-manager.js';
 import type { PtySpawner } from '../worker/pty-spawner.js';
+import type { FileWatcher } from '../worker/file-watcher.js';
 import type { WsClientMessage } from '../models/types.js';
 import { createSessionLogger, logger } from '../services/logger.js';
 
@@ -14,6 +15,7 @@ export function setupWebSocket(
   repo: Repository,
   sessionManager: SessionManager,
   ptySpawner: PtySpawner,
+  fileWatcher?: FileWatcher,
 ): void {
   const wss = new WebSocketServer({ noServer: true });
 
@@ -46,10 +48,19 @@ export function setupWebSocket(
     log.info('websocket client connected');
 
     // Register client
+    const isFirstClient = !sessionClients.has(sessionId) || sessionClients.get(sessionId)!.size === 0;
     if (!sessionClients.has(sessionId)) {
       sessionClients.set(sessionId, new Set());
     }
     sessionClients.get(sessionId)!.add(ws);
+
+    // Start file watching when first client connects (works for any session status)
+    if (isFirstClient && fileWatcher) {
+      const sess = repo.getSession(sessionId);
+      if (sess && !fileWatcher.isWatching(sessionId)) {
+        fileWatcher.startWatching(sessionId, sess.workingDirectory, sess.pid || undefined);
+      }
+    }
 
     // Send current session status
     const session = repo.getSession(sessionId);
@@ -106,6 +117,11 @@ export function setupWebSocket(
         clients.delete(ws);
         if (clients.size === 0) {
           sessionClients.delete(sessionId);
+          // Stop file watching when last client disconnects (unless session is active — PTY still running)
+          const sess = repo.getSession(sessionId);
+          if (fileWatcher && sess && sess.status !== 'active') {
+            fileWatcher.stopWatching(sessionId);
+          }
         }
       }
     });

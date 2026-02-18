@@ -104,7 +104,7 @@ async function main() {
 
   // Create HTTP server and attach WebSocket
   const server = http.createServer(app);
-  setupWebSocket(server, repo, sessionManager, ptySpawner);
+  setupWebSocket(server, repo, sessionManager, ptySpawner, fileWatcher);
 
   // Start auto-dispatch
   queueManager.startAutoDispatch();
