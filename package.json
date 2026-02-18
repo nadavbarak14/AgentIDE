@@ -18,5 +18,10 @@
     "test:system": "npm run test:system --workspace=backend",
     "lint": "npm run lint --workspace=backend && npm run lint --workspace=frontend",
     "typecheck": "npm run typecheck --workspace=backend && npm run typecheck --workspace=frontend"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^7.18.0",
+    "@typescript-eslint/parser": "^7.18.0",
+    "eslint": "^8.57.1"
   }
 }

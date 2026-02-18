@@ -257,7 +257,7 @@ export class SessionManager extends EventEmitter {
   /**
    * Resume sessions that were active before a restart.
    */
-  resumeSessions(ptySpawner: PtySpawner): void {
+  resumeSessions(_ptySpawner: PtySpawner): void {
     const activeSessions = this.repo.listSessions('active');
     if (activeSessions.length === 0) return;
 
