@@ -1,0 +1,22 @@
+{
+  "name": "c3-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev:backend": "npm run dev --workspace=backend",
+    "dev:frontend": "npm run dev --workspace=frontend",
+    "build": "npm run build --workspace=backend && npm run build --workspace=frontend",
+    "start": "npm run start --workspace=backend",
+    "start:worker": "npm run start:worker --workspace=backend",
+    "test": "npm run test --workspace=backend && npm run test --workspace=frontend",
+    "test:backend": "npm run test --workspace=backend",
+    "test:frontend": "npm run test --workspace=frontend",
+    "test:system": "npm run test:system --workspace=backend",
+    "lint": "npm run lint --workspace=backend && npm run lint --workspace=frontend",
+    "typecheck": "npm run typecheck --workspace=backend && npm run typecheck --workspace=frontend"
+  }
+}

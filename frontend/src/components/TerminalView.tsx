@@ -1,0 +1,68 @@
+import { useEffect, useRef, useCallback } from 'react';
+import { useTerminal } from '../hooks/useTerminal';
+import { useWebSocket } from '../hooks/useWebSocket';
+
+interface TerminalViewProps {
+  sessionId: string;
+  active: boolean;
+}
+
+export function TerminalView({ sessionId, active }: TerminalViewProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Use refs so the terminal onData callback always calls the latest functions
+  const sendInputRef = useRef<(data: string) => void>(() => {});
+  const sendResizeRef = useRef<(cols: number, rows: number) => void>(() => {});
+  const inputDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const { initTerminal, write, fit } = useTerminal({
+    onData: (data) => {
+      sendInputRef.current(data);
+      // Detect Enter key — triggers auto-switch in Dashboard
+      if (data.includes('\r') || data.includes('\n')) {
+        if (!inputDebounceRef.current) {
+          window.dispatchEvent(new CustomEvent('c3:input-sent'));
+          inputDebounceRef.current = setTimeout(() => {
+            inputDebounceRef.current = null;
+          }, 500);
+        }
+      }
+    },
+    onResize: (cols, rows) => sendResizeRef.current(cols, rows),
+  });
+
+  const { sendInput, sendResize } = useWebSocket({
+    sessionId,
+    enabled: active,
+    onBinaryData: useCallback((data: ArrayBuffer) => write(data), [write]),
+  });
+
+  // Keep refs pointing to latest functions
+  sendInputRef.current = sendInput;
+  sendResizeRef.current = sendResize;
+
+  useEffect(() => {
+    if (containerRef.current) {
+      const cleanup = initTerminal(containerRef.current);
+      return cleanup;
+    }
+  }, [initTerminal]);
+
+  useEffect(() => {
+    fit();
+  }, [fit]);
+
+  useEffect(() => {
+    return () => {
+      if (inputDebounceRef.current) clearTimeout(inputDebounceRef.current);
+    };
+  }, []);
+
+  return (
+    <div
+      ref={containerRef}
+      className="w-full h-full min-h-[200px]"
+      style={{ backgroundColor: '#1a1b26' }}
+    />
+  );
+}
