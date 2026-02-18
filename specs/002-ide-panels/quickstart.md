@@ -49,32 +49,30 @@ npm test --workspace=frontend
 npm run test:system --workspace=frontend
 ```
 
-## Key Files to Modify (v5 Update)
+## Key Files to Modify (v6 Update)
 
-### Frontend (v5 changes — all frontend-only)
+### Frontend (v6 changes — all frontend-only)
 
 | File | Changes |
 |------|---------|
-| `frontend/src/components/DiffViewer.tsx` | **MODIFY**: Fix overflow-hidden → overflow-x-auto, full-width for new files, gutter drag + text selection for comments |
-| `frontend/src/components/SessionCard.tsx` | **MODIFY**: Responsive min-widths (200px panel, 300px terminal), internal port detection state |
-| `frontend/src/components/SessionGrid.tsx` | **MODIFY**: Remove unused detectedPort prop passthrough |
+| `frontend/src/components/DiffViewer.tsx` | **MODIFY**: Fix scrollbar CSS (`break-all` → `overflow-wrap: anywhere`) |
+| `frontend/src/components/SessionGrid.tsx` | **MODIFY**: Add collapsible overflow strip (collapsed by default, "+N more" bar) |
+| `frontend/src/pages/Dashboard.tsx` | **MODIFY**: Add sidebar toggle button in top bar, manage `sidebarOpen` state |
 
-### Backend (v5 changes)
+### Backend (v6 changes)
 
-None — all v5 changes are frontend-only.
+None — all v6 changes are frontend-only.
 
-### Unchanged in v5
+### Unchanged in v6
 
 | File | Status |
 |------|--------|
+| `frontend/src/components/SessionCard.tsx` | Unchanged (v5 changes complete) |
+| `frontend/src/components/SessionQueue.tsx` | Unchanged (parent controls visibility) |
 | `frontend/src/components/FileTree.tsx` | Unchanged |
-| `frontend/src/components/FileViewer.tsx` | Unchanged (v4 changes complete) |
-| `frontend/src/components/LivePreview.tsx` | Unchanged (already functional) |
-| `frontend/src/components/TerminalView.tsx` | Unchanged |
-| `frontend/src/hooks/usePanel.ts` | Unchanged (v4 changes complete) |
-| `frontend/src/hooks/useTerminal.ts` | Unchanged (v4 changes complete) |
-| `frontend/src/services/api.ts` | Unchanged (v4 changes complete) |
-| `frontend/src/utils/diff-parser.ts` | Unchanged |
+| `frontend/src/components/FileViewer.tsx` | Unchanged |
+| `frontend/src/components/LivePreview.tsx` | Unchanged |
+| `frontend/src/hooks/usePanel.ts` | Unchanged |
 | `backend/src/*` | Unchanged |
 
 ## Feature Flags / Configuration
@@ -83,34 +81,34 @@ No feature flags needed. IDE panels are shown/hidden based on grid layout:
 - `grid_layout === '1x1'` → Show IDE toolbar and panels
 - Any other layout → Hide toolbar and panels
 
-## Architecture Overview (v5 Update)
+## Architecture Overview (v6 Update)
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│  Browser (Frontend)                                                │
-│  ┌────────────────────────────────────────────────────────────┐  │
-│  │  SessionCard (1-view mode) — v5 Responsive + Port Detection │  │
-│  │                                                              │  │
-│  │  Both Files + Git active (three-column):                     │  │
-│  │  min 200px   min 300px      min 200px                       │  │
-│  │  ┌──────────────┬───────────────┬───────────────────────┐  │  │
-│  │  │ Files Panel   │ Terminal       │ Git Panel             │  │  │
-│  │  │ ┌────┬──────┐│ (xterm.js +    │ ┌────────┬──────────┐│  │  │
-│  │  │ │Tree│Editor││  clipboard     │ │Sidebar │Diff View ││  │  │
-│  │  │ │    │(R/W) ││  addon)        │ │        │(v5 fixes)││  │  │
-│  │  │ └────┴──────┘│               │ │        │• overflow ││  │  │
-│  │  │              │               │ │        │• gutter   ││  │  │
-│  │  │              │               │ │        │  drag     ││  │  │
-│  │  │              │               │ │        │• text sel ││  │  │
-│  │  │              │               │ └────────┴──────────┘│  │  │
-│  │  └──────────────┴───────────────┴───────────────────────┘  │  │
-│  │                                                              │  │
-│  │  Port detection: WS port_detected → state → LivePreview     │  │
-│  └────────────────────────────────────────────────────────────┘  │
-│                                                                    │
-│  REST API calls                          WebSocket events          │
-│    ↕                                       ↕ (port_detected)       │
-└────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│  Browser (Frontend)                                                    │
+│                                                                        │
+│  ┌─────────────────────────────────────────┬──────────────────────┐   │
+│  │  Main Area                               │  Sidebar (toggleable)│   │
+│  │  ┌─────────────────────────────────────┐ │  ┌────────────────┐ │   │
+│  │  │  Top Bar                             │ │  │ New Session     │ │   │
+│  │  │  Title | Stats | [>>] | Settings     │ │  │ Form           │ │   │
+│  │  └─────────────────────────────────────┘ │  ├────────────────┤ │   │
+│  │  ┌─────────────────────────────────────┐ │  │ Active (2)     │ │   │
+│  │  │  SessionGrid                         │ │  │ Queued (3)     │ │   │
+│  │  │  ┌─────────────────────────────────┐ │ │  │ Completed (5)  │ │   │
+│  │  │  │  Focus Sessions (grid)          │ │ │  │ Failed (0)     │ │   │
+│  │  │  │  ┌──────────────────────────┐   │ │ │  └────────────────┘ │   │
+│  │  │  │  │ SessionCard (IDE panels) │   │ │ │     w-80 ↔ w-0      │   │
+│  │  │  │  │ [Files|Terminal|Git]     │   │ │ │  (localStorage)     │   │
+│  │  │  │  └──────────────────────────┘   │ │ │                     │   │
+│  │  │  └─────────────────────────────────┘ │ └──────────────────────┘  │
+│  │  │  ┌─────────────────────────────────┐ │                           │
+│  │  │  │  More Sessions (collapsible)    │ │                           │
+│  │  │  │  [+5 more ▼] ↔ [mini-cards ▲]  │ │                           │
+│  │  │  └─────────────────────────────────┘ │                           │
+│  │  └─────────────────────────────────────┘ │                           │
+│  └─────────────────────────────────────────┘                           │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Multi-Line Comment Selection (v5)

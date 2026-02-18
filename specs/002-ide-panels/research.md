@@ -320,3 +320,61 @@ Comment: This variable should be named `userCount` not `count` to avoid ambiguit
 - **Lift port detection to SessionGrid**: Would require passing WebSocket state up the tree. More complex, no benefit since each SessionCard already has its own WS connection. Rejected.
 - **Separate REST endpoint to query ports**: Polling-based, less responsive than WebSocket events. Rejected.
 - **Store detected ports in database**: Over-engineered — ports are ephemeral and session-specific. Rejected.
+
+## R22: Diff Scrollbar Fix — Word Wrapping Strategy (v6)
+
+**Decision**: Change diff line content from `whitespace-pre-wrap break-all` to `whitespace-pre-wrap` with `overflow-wrap: anywhere`. Remove any horizontal scrollbar from the diff content container. The v5 approach (`overflow-x-auto`) created per-line scrollbar sliders which was "very weird and bad." The intermediate fix (`break-all`) was too aggressive — it breaks every word at every opportunity, making code unreadable.
+
+**Rationale**: User explicitly said "we never show a long line this way" about the per-line scrollbars. The `break-all` property breaks ANY word at ANY character boundary, which destroys code readability (e.g., `function` becomes `func` + `tion` on the next line). `overflow-wrap: anywhere` only breaks when a word would actually overflow its container, preferring natural break points (spaces, punctuation).
+
+**CSS property comparison**:
+- `word-break: break-all` — Breaks at any character in any word. Too aggressive for code.
+- `overflow-wrap: break-word` — Only breaks unbreakable words (long strings without spaces). Better but may not handle very long identifiers.
+- `overflow-wrap: anywhere` — Like `break-word` but also affects min-content size calculation, ensuring wrapping happens when needed. Best for our diff cells where the container width is determined by the flex layout.
+
+**Implementation approach**:
+- DiffCell content div: change `whitespace-pre-wrap break-all` to `whitespace-pre-wrap [overflow-wrap:anywhere]` (Tailwind arbitrary value)
+- Main diff content container (line 205): keep `overflow-auto` — this is needed for vertical scrolling. With content wrapping, no horizontal overflow should occur
+- Verify: no horizontal scrollbar appears on the diff content container or individual cells
+
+**Alternatives considered**:
+- **overflow-x-auto (v5)**: Creates per-line scrollbar sliders. Explicitly rejected by user.
+- **break-all (v5.1)**: Breaks words too aggressively. Code becomes unreadable. Rejected.
+- **overflow-hidden**: Clips content with no way to see it. Original problem. Rejected.
+- **Monospace font-size reduction**: Doesn't solve the root problem, just delays it. Rejected.
+
+## R23: Collapsible SessionQueue Sidebar (v6)
+
+**Decision**: Add a toggle button in the Dashboard top bar that shows/hides the SessionQueue sidebar. Use `localStorage` to persist the state. When hidden, the sidebar's width transitions to 0 with `overflow-hidden` so content doesn't leak. The toggle button uses chevron icons (`>>` to hide, `<<` to show).
+
+**Rationale**: User said "you can hide the new session tab it takes a lot of place we don't need to see it all the time." The SessionQueue sidebar is 320px (`w-80`) and is always visible, consuming significant horizontal space that could be used for the session grid and IDE panels.
+
+**Implementation approach**:
+- Dashboard.tsx: Add `const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem('c3-sidebar-open') !== 'false')`
+- Dashboard.tsx top bar: Add a button before the settings panel with `>>` / `<<` text
+- Dashboard.tsx: Wrap SessionQueue in a div with `transition-all duration-200` and toggle `w-80` ↔ `w-0 overflow-hidden`
+- On toggle: persist to `localStorage.setItem('c3-sidebar-open', String(!sidebarOpen))`
+- SessionQueue.tsx: No changes needed — parent controls rendering
+
+**Alternatives considered**:
+- **Auto-collapse in single-view mode**: Would be surprising — user may want sidebar while viewing a session. Rejected.
+- **Drawer/overlay sidebar**: More complex animation, occludes content. Rejected.
+- **Resizable sidebar**: Over-engineered — users want to hide it entirely, not resize. Rejected.
+
+## R24: Collapsible "More Sessions" Overflow Strip (v6)
+
+**Decision**: Make the "More Sessions" horizontal strip at the bottom of SessionGrid collapsible. Default to collapsed. When collapsed, show a compact bar with the count ("+N more") and a clickable area to expand. When expanded, show the existing horizontal mini-card strip with a collapse control.
+
+**Rationale**: User said "more sessions should be collapsible." The overflow strip takes permanent vertical space showing mini-cards that the user may not need to see most of the time. Collapsing it gives more vertical space to the main session grid.
+
+**Implementation approach**:
+- SessionGrid.tsx: Add `const [overflowCollapsed, setOverflowCollapsed] = useState(() => localStorage.getItem('c3-overflow-collapsed') !== 'false')`
+- When collapsed: render a single clickable div with "+N more sessions" text and a down-chevron
+- When expanded: render the existing horizontal strip with an up-chevron to collapse
+- Persist to `localStorage.setItem('c3-overflow-collapsed', String(newState))`
+- Smooth transition with `transition-all duration-200`
+
+**Alternatives considered**:
+- **Always hidden**: Would lose discoverability of overflow sessions. Rejected.
+- **Dropdown menu instead of strip**: Less visual, harder to scan. Rejected.
+- **Virtual scrolling in main grid**: Over-engineered — the overflow strip serves a different purpose (secondary sessions). Rejected.

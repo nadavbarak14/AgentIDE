@@ -1,41 +1,38 @@
-# Implementation Plan: IDE Panels v5 — Diff Fix, Responsive, Preview, Mouse Selection
+# Implementation Plan: IDE Panels v6 — Diff Fix, Sidebar Toggle, Collapsible Overflow
 
 **Branch**: `002-ide-panels` | **Date**: 2026-02-18 | **Spec**: `specs/002-ide-panels/spec.md`
-**Input**: Feature specification from `/specs/002-ide-panels/spec.md` — v5 clarification session
+**Input**: Feature specification from `/specs/002-ide-panels/spec.md` — v6 clarification session
 
-**Context**: This is a v5 update. The v1-v4 code is committed (PR #3) with 104 tests passing. Changes needed:
-1. Fix diff content cutoff (overflow-hidden clips, new files waste 50% space)
-2. Add gutter drag + text selection for multi-line comments
-3. Responsive panel layout with min-width constraints
-4. Wire WebSocket port detection to LivePreview
+**Context**: This is a v6 update. The v1-v5 code is committed with 112 tests passing. Changes needed:
+1. Fix diff scrollbars — remove all horizontal scrollbars, use word wrapping instead
+2. Collapsible SessionQueue sidebar with toggle button in top bar
+3. Collapsible "More Sessions" overflow strip
 
 ## Summary
 
-Four targeted improvements addressing user-reported issues: (1) fix diff view clipping long lines and wasting space for new files, (2) add two mouse-based methods for multi-line comment selection, (3) enforce min-widths so panels remain usable on smaller screens, (4) connect port detection to preview so the embedded browser works.
+Three targeted improvements: (1) fix the diff view CSS so long lines wrap cleanly without any scrollbars on individual lines or the content area horizontally, (2) add a sidebar toggle button so users can hide the SessionQueue to reclaim screen space, (3) make the "More Sessions" overflow strip collapsible to a compact count bar.
 
 ## Technical Context
 
 **Language/Version**: TypeScript 5.x, Node.js 20 LTS
 **Primary Dependencies**: React 18, Tailwind CSS 3, xterm.js 5, Monaco Editor, Express
-**Storage**: SQLite (better-sqlite3) — no schema changes in v5
-**Testing**: Vitest 2.1 (104 tests: 92 backend + 12 frontend)
+**Storage**: SQLite (better-sqlite3) — no schema changes in v6
+**Testing**: Vitest 2.1 (112 tests: 92 backend + 20 frontend)
 **Target Platform**: Web browser (desktop)
 **Project Type**: Web application (frontend + backend workspaces)
-**Constraints**: All changes are frontend-only in v5 — no backend modifications needed
+**Constraints**: All changes are frontend-only in v6 — no backend modifications needed
 
 ## Constitution Check
-
-*GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
 | Principle | Status | Notes |
 |-----------|--------|-------|
 | I. Comprehensive Testing | PASS | Frontend tests for new behavior; backend unchanged |
 | II. UX-First Design | PASS | All changes driven by user feedback on specific pain points |
-| III. UI Quality & Consistency | PASS | Responsive layout, overflow fix, polish |
-| IV. Simplicity | PASS | Targeted fixes, no new abstractions |
+| III. UI Quality & Consistency | PASS | Removing ugly scrollbars, collapsible UI elements |
+| IV. Simplicity | PASS | Targeted fixes, localStorage for toggle state |
 | V. CI/CD Pipeline | PASS | Will push, wait CI, merge via PR |
 | VI. Frontend Plugin Quality | PASS | No new plugins needed |
-| VII. Backend Security | PASS | No backend changes in v5 |
+| VII. Backend Security | PASS | No backend changes in v6 |
 | VIII. Observability | PASS | No new backend operations |
 
 No violations. All changes align with principles.
@@ -46,74 +43,61 @@ No violations. All changes align with principles.
 
 ```text
 specs/002-ide-panels/
-├── plan.md              # This file (v5 update)
-├── research.md          # R18-R21 added for v5
-├── spec.md              # FR-024 through FR-027 added for v5
+├── plan.md              # This file (v6 update)
+├── research.md          # R22-R24 added for v6
+├── spec.md              # FR-028, FR-029 added for v6
 ├── data-model.md        # Unchanged
-├── quickstart.md        # Updated for v5
+├── quickstart.md        # Updated for v6
 ├── contracts/           # Unchanged — no new API endpoints
-└── tasks.md             # Will be regenerated for v5
+└── tasks.md             # Will be regenerated for v6
 ```
 
 ### Source Code (repository root)
 
 ```text
-backend/
-├── src/
-│   ├── models/          # Unchanged in v5
-│   ├── services/        # Unchanged in v5
-│   ├── api/             # Unchanged in v5
-│   └── worker/          # Unchanged in v5
-└── tests/               # Unchanged in v5
-
 frontend/
 ├── src/
 │   ├── components/
-│   │   ├── SessionCard.tsx    # MODIFY: responsive min-widths, port detection
-│   │   ├── SessionGrid.tsx    # MODIFY: remove detectedPort prop passthrough
-│   │   ├── DiffViewer.tsx     # MODIFY: overflow fix, new-file layout, gutter drag, text selection
-│   │   └── LivePreview.tsx    # Unchanged (already functional)
-│   ├── hooks/
-│   │   └── usePanel.ts        # Unchanged
-│   └── services/
-│       └── api.ts             # Unchanged
+│   │   ├── DiffViewer.tsx     # MODIFY: fix scrollbar CSS
+│   │   ├── SessionGrid.tsx    # MODIFY: add collapsible overflow strip
+│   │   └── SessionQueue.tsx   # No internal changes — parent controls visibility
+│   ├── pages/
+│   │   └── Dashboard.tsx      # MODIFY: add sidebar toggle button, manage toggle state
+│   └── hooks/
+│       └── usePanel.ts        # Unchanged
 └── tests/
+    └── unit/
+        └── v6-features.test.ts  # NEW: v6 tests
 ```
 
-**Structure Decision**: Web application structure. All v5 changes are frontend-only (3 component files).
+**Structure Decision**: Web application structure. All v6 changes are frontend-only (3 component files + 1 test file).
 
 ## Changes Summary
 
-### 1. Diff Content Cutoff Fix (FR-025, R19)
+### 1. Diff Scrollbar Fix (FR-025 update, R22)
 
 **Files**: `frontend/src/components/DiffViewer.tsx`
 
-- Change `overflow-hidden` to `overflow-x-auto` on DiffCell content div
-- For new files (changeType "A"), render single-column full-width layout instead of `grid-cols-2`
-- Keep side-by-side for modified/deleted files
+- Change DiffCell content div from `whitespace-pre-wrap break-all` to `whitespace-pre-wrap` with `overflow-wrap: anywhere` (Tailwind: `break-all` → `[overflow-wrap:anywhere]`)
+  - `break-all` is too aggressive — it breaks in the middle of any word including short ones. `overflow-wrap: anywhere` only breaks when a word would overflow, preferring natural break points
+- Verify the main diff content container keeps `overflow-auto` for vertical scrolling only — no horizontal scrollbar should appear since all content wraps
+- Verify the side-by-side layout still renders correctly with wrapping
 
-### 2. Multi-Line Comment Selection (FR-024, R18)
+### 2. Collapsible SessionQueue Sidebar (FR-028, R23)
 
-**Files**: `frontend/src/components/DiffViewer.tsx`
+**Files**: `frontend/src/pages/Dashboard.tsx`
 
-- **Gutter drag**: Add `onMouseDown` → track `isDragging` → `onMouseMove` extends range → `onMouseUp` opens comment input
-- **Text selection**: Add `mouseup` listener on diff content. Check `window.getSelection()`. Walk DOM to find line numbers. Show floating "Comment" button.
-- Both methods set `selectedLines` and reuse existing comment flow
+- Add `sidebarOpen` state (default `true`), persist to `localStorage` key `c3-sidebar-open`
+- Add toggle button in top bar (right side, before settings). Chevron icon: `>>` when open (hides sidebar), `<<` when closed (shows sidebar)
+- Conditionally render `SessionQueue` based on `sidebarOpen`
+- Smooth transition: wrap sidebar in a container with `transition-all duration-200` and toggle between `w-80` and `w-0 overflow-hidden`
 
-### 3. Responsive Panel Layout (FR-026, R20)
+### 3. Collapsible "More Sessions" Overflow Strip (FR-029, R24)
 
-**Files**: `frontend/src/components/SessionCard.tsx`
+**Files**: `frontend/src/components/SessionGrid.tsx`
 
-- Enforce min-widths: panels 200px, terminal 300px
-- In resize handler: clamp percentages based on container pixel width
-- In panel toggle: prevent opening second panel if viewport too narrow
-- Drag handles enforce minimums during resize
-
-### 4. Port Detection → LivePreview (FR-027, R21)
-
-**Files**: `frontend/src/components/SessionCard.tsx`, `frontend/src/components/SessionGrid.tsx`
-
-- In `SessionCard`, listen for `port_detected` in `handleWsMessage` and store in state
-- Pass state-managed port to `LivePreview` instead of (always-null) prop
-- Remove unused `detectedPort` prop from `SessionCardProps`
-- Remove unused prop passthrough from `SessionGrid`
+- Add `overflowCollapsed` state (default `true` — start collapsed for cleaner look)
+- Persist to `localStorage` key `c3-overflow-collapsed`
+- When collapsed: show compact bar with count "+N more" and a down-chevron
+- When expanded: show existing horizontal mini-card strip with an up-chevron to collapse
+- Click the bar to toggle
