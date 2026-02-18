@@ -69,6 +69,7 @@ describe('Session Lifecycle — Auto-suspend only after user interaction', () =>
     repo.updateSettings({ maxConcurrentSessions: 2 });
     queueManager = new QueueManager(repo, { dispatchDelayMs: 0 });
     fakeSpawner = new FakePtySpawner();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     sessionManager = new SessionManager(repo, fakeSpawner as any, queueManager);
   });
 

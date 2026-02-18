@@ -23,7 +23,7 @@ export function WorkerList() {
       setWorkerList((prev) => [...prev, worker]);
       setShowForm(false);
       setForm({ name: '', sshHost: '', sshUser: '', sshKeyPath: '', sshPort: '22', maxSessions: '2' });
-    } catch {}
+    } catch { /* ignore */ }
   };
 
   const handleTest = async (id: string) => {
@@ -42,7 +42,7 @@ export function WorkerList() {
     try {
       await workersApi.delete(id);
       setWorkerList((prev) => prev.filter((w) => w.id !== id));
-    } catch {}
+    } catch { /* ignore */ }
   };
 
   const STATUS_COLORS: Record<string, string> = { connected: 'bg-green-500', disconnected: 'bg-gray-500', error: 'bg-red-500' };

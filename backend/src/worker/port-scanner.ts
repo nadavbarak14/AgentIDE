@@ -1,5 +1,5 @@
 import { execSync } from 'node:child_process';
-import { logger } from '../services/logger.js';
+// import { logger } from '../services/logger.js';
 
 export interface DetectedPort {
   port: number;

@@ -16,7 +16,7 @@ export function Settings() {
     try {
       const updated = await settingsApi.update({ [key]: value });
       setAppSettings(updated);
-    } catch {} finally {
+    } catch { /* ignore */ } finally {
       setSaving(false);
     }
   };
