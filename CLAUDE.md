@@ -14,6 +14,15 @@ Auto-generated from all feature plans. Last updated: 2026-02-17
 - SQLite (better-sqlite3) — no schema changes in v6 (002-ide-panels)
 - TypeScript 5.x, Node.js 20 LTS + React 18, Tailwind CSS 3, Express, SQLite (better-sqlite3) (002-ide-panels)
 - SQLite (comments table already exists) (002-ide-panels)
+- TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, @monaco-editor/react 4.6, xterm.js 5, better-sqlite3, Tailwind CSS 3, Vite 6 (003-multy-ux)
+- SQLite (better-sqlite3) with WAL mode — existing `c3.db` database, no schema changes (003-multy-ux)
+- TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, @monaco-editor/react 4.6, diff2html 3.4, Tailwind CSS 3, better-sqlite3 (004-ux-polish)
+- SQLite (better-sqlite3) with WAL mode — existing `comments` table, no schema changes (004-ux-polish)
+- TypeScript 5.7, Node.js 20 LTS + React 18, Tailwind CSS 3, @monaco-editor/react 4.6, diff2html 3.4, Express 4, better-sqlite3 (004-ux-polish)
+- TypeScript 5.7, Node.js 20 LTS + React 18, Tailwind CSS 3, @monaco-editor/react 4.6 (Monaco view zones), diff2html 3.4, Express 4, better-sqlite3 (004-ux-polish)
+- SQLite (better-sqlite3) — one schema change: `ALTER TABLE comments ADD COLUMN side TEXT DEFAULT 'new'` (004-ux-polish)
+- TypeScript 5.7, Node.js 20 LTS + Vitest 2.1.0, React 18, Express 4, better-sqlite3, supertest, @testing-library/react, @testing-library/jest-dom, ws 8 (005-testing-ci)
+- SQLite (better-sqlite3) with WAL mode — no schema changes (005-testing-ci)
 
 - TypeScript 5.x, Node.js 20 LTS + React 18, Tailwind CSS 3, xterm.js 5, Monaco Editor, Express, node-pty, ssh2, chokidar, diff2html, ws (001-c3-dashboard)
 
@@ -33,9 +42,9 @@ npm test && npm run lint
 TypeScript 5.x, Node.js 20 LTS: Follow standard conventions
 
 ## Recent Changes
-- 002-ide-panels: Added TypeScript 5.x, Node.js 20 LTS + React 18, Tailwind CSS 3, Express, SQLite (better-sqlite3)
-- 002-ide-panels: Added TypeScript 5.x, Node.js 20 LTS + React 18, Tailwind CSS 3, xterm.js 5, Monaco Editor, Express
-- 002-ide-panels: Added TypeScript 5.x, Node.js 20 LTS + React 18, Tailwind CSS 3, xterm.js 5, Monaco Editor, Express
+- 005-testing-ci: Added TypeScript 5.7, Node.js 20 LTS + Vitest 2.1.0, React 18, Express 4, better-sqlite3, supertest, @testing-library/react, @testing-library/jest-dom, ws 8
+- 004-ux-polish: Added TypeScript 5.7, Node.js 20 LTS + React 18, Tailwind CSS 3, @monaco-editor/react 4.6 (Monaco view zones), diff2html 3.4, Express 4, better-sqlite3
+- 004-ux-polish: Added TypeScript 5.7, Node.js 20 LTS + React 18, Tailwind CSS 3, @monaco-editor/react 4.6, diff2html 3.4, Express 4, better-sqlite3
 
 
 <!-- MANUAL ADDITIONS START -->
