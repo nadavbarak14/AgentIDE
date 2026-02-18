@@ -9,7 +9,7 @@
 
 ### User Story 1 — Browse and View Project Files (Priority: P1)
 
-A developer is watching a Claude Code session work on their project. They want to see what files exist and inspect their contents — not just watch terminal output scroll by. When the grid is set to show a single session (1-view mode), a toolbar appears alongside the terminal. The developer clicks the "Files" button. A file explorer panel slides open beside the terminal, showing the project's directory tree. They click a file to open it in a read-only code viewer with syntax highlighting. They can open multiple files in tabs within the panel. The file tree live-updates as the agent creates or modifies files.
+A developer is watching a Claude Code session work on their project. They want to see what files exist and inspect their contents — not just watch terminal output scroll by. When the grid is set to show a single session (1-view mode), a toolbar appears alongside the terminal. The developer clicks the "Files" button. A file explorer panel slides open beside the terminal, split into two areas: a narrow file tree on the left showing the project's directory structure, and a code editor area on the right. They click a file in the tree to open it in the editor with syntax highlighting. They can open multiple files in tabs in the editor area while the tree remains visible for navigation. The file tree live-updates as the agent creates or modifies files.
 
 **Why this priority**: Seeing actual file contents is the most fundamental IDE capability. Without it, the user is blind to what the agent is producing — they can only read terminal output and hope.
 
@@ -18,7 +18,7 @@ A developer is watching a Claude Code session work on their project. They want t
 **Acceptance Scenarios**:
 
 1. **Given** a session is displayed in 1-view grid mode, **When** the user clicks the "Files" toolbar button, **Then** a file explorer panel opens beside the terminal showing the project directory tree
-2. **Given** the file explorer is open, **When** the user clicks a file, **Then** the file content opens in a read-only code viewer with syntax highlighting appropriate to the file type
+2. **Given** the file explorer is open, **When** the user clicks a file in the tree, **Then** the file content opens in the editor area (right side of the files panel) in a read-only code viewer with syntax highlighting appropriate to the file type. The file tree remains visible on the left for continued navigation
 3. **Given** a file is open in the viewer, **When** the agent modifies that file, **Then** the viewer updates to show the new content within 2 seconds (with a visual flash or indicator that the file changed)
 4. **Given** the file explorer is open, **When** the agent creates a new file, **Then** the file tree updates to show the new file within 2 seconds
 5. **Given** the file explorer is open, **When** the agent deletes a file, **Then** the file tree removes the entry within 2 seconds; if the deleted file was open in a tab, the tab closes automatically
@@ -29,7 +29,7 @@ A developer is watching a Claude Code session work on their project. They want t
 
 ### User Story 2 — Review Git Changes and Comment for Fixes (Priority: P2)
 
-A developer wants to review what the agent has changed before accepting the work. They click the "Git" button in the toolbar. A panel opens showing a list of changed files (staged and unstaged) with change counts. They click a file to see a split-view diff (old vs. new). The developer spots an issue — a variable name is wrong. They select the problematic lines in the diff and click "Comment." A comment box appears where they type "This variable should be named `userCount` not `count`." The comment is sent to the Claude Code session as a message, and the agent proceeds to fix it.
+A developer wants to review what the agent has changed before accepting the work. They click the "Git" button in the toolbar. A panel opens showing a list of changed files (staged and unstaged) with change counts. They click a file to see a side-by-side diff with the old version on the left and new version on the right, aligned by line. The developer spots an issue — a variable name is wrong. They click the "+" icon in the gutter next to the problematic line. An inline comment box opens immediately where they type "This variable should be named `userCount` not `count`." For multi-line feedback, they shift-click to select a range of lines. The comment is sent to the Claude Code session as a message, and the agent proceeds to fix it.
 
 **Why this priority**: Git diffs and the ability to comment for fixes is the core feedback loop. This turns the dashboard from a passive viewer into an interactive review tool where the user can guide the agent.
 
@@ -38,8 +38,8 @@ A developer wants to review what the agent has changed before accepting the work
 **Acceptance Scenarios**:
 
 1. **Given** a session is in 1-view mode, **When** the user clicks the "Git" toolbar button, **Then** a panel opens showing all changed files (uncommitted changes) with addition/deletion counts per file
-2. **Given** the Git panel is open, **When** the user clicks a changed file, **Then** a split-view diff displays showing the old version and new version side by side, with additions highlighted in green and deletions in red
-3. **Given** the diff view is showing, **When** the user selects one or more lines and clicks "Comment," **Then** a text input appears anchored to those lines where the user can type feedback
+2. **Given** the Git panel is open, **When** the user clicks a changed file, **Then** a side-by-side two-column diff displays with the old version on the left and new version on the right, lines aligned vertically, additions highlighted in green and deletions in red
+3. **Given** the diff view is showing, **When** the user clicks the "+" icon in the line gutter, **Then** an inline comment box opens immediately below that line. Shift-clicking another line extends the selection to a range. The comment box anchors to the selected line(s)
 4. **Given** the user has typed a comment, **When** they submit it, **Then** the comment text is composed into a contextual message (including the file name, line numbers, and the selected code) and injected into the Claude Code session's terminal as user input
 5. **Given** a comment has been submitted, **When** the agent responds, **Then** the comment is marked as "Sent" in the diff view so the user can track which feedback has been delivered
 6. **Given** the agent makes additional changes after a comment, **When** the user views the Git panel, **Then** the diff updates to reflect the latest state of the files
@@ -101,12 +101,12 @@ A developer has Session A in 1-view mode with the Files panel open, viewing `src
 
 - **FR-001**: System MUST display an IDE toolbar when a session is shown in 1-view grid mode (single session visible). The toolbar MUST contain buttons for "Files," "Git," and "Preview." The toolbar MUST NOT appear when the grid shows 2 or more sessions
 - **FR-002**: System MUST display a file explorer panel when the "Files" button is clicked. The panel shows the project directory tree of the session's working directory. Directories are expandable/collapsible. The tree uses lazy loading for directories with many entries
-- **FR-003**: System MUST display file contents in a read-only code viewer with syntax highlighting when a file is clicked in the file explorer. The viewer supports tabbed navigation for multiple open files
+- **FR-003**: System MUST display the files panel as a side-by-side layout: a narrow file tree on the left and a code editor area on the right. Clicking a file in the tree opens it in the editor area with syntax highlighting. The editor supports tabbed navigation for multiple open files. The file tree remains visible for navigation at all times
 - **FR-004**: System MUST live-update the file tree and any open file viewers when the agent creates, modifies, or deletes files. Updates MUST appear within 2 seconds of the file system change
 - **FR-005**: System MUST provide a search/filter input at the top of the file tree that filters the tree to show only matching file and directory names
 - **FR-006**: System MUST display a Git changes panel when the "Git" button is clicked. The panel lists all uncommitted changed files (both staged and unstaged) with per-file addition and deletion counts
-- **FR-007**: System MUST render a split-view diff (old vs. new) when a changed file is clicked in the Git panel. Additions MUST be highlighted in green, deletions in red
-- **FR-008**: System MUST allow users to select lines in the diff view and add a comment. The comment input MUST appear anchored to the selected lines
+- **FR-007**: System MUST render a side-by-side two-column diff when a changed file is clicked in the Git panel. The left column shows the old version, the right column shows the new version, with lines aligned vertically. Additions MUST be highlighted in green, deletions in red
+- **FR-008**: System MUST display a "+" icon in the line gutter of the diff view. Clicking the "+" opens an inline comment box immediately below that line. Shift-clicking another gutter line selects a range. The comment input MUST appear anchored to the selected line(s)
 - **FR-009**: When a comment is submitted, the system MUST compose a contextual message containing the file path, line numbers, the selected code snippet, and the user's comment text. This message MUST be injected into the Claude Code session as user input
 - **FR-010**: System MUST track comment status (Pending, Sent) and display the status on each comment in the diff view
 - **FR-011**: System MUST display an embedded web preview panel when the "Preview" button is clicked. If a dev server is detected, the preview loads it automatically. If no server is detected, a URL input field is shown
@@ -137,6 +137,14 @@ A developer has Session A in 1-view mode with the Files panel open, viewing `src
 - **SC-006**: Web preview loads and displays correctly within 3 seconds of clicking the Preview button when a dev server is running
 - **SC-007**: 90% of users can browse files and submit a comment on first use without needing documentation
 - **SC-008**: Panel state survives browser refresh — the user sees the same panel configuration after reloading the page
+
+## Clarifications
+
+### Session 2026-02-18
+
+- Q: Should the Git diff display be side-by-side (two columns), unified (single column), or both with a toggle? → A: Side-by-side two-column diff (old code on left, new code on right, aligned by line)
+- Q: Should the file tree and editor appear side-by-side, or should the editor replace the tree? → A: Side-by-side within the files panel — narrow file tree on left, code editor on right
+- Q: How should commenting on diff lines work? → A: Click a "+" icon in the line gutter to comment on that line (shift-click for range); inline comment box opens immediately
 
 ## Assumptions
 

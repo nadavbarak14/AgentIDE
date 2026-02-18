@@ -1,145 +1,74 @@
-# Tasks: IDE Panels
+# Tasks: IDE Panels v2 — Clarification Update
 
 **Input**: Design documents from `/specs/002-ide-panels/`
-**Prerequisites**: plan.md (required), spec.md (required for user stories), research.md, data-model.md, contracts/
+**Prerequisites**: plan.md (v2), spec.md (post-clarification), research.md (R9-R11)
 
-**Tests**: Per the project constitution (Principle I: Comprehensive Testing), unit tests and system tests are MANDATORY for all features. Tests MUST use real dependencies — mocks are permitted ONLY when the real dependency is genuinely unavailable.
+**Context**: This is a v2 update to the existing IDE Panels implementation. The v1 code is committed and all 90 tests pass. Only frontend rendering changes are needed based on user clarifications:
+1. Side-by-side two-column diff (was unified)
+2. Files panel: tree + editor side-by-side (was tree-or-editor swap)
+3. Gutter "+" icon for immediate inline comments (was select-then-click)
 
-**Organization**: Tasks are grouped by user story to enable independent implementation and testing of each story.
+**Tests**: Per the project constitution (Principle I: Comprehensive Testing), unit tests are MANDATORY. The side-by-side diff parser is the primary new logic requiring tests.
+
+**Organization**: Tasks are grouped by affected user story. US3 (Preview) and US4 (Persistence) are unchanged and have no tasks.
 
 ## Format: `[ID] [P?] [Story] Description`
 
 - **[P]**: Can run in parallel (different files, no dependencies)
-- **[Story]**: Which user story this task belongs to (e.g., US1, US2, US3)
+- **[Story]**: Which user story this task belongs to (e.g., US1, US2)
 - Include exact file paths in descriptions
 
-## Path Conventions
+---
 
-- **Web app**: `backend/src/`, `frontend/src/`
+## Phase 1: Foundational — Side-by-Side Diff Parser
+
+**Purpose**: Rewrite the diff parser to produce paired left/right line arrays for side-by-side rendering. This is foundational because US2 depends on it.
+
+**⚠️ CRITICAL**: US2 (Git diff UI) cannot begin until the parser rewrite is complete.
+
+- [x] T001 Write unit tests for side-by-side diff parser: test context lines populate both sides, additions fill right only (left null), deletions fill left only (right null), line numbers track old/new independently, multi-hunk files align correctly, empty files produce empty pairs — in `frontend/tests/unit/diff-parser.test.ts`
+- [x] T002 Extract `parseDiff()` from `frontend/src/components/DiffViewer.tsx` into a standalone module `frontend/src/utils/diff-parser.ts`. Rewrite it to return `SideBySideLine[]` where each entry is `{ left: DiffLine | null, right: DiffLine | null }`. Track old-file line numbers (from `@@` hunk header `-oldStart`) and new-file line numbers (from `+newStart`) separately. Context lines increment both counters and populate both sides. Added lines (`+`) increment only the new counter, set `left: null`. Deleted lines (`-`) increment only the old counter, set `right: null`. Export types `SideBySideLine`, `DiffLine`, `ParsedFile` from the module.
+
+**Checkpoint**: `npm test --workspace=frontend` passes with new parser tests green.
 
 ---
 
-## Phase 1: Setup (Shared Infrastructure)
+## Phase 2: User Story 1 — Files Panel Tree+Editor Side-by-Side (Priority: P1)
 
-**Purpose**: Database schema additions and TypeScript interfaces for panel state and comments
+**Goal**: When the files panel is open, show the file tree and file editor side-by-side within the panel (tree on left ~30%, editor on right ~70%). The tree remains visible at all times for navigation.
 
-- [x] T001 Add `panel_states` and `comments` CREATE TABLE IF NOT EXISTS statements (with indexes, foreign keys, CASCADE deletes) to `backend/src/models/db.ts`. Schema per `data-model.md`: panel_states has session_id PK, active_panel, file_tabs (JSON), active_tab_index, tab_scroll_positions (JSON), git_scroll_position, preview_url, panel_width_percent, updated_at. Comments has id PK, session_id FK, file_path, start_line, end_line, code_snippet, comment_text, status, created_at, sent_at. Add indexes idx_comments_session and idx_comments_status
-- [x] T002 [P] Add `PanelState` and `Comment` TypeScript interfaces to `backend/src/models/types.ts`. PanelState: sessionId, activePanel ('none'|'files'|'git'|'preview'), fileTabs (string[]), activeTabIndex, tabScrollPositions (Record<string, {line, column}>), gitScrollPosition, previewUrl, panelWidthPercent, updatedAt. Comment: id, sessionId, filePath, startLine, endLine, codeSnippet, commentText, status ('pending'|'sent'), createdAt, sentAt
-- [x] T003 [P] Add panel state and comment API methods to `frontend/src/services/api.ts`. Methods: panelState.get(sessionId), panelState.save(sessionId, state), comments.list(sessionId, status?), comments.create(sessionId, {filePath, startLine, endLine, codeSnippet, commentText}), comments.deliver(sessionId). Request/response shapes per `contracts/api.md`
+**Independent Test**: Open a session in 1-view mode. Click "Files." Verify the file tree appears on the left and an editor area on the right. Click a file — verify it opens in the editor while the tree stays visible. Click another file — verify it opens in a new tab in the editor.
 
----
+- [x] T003 [US1] Modify the files panel section in `frontend/src/components/SessionCard.tsx`: replace the current conditional (`fileTabs.length > 0 ? FileViewer : FileTree`) with a flex container that renders both `FileTree` (left, `w-[200px] min-w-[150px] flex-shrink-0 border-r border-gray-700`) and `FileViewer` (right, `flex-1 min-w-0`) side-by-side. When no file tabs exist, render a placeholder in the right area: centered text "Select a file to view" in gray. Always render `FileTree` regardless of tab count.
+- [x] T004 [US1] Remove the `onClose` prop from `FileViewer` usage in `SessionCard.tsx` (no longer needed since tree is always visible). Clean up the "close all tabs to show tree" logic that was previously in the `onClose` handler.
 
-## Phase 2: Foundational (Blocking Prerequisites)
-
-**Purpose**: Backend CRUD, API routes, and frontend layout infrastructure that ALL user stories depend on
-
-**⚠️ CRITICAL**: No user story work can begin until this phase is complete
-
-### Tests for Foundation (MANDATORY per Constitution Principle I) ✅
-
-> **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
-
-- [x] T004 [P] Unit tests for panel state repository methods (getPanelState, savePanelState, deletePanelState) using real in-memory SQLite in `backend/tests/unit/panel-state.test.ts`. Test: create panel state, retrieve it, update it, verify JSON serialization of fileTabs and tabScrollPositions, verify CASCADE delete when session is deleted
-- [x] T005 [P] Unit tests for comment repository methods (getComments, getCommentsByStatus, createComment, markCommentSent) using real in-memory SQLite in `backend/tests/unit/comments.test.ts`. Test: create comment, list by session, filter by status, mark as sent with sentAt timestamp, verify CASCADE delete, verify validation (filePath no "..", startLine >= 1, endLine >= startLine)
-
-### Implementation for Foundation
-
-- [x] T006 Add panel state CRUD methods (getPanelState, savePanelState via INSERT OR REPLACE, deletePanelState) and comment CRUD methods (getComments, getCommentsByStatus, createComment, markCommentSent) to `backend/src/models/repository.ts`. Use prepared statements. Panel state: serialize fileTabs and tabScrollPositions as JSON strings on write, parse on read. Comments: validate filePath against path traversal, validate line numbers
-- [x] T007 Add panel-state API endpoints to `backend/src/api/routes/sessions.ts`: GET `/api/sessions/:id/panel-state` (returns saved state or 404), PUT `/api/sessions/:id/panel-state` (validates activePanel enum, panelWidthPercent range 20-80, upserts via repository). Add validation for request body fields per `contracts/api.md`
-- [x] T008 [P] Modify SessionGrid in `frontend/src/components/SessionGrid.tsx` to compute `isSingleView` (true when displayedSessions.length === 1 or gridLayout === '1x1') and pass it as a prop to each SessionCard
-- [x] T009 [P] Create usePanel hook in `frontend/src/hooks/usePanel.ts`. Manages local state: activePanel ('none'|'files'|'git'|'preview'), panelWidthPercent (default 40), fileTabs (string[]), activeTabIndex, tabScrollPositions. Exposes: openPanel(type), closePanel(), addFileTab(path), removeFileTab(path), setActiveTab(index), updateScrollPosition(path, pos), setPanelWidth(percent). Panel toggle: clicking the active panel button closes it, clicking a different button switches to it
-- [x] T010 Redesign SessionCard in `frontend/src/components/SessionCard.tsx`: accept `isSingleView` prop. When true: show IDE toolbar row below header with Files/Git/Preview toggle buttons. Render main content as resizable horizontal split — terminal (left, flex-grow) + panel container (right, width from panelWidthPercent). Add drag handle between them for resize. When no panel is open, terminal takes full width. When isSingleView is false: hide toolbar, hide panel container, terminal takes full width. Integrate usePanel hook for state management. Wire toolbar buttons to usePanel.openPanel(). Render FileTree+FileViewer when activePanel='files', DiffViewer when 'git', LivePreview when 'preview'
-
-**Checkpoint**: Foundation ready — panel container visible in 1-view mode, toolbar toggles panels, backend stores state. User story implementation can now begin.
+**Checkpoint**: Files panel shows tree+editor side-by-side. All existing tests still pass.
 
 ---
 
-## Phase 3: User Story 1 — Browse and View Project Files (Priority: P1) 🎯 MVP
+## Phase 3: User Story 2 — Side-by-Side Diff + Gutter Comments (Priority: P2)
 
-**Goal**: Users can browse the project file tree, click files to view them with syntax highlighting in Monaco Editor, open multiple files in tabs, and see live updates when the agent modifies files.
+**Goal**: The Git panel shows a two-column side-by-side diff (old on left, new on right, lines aligned vertically). Each line has a "+" icon in the gutter visible on hover. Clicking "+" opens an inline comment box immediately. Shift-click extends to a range.
 
-**Independent Test**: Start a session in 1-view mode. Click "Files" in the toolbar. Verify the file tree loads. Click a file — verify it opens in a syntax-highlighted viewer. Have the agent create a new file — verify the tree updates.
+**Independent Test**: Start a session where files are modified. Click "Git." Click a changed file. Verify the diff renders as two columns — old on left, new on right. Hover a line — verify "+" appears. Click "+" — verify an inline comment box opens immediately. Type text and submit — verify comment is injected into the session.
 
-### Tests for User Story 1 (MANDATORY per Constitution Principle I) ✅
+- [x] T005 [US2] Rewrite the diff rendering in `frontend/src/components/DiffViewer.tsx`: import `parseSideBySideDiff` from `frontend/src/utils/diff-parser.ts`. Replace the unified diff rendering (single-column with +/- lines) with a two-column CSS grid layout. Left column: old file content with old line numbers in gutter. Right column: new file content with new line numbers in gutter. Context lines appear in both columns. Added lines: left cell is an empty placeholder with a subtle gray background (`bg-gray-800/30`), right cell has the content in green (`bg-green-500/10 text-green-400`). Deleted lines: left cell has content in red (`bg-red-500/10 text-red-400`), right cell is empty placeholder. Each row uses `grid-cols-2` with a 1px border between columns.
+- [x] T006 [US2] Add gutter "+" icon to each line in `frontend/src/components/DiffViewer.tsx`: in the right column gutter, render a "+" span (`opacity-0 group-hover:opacity-100 text-blue-400 cursor-pointer`) that becomes visible when the row is hovered. On click, call a new `handleGutterPlusClick(lineNumber, shiftKey)` handler that: (a) if no shift key — sets selectedLines to `{start: lineNumber, end: lineNumber}` and immediately shows the comment input (set `showCommentInput` to true), (b) if shift key — extends the range and shows comment input. Remove the old separate "Comment" button that appeared after gutter selection.
+- [x] T007 [US2] Reposition the inline comment box in `frontend/src/components/DiffViewer.tsx`: the comment textarea should render as a full-width row spanning both columns (`col-span-2`) immediately below the selected line(s) in the grid. It should have a left blue border accent (`border-l-2 border-blue-500`), dark background (`bg-gray-800`), and contain: the textarea, Submit button, Cancel button. Existing comments should also render as full-width rows spanning both columns below their anchor lines.
+- [x] T008 [US2] Update `handleCommentSubmit` in `frontend/src/components/DiffViewer.tsx` to extract code snippets from the new `SideBySideLine[]` structure: filter lines where `right.lineNumber` falls within the selected range, map to `right.content`, join with newlines. For deletions (where right is null), use `left.content` instead.
 
-- [x] T011 [P] [US1] Unit tests for FileTree component in `frontend/tests/unit/FileTree.test.tsx`. Test: renders directory entries, clicking directory expands it (lazy loads children via API), clicking file calls onFileSelect callback, search filter input filters displayed entries, ".." button navigates to parent, loading state shown while fetching
-- [x] T012 [P] [US1] Unit tests for FileViewer component in `frontend/tests/unit/FileViewer.test.tsx`. Test: renders Monaco Editor in read-only mode, displays correct language based on file extension, shows multiple tabs, clicking tab switches displayed file, close button on tab removes it, shows "File truncated" notice for files >1MB, changed indicator (flash/highlight) when content updates
-
-### Implementation for User Story 1
-
-- [x] T013 [P] [US1] Upgrade FileTree in `frontend/src/components/FileTree.tsx`: replace flat directory listing with expandable tree. Each directory node loads children lazily via `api.files.tree(sessionId, subpath)` on expand click. Sort directories first, then files alphabetically. Add breadcrumb path display at top. Add search/filter text input that filters visible entries by name match (client-side filter of loaded entries). Show file icons based on extension. Show loading spinner per directory while fetching. Handle empty directories gracefully
-- [x] T014 [P] [US1] Upgrade FileViewer in `frontend/src/components/FileViewer.tsx`: replace `<pre>` element with `@monaco-editor/react` in read-only mode. Props: filePath, content, language. Configure: `readOnly: true`, `minimap: { enabled: false }`, `scrollBeyondLastLine: false`, `wordWrap: 'on'`, theme matched to dashboard theme setting. Add tabbed interface above editor: render tab bar from `fileTabs` array (from usePanel), each tab shows filename with close (×) button, active tab highlighted. Show "File truncated — showing first 1 MB" banner when file size exceeds 1MB. Map file extensions to Monaco language IDs using existing language detection from backend
-- [x] T015 [US1] Wire WebSocket `file_changed` events to live-update FileTree and FileViewer in `frontend/src/components/SessionCard.tsx`. On `file_changed` message: if Files panel is open AND a changed path matches the currently displayed directory, re-fetch the directory listing via `api.files.tree()` to update FileTree. If a changed path matches any open file tab, re-fetch the file content via `api.files.content()` and update the Monaco Editor content with a brief yellow highlight flash on the editor container (CSS transition, 500ms) to signal the change. If a deleted file is in an open tab, close that tab automatically via usePanel.removeFileTab()
-
-**Checkpoint**: User Story 1 complete — users can browse files, view them with syntax highlighting, manage tabs, and see live updates. Independently testable.
+**Checkpoint**: Git panel shows side-by-side diff with gutter "+" commenting. All tests pass.
 
 ---
 
-## Phase 4: User Story 2 — Review Git Changes and Comment for Fixes (Priority: P2)
+## Phase 4: Polish & Validation
 
-**Goal**: Users can view git diffs with split-view rendering, select lines in the diff, add inline comments that are composed into contextual messages and injected into the Claude Code session. Comments are tracked with Pending/Sent status. Pending comments are auto-delivered when a session resumes.
+**Purpose**: Ensure all changes work together, tests pass, lint clean.
 
-**Independent Test**: Start a session where the agent modifies files. Click "Git" — verify changed files listed. Click a file — verify diff renders. Add a comment on a line — verify comment is injected as terminal input.
-
-### Tests for User Story 2 (MANDATORY per Constitution Principle I) ✅
-
-- [x] T016 [P] [US2] Unit tests for DiffViewer component in `frontend/tests/unit/DiffViewer.test.tsx`. Test: renders list of changed files with addition/deletion counts, clicking file shows split-view diff, gutter click selects a line (highlighted), shift-click selects line range, "Comment" button appears on selection, comment input submits via API, comment status badge shows Pending then Sent, file_changed event triggers diff refresh
-- [x] T017 [P] [US2] Integration tests for comments API endpoints in `backend/tests/integration/ide-panels.test.ts`. Test: POST creates comment and returns 201 with UUID, GET lists comments ordered by createdAt, POST with active session injects into PTY and returns status='sent', POST with inactive session returns status='pending', POST deliver marks all pending as sent, validation rejects filePath with "..", validation rejects empty commentText, validation rejects endLine < startLine
-
-### Implementation for User Story 2
-
-- [x] T018 [P] [US2] Add comments API endpoints to `backend/src/api/routes/sessions.ts`: GET `/api/sessions/:id/comments` (optional query param `status`, returns ordered list), POST `/api/sessions/:id/comments` (validate filePath no path traversal, startLine >= 1, endLine >= startLine, non-empty commentText; create via repository; if session active: compose message using format from `research.md` R2, inject via sessionManager.sendInput(), mark as sent; return 201), POST `/api/sessions/:id/comments/deliver` (fetch pending comments, inject each as composed message, mark sent, return delivered IDs and count). Add structured logging for comment creation and delivery (Principle VIII)
-- [x] T019 [P] [US2] Add pending comment auto-delivery on session activation in `backend/src/services/session-manager.ts`. In the activateSession method, after PTY is spawned and ready (after a short delay to allow Claude to initialize), call repository.getCommentsByStatus(sessionId, 'pending'). For each pending comment: compose the contextual message, send via ptySpawner.write(), mark as sent via repository.markCommentSent(). Log delivery count at INFO level
-- [x] T020 [US2] Upgrade DiffViewer in `frontend/src/components/DiffViewer.tsx`: Replace raw text diff display with a structured view. Top section: list of changed files as clickable items showing filename, change type badge (M/A/D/R), and +N/-N counts. Clicking a file loads its diff. Diff area: render unified diff with line-by-line coloring (green additions, red deletions, gray context, blue hunk headers @@). Add clickable gutter column to the left of each diff line — clicking a gutter cell selects that line (blue highlight), shift-clicking selects a range. When lines are selected, show a floating "Comment" button near the selection. Clicking "Comment" opens an inline textarea below the selected lines with Submit/Cancel buttons. On submit: call `api.comments.create(sessionId, {filePath, startLine, endLine, codeSnippet: selected lines text, commentText})`. Display submitted comments inline at their line positions with status badge (yellow "Pending" / green "Sent"). Load existing comments via `api.comments.list(sessionId)` on mount and display them in the diff
-- [x] T021 [US2] Wire WebSocket `file_changed` events to auto-refresh the Git panel. In `frontend/src/components/SessionCard.tsx`, when activePanel is 'git' and a `file_changed` event is received, re-fetch the diff via `api.files.diff(sessionId)` and update DiffViewer. Debounce refresh to 1 second to avoid excessive API calls during rapid file changes
-
-**Checkpoint**: User Story 2 complete — users can review diffs, add inline comments that are injected into the session, track comment status, and queued comments are delivered on session resume. Independently testable.
-
----
-
-## Phase 5: User Story 3 — Preview Web Application Output (Priority: P3)
-
-**Goal**: Users can see an embedded live preview of the running dev server, interact with it, and it auto-refreshes when files change.
-
-**Independent Test**: Start a session that launches a dev server. Click "Preview" — verify embedded browser loads the app. Change a visible element — verify preview updates.
-
-### Implementation for User Story 3
-
-- [x] T022 [US3] Upgrade LivePreview in `frontend/src/components/LivePreview.tsx`: Accept detected ports from SessionCard (passed as props from WebSocket port_detected events). When ports are available: show a port selector dropdown if multiple ports detected, load selected port URL in an iframe (`http://localhost:{port}`). When no ports detected: show "No server detected" message with a manual URL text input and "Load" button. Add toolbar above iframe with: current URL display, reload button (re-sets iframe src), "Open in new tab" link (target="_blank"). Handle iframe load errors: show "Unable to load preview — the server may have stopped or the page blocks embedding" with the "Open in new tab" link as fallback. On `port_closed` WebSocket event: if the closed port is the one being previewed, show "Server stopped" message with last URL displayed. On `file_changed` WebSocket event: reload the iframe by appending a cache-busting query param to the src (e.g., `?_t={timestamp}`). Style iframe to fill the panel container with no border
-
-**Checkpoint**: User Story 3 complete — users can preview web applications in an embedded browser alongside the terminal. Independently testable.
-
----
-
-## Phase 6: User Story 4 — Panel State Persists Across Session Switches (Priority: P4)
-
-**Goal**: Panel state (which panel is open, open file tabs, scroll positions, preview URL, panel width) is saved per session and restored when switching between sessions or refreshing the browser.
-
-**Independent Test**: Open a session in 1-view mode, open Files panel, navigate to a specific file. Switch to a different session. Switch back — verify Files panel is still open with the same file displayed.
-
-### Tests for User Story 4 (MANDATORY per Constitution Principle I) ✅
-
-- [x] T023 [US4] Unit tests for usePanel hook persistence in `frontend/tests/unit/usePanel.test.ts`. Test: opening a panel triggers debounced save to API, switching sessions saves current state and restores target session state, state includes activePanel + fileTabs + activeTabIndex + scrollPositions + panelWidth + previewUrl, restoring from API populates all local state fields correctly, default state (no saved state) shows no panel open, save debounce batches rapid changes into single API call
-
-### Implementation for User Story 4
-
-- [x] T024 [US4] Extend usePanel hook in `frontend/src/hooks/usePanel.ts` with backend persistence. Add `sessionId` parameter. On sessionId change: save current state for previous session via `api.panelState.save()`, then load state for new session via `api.panelState.get()` (if 404, reset to defaults: activePanel='none', fileTabs=[], etc.). Add debounced save (500ms) that triggers on any state change (panel open/close, tab add/remove, scroll position update, width change, preview URL change). On component mount (page load): fetch state from API for current sessionId and restore
-- [x] T025 [US4] Integrate panel state persistence with SessionCard and grid mode transitions in `frontend/src/components/SessionCard.tsx`. Pass current sessionId to usePanel hook. When isSingleView changes from true to false: save current panel state to backend, close panel (set activePanel='none' locally without saving the 'none'). When isSingleView changes from false to true: restore panel state from backend for current session. Ensure SessionGrid passes session ID changes correctly when user clicks a different session
-
-**Checkpoint**: User Story 4 complete — panel state fully persists across session switches and browser refreshes. All 4 user stories are independently functional.
-
----
-
-## Phase 7: Polish & Cross-Cutting Concerns
-
-**Purpose**: End-to-end validation, edge case handling, and CI readiness
-
-- [x] T026 [P] System test for end-to-end IDE panel workflows in `frontend/tests/system/ide-panels.test.ts`. Playwright test: open dashboard, create session, switch to 1-view mode, open Files panel and click a file, switch to Git panel and verify diff, switch to Preview panel, switch sessions and verify panel state restored, refresh browser and verify panel state survives
-- [x] T027 [P] Integration test for panel-state API endpoints in `backend/tests/integration/ide-panels.test.ts`. Test GET/PUT panel-state with real Express app and SQLite: PUT saves state, GET retrieves it, PUT with invalid activePanel returns 400, PUT with panelWidthPercent outside 20-80 returns 400, GET for non-existent session returns 404, deleting session cascades to panel_states
-- [x] T028 Handle edge cases across all panels: FileViewer shows "File truncated — showing first 1 MB" banner for large files with "Load more" button; DiffViewer virtualizes file list when >50 changed files (render only visible items); browser resize triggers terminal.fit() and panel proportional resize; queued comments for completed sessions are delivered on Continue/resume
-- [x] T029 Verify structured logging (Principle VIII) for all new endpoints: panel-state GET/PUT log at DEBUG, comment create/deliver log at INFO with sessionId context, comment delivery failure logs at ERROR with comment ID and session ID
-- [x] T030 Run full lint, typecheck, and test suite (`npm test && npm run lint`); fix any issues
-- [x] T031 Push branch, wait for CI green, rebase-merge to main (Constitution Principle V)
+- [x] T009 Run `npm test` across both workspaces. Fix any test failures.
+- [x] T010 Run `npm run lint` across both workspaces. Fix any lint errors (unused imports, unused variables from removed code paths).
+- [x] T011 Manually verify the three clarification changes: (1) files panel shows tree+editor side-by-side, (2) git panel shows side-by-side two-column diff, (3) gutter "+" opens inline comment immediately. Update tasks.md to mark all tasks complete.
+- [ ] T012 Push branch, wait for CI green, rebase-merge to main (Principle V)
 
 ---
 
@@ -147,96 +76,67 @@
 
 ### Phase Dependencies
 
-- **Setup (Phase 1)**: No dependencies — can start immediately
-- **Foundational (Phase 2)**: Depends on Phase 1 completion — BLOCKS all user stories
-- **User Stories (Phases 3-6)**: All depend on Foundational phase completion
-  - US1, US2, US3 can proceed in parallel (different component files)
-  - US4 depends on at least one panel (US1) being implemented to test persistence
-- **Polish (Phase 7)**: Depends on all user stories being complete
+- **Phase 1 (Foundational)**: No dependencies — start immediately
+- **Phase 2 (US1 — Files layout)**: No dependency on Phase 1 — can run in parallel
+- **Phase 3 (US2 — Diff rewrite)**: Depends on Phase 1 (parser must be complete)
+- **Phase 4 (Polish)**: Depends on Phase 2 + Phase 3 completion
 
 ### User Story Dependencies
 
-- **User Story 1 (P1)**: Can start after Phase 2 — No dependencies on other stories. **This is the MVP.**
-- **User Story 2 (P2)**: Can start after Phase 2 — Independent of US1 (different component: DiffViewer vs FileTree/FileViewer)
-- **User Story 3 (P3)**: Can start after Phase 2 — Independent of US1/US2 (different component: LivePreview)
-- **User Story 4 (P4)**: Depends on US1 completion for meaningful testing — extends usePanel hook that US1/US2/US3 use
+- **US1 (Files layout)**: Independent — only touches SessionCard.tsx
+- **US2 (Git diff)**: Depends on T001-T002 (parser module) — touches DiffViewer.tsx + new utils/diff-parser.ts
 
 ### Within Each User Story
 
-- Tests MUST be written and FAIL before implementation
-- Component upgrades before WebSocket wiring
-- Backend endpoints (if any) before frontend consumption
-- Story complete before moving to next priority
+- Parser tests (T001) before parser implementation (T002)
+- Parser implementation (T002) before DiffViewer rendering (T005-T008)
+- Layout change (T003) before cleanup (T004)
 
 ### Parallel Opportunities
 
-- **Phase 1**: T002 ∥ T003 (different workspaces)
-- **Phase 2**: T004 ∥ T005 (different test files), T008 ∥ T009 (different component files)
-- **Phase 3 (US1)**: T011 ∥ T012 (different test files), T013 ∥ T014 (different component files)
-- **Phase 4 (US2)**: T016 ∥ T017 (frontend vs backend tests), T018 ∥ T019 (different backend files)
-- **Cross-story**: US1 (Phase 3) ∥ US2 (Phase 4) ∥ US3 (Phase 5) after Phase 2 completes
-- **Phase 7**: T026 ∥ T027 (different test files)
+- **T001 + T003**: Parser tests and files layout change touch different files — can run in parallel
+- **T002 + T004**: Parser implementation and files cleanup touch different files — can run in parallel
+- **T005 + T006 + T007**: These all modify DiffViewer.tsx — must be sequential
 
 ---
 
-## Parallel Example: User Story 1
+## Parallel Example: Phases 1 + 2
 
 ```bash
-# After Phase 2 complete, launch US1 tests in parallel:
-Task: "Unit tests for FileTree in frontend/tests/unit/FileTree.test.tsx"        # T011
-Task: "Unit tests for FileViewer in frontend/tests/unit/FileViewer.test.tsx"    # T012
+# These can run in parallel (different files):
+Task T001: "Write diff parser tests in frontend/tests/unit/diff-parser.test.ts"
+Task T003: "Modify files panel layout in frontend/src/components/SessionCard.tsx"
 
-# Then launch US1 component upgrades in parallel:
-Task: "Upgrade FileTree with lazy loading in frontend/src/components/FileTree.tsx"     # T013
-Task: "Upgrade FileViewer with Monaco Editor in frontend/src/components/FileViewer.tsx" # T014
-
-# Then wire up live updates (depends on T013 + T014):
-Task: "Wire file_changed events to FileTree and FileViewer in SessionCard.tsx"  # T015
-```
-
-## Parallel Example: User Stories 1 + 2 + 3 (after Phase 2)
-
-```bash
-# US1, US2, US3 can run on different files simultaneously:
-Task: "Upgrade FileTree in FileTree.tsx"          # T013 (US1)
-Task: "Add comments API in sessions.ts"           # T018 (US2)
-Task: "Upgrade LivePreview in LivePreview.tsx"     # T022 (US3)
+# Then sequentially:
+Task T002: "Implement diff parser in frontend/src/utils/diff-parser.ts" (after T001)
+Task T004: "Clean up FileViewer onClose in SessionCard.tsx" (after T003)
 ```
 
 ---
 
 ## Implementation Strategy
 
-### MVP First (User Story 1 Only)
+### Approach: Focused v2 Delta
 
-1. Complete Phase 1: Setup (3 tasks)
-2. Complete Phase 2: Foundational (7 tasks)
-3. Complete Phase 3: User Story 1 — Browse and View Files (5 tasks)
-4. **STOP and VALIDATE**: User can open file explorer, view files with syntax highlighting, see live updates
-5. Deploy/demo if ready — this alone delivers significant value
+This is NOT a full rebuild. The v1 implementation (90 tests, all backend, all frontend infrastructure) remains unchanged. Only 3 files are modified:
 
-### Incremental Delivery
+1. **`frontend/src/utils/diff-parser.ts`** — NEW: extracted + rewritten parser
+2. **`frontend/src/components/DiffViewer.tsx`** — REWRITE: side-by-side rendering + gutter "+"
+3. **`frontend/src/components/SessionCard.tsx`** — MODIFY: files panel layout
 
-1. Setup + Foundational → Panel infrastructure ready
-2. Add US1 (Files) → Test independently → Deploy/Demo (**MVP!**)
-3. Add US2 (Git + Comments) → Test independently → Deploy/Demo
-4. Add US3 (Preview) → Test independently → Deploy/Demo
-5. Add US4 (Persistence) → Test independently → Deploy/Demo
-6. Polish → CI green → Merge to main
+### Execution Plan
 
-### Single Developer Sequential Path
-
-T001 → T002 → T003 → T004 → T005 → T006 → T007 → T008 → T009 → T010 → T011 → T012 → T013 → T014 → T015 → T016 → T017 → T018 → T019 → T020 → T021 → T022 → T023 → T024 → T025 → T026 → T027 → T028 → T029 → T030 → T031
+1. Write parser tests (T001) — establishes expected behavior
+2. Implement parser (T002) — tests go green
+3. Update files panel layout (T003-T004) — US1 complete
+4. Rewrite DiffViewer (T005-T008) — US2 complete
+5. Polish (T009-T012) — validate, lint, CI, merge
 
 ---
 
 ## Notes
 
-- [P] tasks = different files, no dependencies on incomplete tasks in the same phase
-- [Story] label maps task to specific user story for traceability
-- Each user story is independently completable and testable
-- Verify tests fail before implementing
-- Commit after each task or logical group
-- Stop at any checkpoint to validate story independently
-- All existing backend infrastructure (file-reader, git-operations, file-watcher, port-scanner) is reused without modification
-- No new npm packages required — Monaco Editor and diff2html are existing dependencies
+- All existing v1 tests (90 tests across 10 files) must continue to pass
+- No backend changes — only frontend rendering updates
+- The diff API still returns raw unified diff text; parsing happens client-side
+- The `usePanel` hook, panel state persistence, and comment API are all unchanged

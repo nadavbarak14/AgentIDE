@@ -49,42 +49,39 @@ npm test --workspace=frontend
 npm run test:system --workspace=frontend
 ```
 
-## Key Files to Modify
+## Key Files to Modify (v2 Update)
 
-### Backend
+The v2 update focuses on three frontend files. Backend is unchanged.
 
-| File | Changes |
-|------|---------|
-| `backend/src/models/db.ts` | Add `panel_states` and `comments` table creation |
-| `backend/src/models/types.ts` | Add `PanelState` and `Comment` interfaces |
-| `backend/src/models/repository.ts` | Add panel state and comment CRUD methods |
-| `backend/src/api/routes/sessions.ts` | Add panel-state and comments endpoints |
-| `backend/src/services/session-manager.ts` | Deliver pending comments on session activation |
-
-### Frontend
+### Frontend (v2 changes)
 
 | File | Changes |
 |------|---------|
-| `frontend/src/components/SessionCard.tsx` | Add panel layout, 1-view mode toolbar, resizable split |
-| `frontend/src/components/SessionGrid.tsx` | Pass `isSingleView` prop to SessionCard |
-| `frontend/src/components/FileTree.tsx` | Add lazy loading, search filter, live updates from WebSocket |
-| `frontend/src/components/FileViewer.tsx` | Replace `<pre>` with Monaco Editor, add tabbed UI, live reload |
-| `frontend/src/components/DiffViewer.tsx` | Add line selection, comment UI, comment status display |
-| `frontend/src/components/LivePreview.tsx` | Add auto-detection, manual URL input, "Open in new tab" fallback |
-| `frontend/src/hooks/usePanel.ts` | New hook for panel state management and persistence |
-| `frontend/src/services/api.ts` | Add panel state and comment API methods |
+| `frontend/src/components/DiffViewer.tsx` | **REWRITE**: Side-by-side two-column diff, rewrite `parseDiff()` for paired lines, gutter "+" icon, inline comment on click |
+| `frontend/src/components/SessionCard.tsx` | **MODIFY**: Files panel renders tree + editor side-by-side (tree always visible on left) |
 
-### Tests
+### Frontend (v1 — unchanged)
+
+| File | Status |
+|------|--------|
+| `frontend/src/components/FileTree.tsx` | Unchanged — works as-is within new layout |
+| `frontend/src/components/FileViewer.tsx` | Unchanged — works as-is within new layout |
+| `frontend/src/components/LivePreview.tsx` | Unchanged |
+| `frontend/src/components/SessionGrid.tsx` | Unchanged |
+| `frontend/src/components/TerminalView.tsx` | Unchanged |
+| `frontend/src/hooks/usePanel.ts` | Unchanged |
+| `frontend/src/services/api.ts` | Unchanged |
+
+### Backend (v1 — unchanged)
+
+All backend files remain unchanged. The diff API returns raw unified diff text from `git diff`, which the frontend now parses into side-by-side format.
+
+### Tests (v2 additions)
 
 | File | Changes |
 |------|---------|
-| `backend/tests/unit/panel-state.test.ts` | Panel state CRUD operations |
-| `backend/tests/unit/comments.test.ts` | Comment CRUD and delivery logic |
-| `backend/tests/integration/ide-panels.test.ts` | Panel state + comment integration |
-| `frontend/tests/unit/usePanel.test.ts` | Panel state hook logic |
-| `frontend/tests/unit/FileViewer.test.tsx` | Monaco editor, tabs, live reload |
-| `frontend/tests/unit/DiffViewer.test.tsx` | Line selection, comment UI |
-| `frontend/tests/system/ide-panels.test.ts` | End-to-end panel workflows |
+| `frontend/tests/unit/diff-parser.test.ts` | **NEW**: Unit tests for side-by-side diff parser |
+| All existing tests | Unchanged — must still pass |
 
 ## Feature Flags / Configuration
 
@@ -92,43 +89,50 @@ No feature flags needed. IDE panels are shown/hidden based on grid layout:
 - `grid_layout === '1x1'` → Show IDE toolbar and panels
 - Any other layout → Hide toolbar and panels
 
-## Architecture Overview
+## Architecture Overview (v2 Update)
 
 ```
-┌─────────────────────────────────────────────────┐
-│  Browser (Frontend)                              │
-│  ┌──────────────────────────────────────────┐   │
-│  │  SessionCard (1-view mode)                │   │
-│  │  ┌───────────────┬──────────────────────┐│   │
-│  │  │  Terminal      │  Side Panel          ││   │
-│  │  │  (xterm.js)    │  ┌────────────────┐ ││   │
-│  │  │               │  │ Files / Git /   │ ││   │
-│  │  │               │  │ Preview         │ ││   │
-│  │  │               │  │                │ ││   │
-│  │  │               │  │ [Monaco Editor]│ ││   │
-│  │  │               │  │ [Diff + Cmts]  │ ││   │
-│  │  │               │  │ [iframe]       │ ││   │
-│  │  │               │  └────────────────┘ ││   │
-│  │  └───────────────┴──────────────────────┘│   │
-│  └──────────────────────────────────────────┘   │
-│                                                  │
-│  REST API calls          WebSocket events        │
-│    ↕                       ↕                     │
-└──────────────────────────────────────────────────┘
-         │                       │
-         ↓                       ↓
-┌─────────────────────────────────────────────────┐
-│  Backend (Express + WS)                          │
-│  ┌──────────┐  ┌───────────┐  ┌──────────────┐ │
-│  │ Panel    │  │ Comment   │  │ File/Git/    │ │
-│  │ State    │  │ CRUD +    │  │ Port APIs    │ │
-│  │ API      │  │ Delivery  │  │ (existing)   │ │
-│  └────┬─────┘  └────┬──────┘  └──────────────┘ │
-│       │              │                           │
-│       ↓              ↓                           │
-│  ┌──────────────────────────┐                   │
-│  │  SQLite (better-sqlite3) │                   │
-│  │  panel_states | comments │                   │
-│  └──────────────────────────┘                   │
-└─────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│  Browser (Frontend)                                       │
+│  ┌────────────────────────────────────────────────────┐  │
+│  │  SessionCard (1-view mode)                          │  │
+│  │  ┌───────────────┬────────────────────────────────┐│  │
+│  │  │  Terminal      │  Side Panel                    ││  │
+│  │  │  (xterm.js)    │                                ││  │
+│  │  │               │  Files mode:                   ││  │
+│  │  │               │  ┌─────────┬──────────────┐   ││  │
+│  │  │               │  │FileTree │ FileViewer    │   ││  │
+│  │  │               │  │(narrow) │ (Monaco tabs) │   ││  │
+│  │  │               │  └─────────┴──────────────┘   ││  │
+│  │  │               │                                ││  │
+│  │  │               │  Git mode:                     ││  │
+│  │  │               │  ┌────────────┬───────────┐   ││  │
+│  │  │               │  │Old (left)  │New (right)│   ││  │
+│  │  │               │  │ gutter [+] │ gutter [+]│   ││  │
+│  │  │               │  │ inline comments         │   ││  │
+│  │  │               │  └────────────┴───────────┘   ││  │
+│  │  │               │                                ││  │
+│  │  │               │  Preview mode: [iframe]        ││  │
+│  │  └───────────────┴────────────────────────────────┘│  │
+│  └────────────────────────────────────────────────────┘  │
+│                                                           │
+│  REST API calls               WebSocket events            │
+│    ↕                            ↕                         │
+└───────────────────────────────────────────────────────────┘
+         │                             │
+         ↓                             ↓
+┌───────────────────────────────────────────────────────────┐
+│  Backend (Express + WS) — UNCHANGED in v2                  │
+│  ┌──────────┐  ┌───────────┐  ┌──────────────┐           │
+│  │ Panel    │  │ Comment   │  │ File/Git/    │           │
+│  │ State    │  │ CRUD +    │  │ Port APIs    │           │
+│  │ API      │  │ Delivery  │  │ (existing)   │           │
+│  └────┬─────┘  └────┬──────┘  └──────────────┘           │
+│       │              │                                     │
+│       ↓              ↓                                     │
+│  ┌──────────────────────────┐                             │
+│  │  SQLite (better-sqlite3) │                             │
+│  │  panel_states | comments │                             │
+│  └──────────────────────────┘                             │
+└───────────────────────────────────────────────────────────┘
 ```
