@@ -12,7 +12,6 @@ interface SessionCardProps {
   session: Session;
   focused?: boolean;
   isSingleView?: boolean;
-  detectedPort?: { port: number; localPort: number } | null;
   onContinue?: (id: string) => void;
   onKill?: (id: string) => void;
   onToggleLock?: (id: string, lock: boolean) => void;
@@ -30,7 +29,6 @@ export function SessionCard({
   session,
   focused = false,
   isSingleView = false,
-  detectedPort = null,
   onContinue,
   onKill,
   onToggleLock,
@@ -44,6 +42,9 @@ export function SessionCard({
   const [fileChangeVersion, setFileChangeVersion] = useState(0);
   const fileChangeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Port detection — managed internally from WebSocket events
+  const [detectedPort, setDetectedPort] = useState<{ port: number; localPort: number } | null>(null);
+
   const handleWsMessage = useCallback((msg: WsServerMessage) => {
     if (msg.type === 'file_changed') {
       if (fileChangeDebounceRef.current) {
@@ -52,6 +53,9 @@ export function SessionCard({
       fileChangeDebounceRef.current = setTimeout(() => {
         setFileChangeVersion((v) => v + 1);
       }, 1000);
+    }
+    if (msg.type === 'port_detected') {
+      setDetectedPort({ port: msg.port, localPort: msg.localPort });
     }
   }, []);
 
@@ -76,22 +80,33 @@ export function SessionCard({
     setResizingSide('right');
   }, []);
 
+  // Minimum pixel widths for responsive layout
+  const MIN_PANEL_PX = 200;
+  const MIN_TERMINAL_PX = 300;
+
   useEffect(() => {
     if (!resizingSide) return;
 
     const handleMouseMove = (e: MouseEvent) => {
       if (!containerRef.current) return;
       const rect = containerRef.current.getBoundingClientRect();
-      const percent = ((e.clientX - rect.left) / rect.width) * 100;
+      const containerWidth = rect.width;
+      const percent = ((e.clientX - rect.left) / containerWidth) * 100;
 
       if (resizingSide === 'left') {
-        // Left drag handle: controls left panel width directly
-        const clamped = Math.max(15, Math.min(50, percent));
+        // Enforce minimum pixel widths
+        const minLeftPercent = (MIN_PANEL_PX / containerWidth) * 100;
+        const otherPanelPercent = showRightPanel ? panel.rightWidthPercent : 0;
+        const maxLeftPercent = 100 - ((MIN_TERMINAL_PX / containerWidth) * 100) - otherPanelPercent;
+        const clamped = Math.max(minLeftPercent, Math.min(maxLeftPercent, percent));
         panel.setLeftWidth(Math.round(clamped));
       } else {
         // Right drag handle: controls right panel width (inverted)
         const rightPercent = 100 - percent;
-        const clamped = Math.max(15, Math.min(50, rightPercent));
+        const minRightPercent = (MIN_PANEL_PX / containerWidth) * 100;
+        const otherPanelPercent = showLeftPanel ? panel.leftWidthPercent : 0;
+        const maxRightPercent = 100 - ((MIN_TERMINAL_PX / containerWidth) * 100) - otherPanelPercent;
+        const clamped = Math.max(minRightPercent, Math.min(maxRightPercent, rightPercent));
         panel.setRightWidth(Math.round(clamped));
       }
     };
@@ -106,7 +121,7 @@ export function SessionCard({
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [resizingSide, panel]);
+  }, [resizingSide, panel, showLeftPanel, showRightPanel]);
 
   const handleFileSelect = useCallback((filePath: string) => {
     panel.addFileTab(filePath);
@@ -119,6 +134,34 @@ export function SessionCard({
     if (showRightPanel) width -= panel.rightWidthPercent;
     return width;
   })();
+
+  // Check if viewport can accommodate opening a panel
+  const canOpenPanel = useCallback((side: 'left' | 'right'): boolean => {
+    if (!containerRef.current) return true;
+    const containerWidth = containerRef.current.getBoundingClientRect().width;
+    const otherPanelOpen = side === 'left' ? showRightPanel : showLeftPanel;
+    const neededWidth = MIN_PANEL_PX + MIN_TERMINAL_PX + (otherPanelOpen ? MIN_PANEL_PX : 0);
+    return containerWidth >= neededWidth;
+  }, [showLeftPanel, showRightPanel]);
+
+  const handleTogglePanel = useCallback((panelType: 'files' | 'git' | 'preview') => {
+    // If we're closing a panel, always allow it
+    if (panelType === 'files' && panel.leftPanel === 'files') {
+      panel.openPanel('files');
+      return;
+    }
+    if ((panelType === 'git' && panel.rightPanel === 'git') ||
+        (panelType === 'preview' && panel.rightPanel === 'preview')) {
+      panel.openPanel(panelType);
+      return;
+    }
+    // Opening a panel — check if viewport is wide enough
+    const side = panelType === 'files' ? 'left' : 'right';
+    if (!canOpenPanel(side)) {
+      return; // Viewport too narrow
+    }
+    panel.openPanel(panelType);
+  }, [panel, canOpenPanel]);
 
   const closeLeftPanel = useCallback(() => {
     panel.openPanel('files');
@@ -198,7 +241,7 @@ export function SessionCard({
       {showToolbar && (
         <div className="flex items-center gap-1 px-3 py-1.5 border-b border-gray-700 bg-gray-850">
           <button
-            onClick={() => panel.openPanel('files')}
+            onClick={() => handleTogglePanel('files')}
             className={`px-2 py-1 text-xs rounded transition-colors ${
               panel.leftPanel === 'files'
                 ? 'bg-blue-500/20 text-blue-400'
@@ -209,7 +252,7 @@ export function SessionCard({
             Files
           </button>
           <button
-            onClick={() => panel.openPanel('git')}
+            onClick={() => handleTogglePanel('git')}
             className={`px-2 py-1 text-xs rounded transition-colors ${
               panel.rightPanel === 'git'
                 ? 'bg-blue-500/20 text-blue-400'
@@ -220,7 +263,7 @@ export function SessionCard({
             Git
           </button>
           <button
-            onClick={() => panel.openPanel('preview')}
+            onClick={() => handleTogglePanel('preview')}
             className={`px-2 py-1 text-xs rounded transition-colors ${
               panel.rightPanel === 'preview'
                 ? 'bg-green-500/20 text-green-400'

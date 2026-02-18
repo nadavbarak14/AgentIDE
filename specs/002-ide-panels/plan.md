@@ -1,110 +1,119 @@
-# Implementation Plan: IDE Panels v4
+# Implementation Plan: IDE Panels v5 — Diff Fix, Responsive, Preview, Mouse Selection
 
 **Branch**: `002-ide-panels` | **Date**: 2026-02-18 | **Spec**: `specs/002-ide-panels/spec.md`
-**Input**: v4 clarifications — dual-panel mode, writable files, terminal clipboard
+**Input**: Feature specification from `/specs/002-ide-panels/spec.md` — v5 clarification session
+
+**Context**: This is a v5 update. The v1-v4 code is committed (PR #3) with 104 tests passing. Changes needed:
+1. Fix diff content cutoff (overflow-hidden clips, new files waste 50% space)
+2. Add gutter drag + text selection for multi-line comments
+3. Responsive panel layout with min-width constraints
+4. Wire WebSocket port detection to LivePreview
 
 ## Summary
 
-Three changes to the IDE panels feature:
-1. **Dual-panel mode**: Support showing Files (LEFT) and Git (RIGHT) panels simultaneously in a three-column layout
-2. **Writable file editor**: Change Monaco from read-only to editable with save-to-disk support (Ctrl+S)
-3. **Terminal clipboard**: Enable copy/paste in xterm.js terminal via clipboard addon
+Four targeted improvements addressing user-reported issues: (1) fix diff view clipping long lines and wasting space for new files, (2) add two mouse-based methods for multi-line comment selection, (3) enforce min-widths so panels remain usable on smaller screens, (4) connect port detection to preview so the embedded browser works.
 
 ## Technical Context
 
 **Language/Version**: TypeScript 5.x, Node.js 20 LTS
-**Primary Dependencies**: React 18, Monaco Editor, xterm.js 5, Express 4, better-sqlite3
-**Storage**: SQLite (existing panel_states table)
-**Testing**: Vitest 2.1
-**Target Platform**: Web browser (Chrome, Firefox, Safari)
-**Project Type**: Web application (backend + frontend workspaces)
+**Primary Dependencies**: React 18, Tailwind CSS 3, xterm.js 5, Monaco Editor, Express
+**Storage**: SQLite (better-sqlite3) — no schema changes in v5
+**Testing**: Vitest 2.1 (104 tests: 92 backend + 12 frontend)
+**Target Platform**: Web browser (desktop)
+**Project Type**: Web application (frontend + backend workspaces)
+**Constraints**: All changes are frontend-only in v5 — no backend modifications needed
 
 ## Constitution Check
 
-- **I. Testing**: All changes will have tests
-- **II. UX-First**: Dual-panel and writable files improve UX
-- **III. UI Consistency**: Three-column layout follows IDE conventions
-- **IV. Simplicity**: Minimal changes to existing code
-- **V. CI/CD**: PR workflow with rebase merge
-- **VI. Frontend Plugins**: Using established xterm.js addon
-- **VII. Backend Security**: File write uses existing path sanitization
-- **VIII. Observability**: File save operations logged
+*GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-All gates pass.
+| Principle | Status | Notes |
+|-----------|--------|-------|
+| I. Comprehensive Testing | PASS | Frontend tests for new behavior; backend unchanged |
+| II. UX-First Design | PASS | All changes driven by user feedback on specific pain points |
+| III. UI Quality & Consistency | PASS | Responsive layout, overflow fix, polish |
+| IV. Simplicity | PASS | Targeted fixes, no new abstractions |
+| V. CI/CD Pipeline | PASS | Will push, wait CI, merge via PR |
+| VI. Frontend Plugin Quality | PASS | No new plugins needed |
+| VII. Backend Security | PASS | No backend changes in v5 |
+| VIII. Observability | PASS | No new backend operations |
+
+No violations. All changes align with principles.
 
 ## Project Structure
+
+### Documentation (this feature)
+
+```text
+specs/002-ide-panels/
+├── plan.md              # This file (v5 update)
+├── research.md          # R18-R21 added for v5
+├── spec.md              # FR-024 through FR-027 added for v5
+├── data-model.md        # Unchanged
+├── quickstart.md        # Updated for v5
+├── contracts/           # Unchanged — no new API endpoints
+└── tasks.md             # Will be regenerated for v5
+```
+
+### Source Code (repository root)
 
 ```text
 backend/
 ├── src/
-│   ├── api/routes/files.ts          # ADD: PUT endpoint for file save
-│   └── worker/file-reader.ts        # ADD: writeFile() function
-└── tests/
+│   ├── models/          # Unchanged in v5
+│   ├── services/        # Unchanged in v5
+│   ├── api/             # Unchanged in v5
+│   └── worker/          # Unchanged in v5
+└── tests/               # Unchanged in v5
 
 frontend/
 ├── src/
 │   ├── components/
-│   │   ├── SessionCard.tsx          # MODIFY: three-column layout with dual panels
-│   │   └── FileViewer.tsx           # MODIFY: writable editor + save
+│   │   ├── SessionCard.tsx    # MODIFY: responsive min-widths, port detection
+│   │   ├── SessionGrid.tsx    # MODIFY: remove detectedPort prop passthrough
+│   │   ├── DiffViewer.tsx     # MODIFY: overflow fix, new-file layout, gutter drag, text selection
+│   │   └── LivePreview.tsx    # Unchanged (already functional)
 │   ├── hooks/
-│   │   ├── usePanel.ts              # MODIFY: dual-panel state (leftPanel + rightPanel)
-│   │   └── useTerminal.ts           # MODIFY: clipboard addon
+│   │   └── usePanel.ts        # Unchanged
 │   └── services/
-│       └── api.ts                   # ADD: files.save() method
+│       └── api.ts             # Unchanged
 └── tests/
 ```
 
-## Code Changes
+**Structure Decision**: Web application structure. All v5 changes are frontend-only (3 component files).
 
-### Change 1: Dual-Panel Mode (Files + Git simultaneously)
+## Changes Summary
 
-**Files modified**: `usePanel.ts`, `SessionCard.tsx`, `api.ts` (panel state type)
+### 1. Diff Content Cutoff Fix (FR-025, R19)
 
-**usePanel.ts changes**:
-- Replace single `activePanel` state with `leftPanel: 'none' | 'files'` and `rightPanel: 'none' | 'git' | 'preview'`
-- Replace `openPanel()` with `togglePanel()` that toggles the appropriate side
-- Add `leftWidthPercent` (default 25%) and `rightWidthPercent` (default 35%) as separate width states
-- Keep backward-compatible persistence: save both `leftPanel` and `rightPanel` to panel_states. When loading old data that only has `activePanel`, map it to the appropriate side
-- Computed `activePanel` getter for backward compatibility
+**Files**: `frontend/src/components/DiffViewer.tsx`
 
-**SessionCard.tsx changes**:
-- Three-column flex layout: `[Left Panel? | Drag Handle? | Terminal | Drag Handle? | Right Panel?]`
-- Terminal width = `100% - leftWidth - rightWidth` (only subtracting panels that are open)
-- Two independent drag handles with separate resize logic
-- Toolbar buttons toggle panels independently (click "Files" toggles left panel, click "Git" toggles right panel)
-- Active button highlighting: each button highlighted independently based on its panel state
+- Change `overflow-hidden` to `overflow-x-auto` on DiffCell content div
+- For new files (changeType "A"), render single-column full-width layout instead of `grid-cols-2`
+- Keep side-by-side for modified/deleted files
 
-**Panel state persistence**:
-- Update `PanelStateData` interface to add `leftPanel` and `rightPanel` fields
-- Backend schema unchanged (JSON column stores whatever fields we send)
-- Backward compatibility: if loaded state has `activePanel` but no `leftPanel`/`rightPanel`, map it
+### 2. Multi-Line Comment Selection (FR-024, R18)
 
-### Change 2: Writable File Editor
+**Files**: `frontend/src/components/DiffViewer.tsx`
 
-**Files modified**: `FileViewer.tsx`, `api.ts`, `files.ts` (backend route), `file-reader.ts`
+- **Gutter drag**: Add `onMouseDown` → track `isDragging` → `onMouseMove` extends range → `onMouseUp` opens comment input
+- **Text selection**: Add `mouseup` listener on diff content. Check `window.getSelection()`. Walk DOM to find line numbers. Show floating "Comment" button.
+- Both methods set `selectedLines` and reuse existing comment flow
 
-**Backend**:
-- Add `writeFile(basePath, filePath, content)` to `file-reader.ts` — uses same `resolveSafePath()` for security, writes content via `fs.writeFileSync()`
-- Add `PUT /api/sessions/:id/files/content` route in `files.ts` — validates session, sanitizes path, calls `writeFile()`
+### 3. Responsive Panel Layout (FR-026, R20)
 
-**Frontend API**:
-- Add `files.save(sessionId, filePath, content)` method
+**Files**: `frontend/src/components/SessionCard.tsx`
 
-**FileViewer.tsx**:
-- Change `readOnly: true` to `readOnly: false`
-- Track `isModified` state — set true when Monaco `onChange` fires and content differs from last loaded
-- Add `handleSave` callback: calls `files.save()`, updates `prevContentRef`, clears `isModified`
-- Add Ctrl+S handler via Monaco's `addCommand` (intercepts before browser default)
-- Show modified indicator: dot or bullet on the tab when `isModified` is true
-- Show brief "Saved" toast/indicator after successful save
+- Enforce min-widths: panels 200px, terminal 300px
+- In resize handler: clamp percentages based on container pixel width
+- In panel toggle: prevent opening second panel if viewport too narrow
+- Drag handles enforce minimums during resize
 
-### Change 3: Terminal Clipboard Support
+### 4. Port Detection → LivePreview (FR-027, R21)
 
-**Files modified**: `useTerminal.ts`, `package.json` (new dependency)
+**Files**: `frontend/src/components/SessionCard.tsx`, `frontend/src/components/SessionGrid.tsx`
 
-- Install `@xterm/addon-clipboard`
-- Import and load `ClipboardAddon` in `useTerminal.ts` after terminal creation
-- The addon automatically handles:
-  - Ctrl+C: copy selected text (or send SIGINT if no selection)
-  - Ctrl+V: paste from clipboard
-  - Right-click: context menu with copy/paste options
+- In `SessionCard`, listen for `port_detected` in `handleWsMessage` and store in state
+- Pass state-managed port to `LivePreview` instead of (always-null) prop
+- Remove unused `detectedPort` prop from `SessionCardProps`
+- Remove unused prop passthrough from `SessionGrid`
