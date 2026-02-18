@@ -8,6 +8,8 @@ import { createSessionLogger, logger } from './logger.js';
 export class SessionManager extends EventEmitter {
   private activePtys = new Map<string, PtyProcess>();
   private suspendingIds = new Set<string>();
+  // Sessions that should start fresh (no --continue flag)
+  private startFreshIds = new Set<string>();
   // Suspend guard: sessions that have NOT yet received user input since activation.
   // A session is only eligible for auto-suspend after the user has engaged with it
   // (sent input), which proves the session "did work" in response.
@@ -26,11 +28,17 @@ export class SessionManager extends EventEmitter {
 
   /**
    * Create a new session. Auto-activates if a slot is available.
+   * When startFresh=true, session starts without --continue flag.
+   * Otherwise, --continue is used so Claude resumes the latest conversation in that directory.
    */
-  createSession(input: CreateSessionInput): Session {
+  createSession(input: CreateSessionInput, startFresh = false): Session {
     const session = this.repo.createSession(input);
     const log = createSessionLogger(session.id);
-    log.info({ title: session.title, dir: session.workingDirectory }, 'session created');
+    log.info({ title: session.title, dir: session.workingDirectory, startFresh }, 'session created');
+
+    if (startFresh) {
+      this.startFreshIds.add(session.id);
+    }
 
     // Try to activate immediately if slot available
     if (this.queueManager.hasAvailableSlot()) {
@@ -51,6 +59,9 @@ export class SessionManager extends EventEmitter {
     try {
       let ptyProc: PtyProcess;
 
+      const isStartFresh = this.startFreshIds.has(sessionId);
+      this.startFreshIds.delete(sessionId);
+
       if (session.continuationCount > 0 && session.claudeSessionId) {
         // Continue a previous session with claude -c <specific-id>
         log.info({ claudeSessionId: session.claudeSessionId }, 'continuing session with claude -c <id>');
@@ -59,14 +70,14 @@ export class SessionManager extends EventEmitter {
           session.workingDirectory,
           session.claudeSessionId,
         );
-      } else if (session.continuationCount > 0) {
-        // Restart without a specific session ID — use claude --continue (most recent in dir)
-        log.info({ dir: session.workingDirectory }, 'restarting session with claude --continue (no specific ID)');
-        ptyProc = this.ptySpawner.spawn(sessionId, session.workingDirectory, ['--continue']);
-      } else {
-        // New session — spawn claude
-        log.info('spawning new claude process');
+      } else if (isStartFresh) {
+        // Start fresh — no --continue flag
+        log.info('spawning new claude process (start fresh)');
         ptyProc = this.ptySpawner.spawn(sessionId, session.workingDirectory);
+      } else {
+        // Default: use --continue to resume most recent Claude session in this directory
+        log.info({ dir: session.workingDirectory }, 'spawning claude with --continue');
+        ptyProc = this.ptySpawner.spawn(sessionId, session.workingDirectory, ['--continue']);
       }
 
       this.activePtys.set(sessionId, ptyProc);
