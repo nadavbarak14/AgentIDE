@@ -58,7 +58,7 @@
 - [x] T008 Run all tests (npm test) — verify all 119+ tests pass (92+ backend, 27+ frontend)
 - [x] T009 Run lint (npm run lint) — verify no lint errors
 - [x] T010 Run build (npm run build) — verify TypeScript compiles and Vite builds successfully
-- [ ] T011 Commit and push to existing PR #3 on branch `002-ide-panels`
+- [x] T011 Commit and push to existing PR #3 on branch `002-ide-panels`
 
 ---
 
