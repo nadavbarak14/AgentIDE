@@ -48,6 +48,7 @@ export function SessionGrid({
             key={session.id}
             session={session}
             focused={true}
+            isSingleView={displayedSessions.length === 1}
             onContinue={onContinue}
             onKill={onKill}
             onToggleLock={onToggleLock}

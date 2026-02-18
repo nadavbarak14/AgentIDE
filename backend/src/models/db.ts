@@ -64,6 +64,36 @@ CREATE INDEX IF NOT EXISTS idx_sessions_worker ON sessions(worker_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_position ON sessions(position);
 CREATE INDEX IF NOT EXISTS idx_sessions_needs_input ON sessions(needs_input);
 CREATE INDEX IF NOT EXISTS idx_artifacts_session ON artifacts(session_id);
+
+CREATE TABLE IF NOT EXISTS panel_states (
+  session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+  active_panel TEXT NOT NULL DEFAULT 'none'
+    CHECK(active_panel IN ('none', 'files', 'git', 'preview')),
+  file_tabs TEXT NOT NULL DEFAULT '[]',
+  active_tab_index INTEGER NOT NULL DEFAULT 0,
+  tab_scroll_positions TEXT NOT NULL DEFAULT '{}',
+  git_scroll_position INTEGER NOT NULL DEFAULT 0,
+  preview_url TEXT NOT NULL DEFAULT '',
+  panel_width_percent INTEGER NOT NULL DEFAULT 40,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS comments (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  file_path TEXT NOT NULL,
+  start_line INTEGER NOT NULL,
+  end_line INTEGER NOT NULL,
+  code_snippet TEXT NOT NULL,
+  comment_text TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK(status IN ('pending', 'sent')),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  sent_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_comments_session ON comments(session_id);
+CREATE INDEX IF NOT EXISTS idx_comments_status ON comments(status);
 `;
 
 const SEED = `

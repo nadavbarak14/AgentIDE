@@ -1,0 +1,287 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import express from 'express';
+import request from 'supertest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { createTestDb, closeDb } from '../../src/models/db.js';
+import { Repository } from '../../src/models/repository.js';
+import { createSessionsRouter } from '../../src/api/routes/sessions.js';
+import { QueueManager } from '../../src/services/queue-manager.js';
+import { PtySpawner } from '../../src/worker/pty-spawner.js';
+import { SessionManager } from '../../src/services/session-manager.js';
+
+function createMockPtySpawner(): PtySpawner {
+  const spawner = new PtySpawner();
+  spawner.spawn = function (sessionId: string, _workingDirectory: string, _args?: string[]) {
+    const fakePid = Math.floor(Math.random() * 90000) + 10000;
+    return {
+      pid: fakePid,
+      sessionId,
+      write: () => {},
+      resize: () => {},
+      kill: () => {
+        spawner.emit('exit', sessionId, 0, 'mock-claude-session-id');
+      },
+    };
+  };
+  spawner.spawnContinue = spawner.spawn;
+  return spawner;
+}
+
+describe('IDE Panels API', () => {
+  let app: express.Express;
+  let repo: Repository;
+  let sessionManager: SessionManager;
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'c3-test-'));
+    const db = createTestDb();
+    repo = new Repository(db);
+    const ptySpawner = createMockPtySpawner();
+    const queueManager = new QueueManager(repo);
+    sessionManager = new SessionManager(repo, ptySpawner, queueManager);
+    app = express();
+    app.use(express.json());
+    app.use('/api/sessions', createSessionsRouter(repo, sessionManager));
+  });
+
+  afterEach(() => {
+    sessionManager.destroy();
+    closeDb();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  describe('Panel State', () => {
+    it('returns 404 for session with no saved panel state', async () => {
+      const session = repo.createSession({ workingDirectory: path.join(tmpDir, 'p1'), title: 'S1' });
+      const res = await request(app).get(`/api/sessions/${session.id}/panel-state`);
+      expect(res.status).toBe(404);
+    });
+
+    it('saves and retrieves panel state', async () => {
+      const session = repo.createSession({ workingDirectory: path.join(tmpDir, 'p1'), title: 'S1' });
+
+      const putRes = await request(app)
+        .put(`/api/sessions/${session.id}/panel-state`)
+        .send({
+          activePanel: 'files',
+          fileTabs: ['src/index.ts'],
+          activeTabIndex: 0,
+          tabScrollPositions: { 'src/index.ts': { line: 42, column: 0 } },
+          gitScrollPosition: 0,
+          previewUrl: '',
+          panelWidthPercent: 40,
+        });
+      expect(putRes.status).toBe(200);
+      expect(putRes.body.success).toBe(true);
+
+      const getRes = await request(app).get(`/api/sessions/${session.id}/panel-state`);
+      expect(getRes.status).toBe(200);
+      expect(getRes.body.activePanel).toBe('files');
+      expect(getRes.body.fileTabs).toEqual(['src/index.ts']);
+    });
+
+    it('rejects invalid activePanel', async () => {
+      const session = repo.createSession({ workingDirectory: path.join(tmpDir, 'p1'), title: 'S1' });
+      const res = await request(app)
+        .put(`/api/sessions/${session.id}/panel-state`)
+        .send({
+          activePanel: 'invalid',
+          fileTabs: [],
+          activeTabIndex: 0,
+          tabScrollPositions: {},
+          gitScrollPosition: 0,
+          previewUrl: '',
+          panelWidthPercent: 40,
+        });
+      expect(res.status).toBe(400);
+    });
+
+    it('rejects panelWidthPercent outside 20-80', async () => {
+      const session = repo.createSession({ workingDirectory: path.join(tmpDir, 'p1'), title: 'S1' });
+      const res = await request(app)
+        .put(`/api/sessions/${session.id}/panel-state`)
+        .send({
+          activePanel: 'files',
+          fileTabs: [],
+          activeTabIndex: 0,
+          tabScrollPositions: {},
+          gitScrollPosition: 0,
+          previewUrl: '',
+          panelWidthPercent: 90,
+        });
+      expect(res.status).toBe(400);
+    });
+
+    it('cascades panel state delete when session is deleted', async () => {
+      const session = repo.createSession({ workingDirectory: path.join(tmpDir, 'p1'), title: 'S1' });
+      await request(app)
+        .put(`/api/sessions/${session.id}/panel-state`)
+        .send({
+          activePanel: 'files',
+          fileTabs: [],
+          activeTabIndex: 0,
+          tabScrollPositions: {},
+          gitScrollPosition: 0,
+          previewUrl: '',
+          panelWidthPercent: 40,
+        });
+
+      await request(app).delete(`/api/sessions/${session.id}`);
+
+      // Session deleted, panel state should be gone
+      expect(repo.getPanelState(session.id)).toBeNull();
+    });
+  });
+
+  describe('Comments', () => {
+    it('creates a comment and returns 201', async () => {
+      const dir = path.join(tmpDir, 'p1');
+      const createRes = await request(app)
+        .post('/api/sessions')
+        .send({ workingDirectory: dir, title: 'S1' });
+      const sessionId = createRes.body.id;
+
+      const res = await request(app)
+        .post(`/api/sessions/${sessionId}/comments`)
+        .send({
+          filePath: 'src/App.tsx',
+          startLine: 42,
+          endLine: 45,
+          codeSnippet: 'const count = users.length;',
+          commentText: 'Rename this variable',
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.id).toBeTruthy();
+      expect(res.body.filePath).toBe('src/App.tsx');
+      expect(res.body.commentText).toBe('Rename this variable');
+      // Session is active, so comment should be sent
+      expect(res.body.status).toBe('sent');
+    });
+
+    it('lists comments ordered by createdAt', async () => {
+      const session = repo.createSession({ workingDirectory: path.join(tmpDir, 'p1'), title: 'S1' });
+      repo.createComment({
+        sessionId: session.id,
+        filePath: 'a.ts',
+        startLine: 1,
+        endLine: 1,
+        codeSnippet: 'code',
+        commentText: 'First',
+      });
+      repo.createComment({
+        sessionId: session.id,
+        filePath: 'b.ts',
+        startLine: 5,
+        endLine: 5,
+        codeSnippet: 'code',
+        commentText: 'Second',
+      });
+
+      const res = await request(app).get(`/api/sessions/${session.id}/comments`);
+      expect(res.status).toBe(200);
+      expect(res.body.comments).toHaveLength(2);
+      expect(res.body.comments[0].commentText).toBe('First');
+    });
+
+    it('creates pending comment for inactive session', async () => {
+      const session = repo.createSession({ workingDirectory: path.join(tmpDir, 'p1'), title: 'S1' });
+      // Session is queued (inactive)
+
+      const res = await request(app)
+        .post(`/api/sessions/${session.id}/comments`)
+        .send({
+          filePath: 'src/utils.ts',
+          startLine: 10,
+          endLine: 10,
+          codeSnippet: 'export function foo() {',
+          commentText: 'Rename this function',
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.status).toBe('pending');
+    });
+
+    it('rejects filePath with path traversal', async () => {
+      const session = repo.createSession({ workingDirectory: path.join(tmpDir, 'p1'), title: 'S1' });
+
+      const res = await request(app)
+        .post(`/api/sessions/${session.id}/comments`)
+        .send({
+          filePath: '../../../etc/passwd',
+          startLine: 1,
+          endLine: 1,
+          codeSnippet: 'code',
+          commentText: 'comment',
+        });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('rejects empty commentText', async () => {
+      const session = repo.createSession({ workingDirectory: path.join(tmpDir, 'p1'), title: 'S1' });
+
+      const res = await request(app)
+        .post(`/api/sessions/${session.id}/comments`)
+        .send({
+          filePath: 'a.ts',
+          startLine: 1,
+          endLine: 1,
+          codeSnippet: 'code',
+          commentText: '',
+        });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('rejects endLine < startLine', async () => {
+      const session = repo.createSession({ workingDirectory: path.join(tmpDir, 'p1'), title: 'S1' });
+
+      const res = await request(app)
+        .post(`/api/sessions/${session.id}/comments`)
+        .send({
+          filePath: 'a.ts',
+          startLine: 10,
+          endLine: 5,
+          codeSnippet: 'code',
+          commentText: 'comment',
+        });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('delivers pending comments', async () => {
+      const dir = path.join(tmpDir, 'p1');
+      const createRes = await request(app)
+        .post('/api/sessions')
+        .send({ workingDirectory: dir, title: 'S1' });
+      const sessionId = createRes.body.id;
+
+      // Create comments directly in repo as pending
+      repo.createComment({
+        sessionId,
+        filePath: 'a.ts',
+        startLine: 1,
+        endLine: 1,
+        codeSnippet: 'code',
+        commentText: 'Pending 1',
+      });
+      repo.createComment({
+        sessionId,
+        filePath: 'b.ts',
+        startLine: 5,
+        endLine: 5,
+        codeSnippet: 'code',
+        commentText: 'Pending 2',
+      });
+
+      const res = await request(app).post(`/api/sessions/${sessionId}/comments/deliver`);
+      expect(res.status).toBe(200);
+      expect(res.body.count).toBe(2);
+      expect(res.body.delivered).toHaveLength(2);
+    });
+  });
+});

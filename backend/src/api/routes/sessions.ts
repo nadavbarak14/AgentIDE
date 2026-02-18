@@ -139,6 +139,89 @@ export function createSessionsRouter(repo: Repository, sessionManager: SessionMa
     res.json({ ok: true });
   });
 
+  // GET /api/sessions/:id/panel-state — retrieve panel state
+  router.get('/:id/panel-state', validateUuid('id'), (req, res) => {
+    const id = String(req.params.id);
+    const session = repo.getSession(id);
+    if (!session) {
+      res.status(404).json({ error: 'Session not found' });
+      return;
+    }
+    const state = repo.getPanelState(id);
+    if (!state) {
+      res.status(404).json({ error: 'No panel state found for session' });
+      return;
+    }
+    res.json(state);
+  });
+
+  // PUT /api/sessions/:id/panel-state — save/update panel state
+  router.put('/:id/panel-state', validateUuid('id'), (req, res) => {
+    const id = String(req.params.id);
+    const session = repo.getSession(id);
+    if (!session) {
+      res.status(404).json({ error: 'Session not found' });
+      return;
+    }
+
+    const { activePanel, fileTabs, activeTabIndex, tabScrollPositions, gitScrollPosition, previewUrl, panelWidthPercent } = req.body;
+
+    // Validate activePanel
+    const validPanels = ['none', 'files', 'git', 'preview'];
+    if (!activePanel || !validPanels.includes(activePanel)) {
+      res.status(400).json({ error: 'Invalid activePanel value. Must be one of: none, files, git, preview' });
+      return;
+    }
+
+    // Validate fileTabs
+    if (!Array.isArray(fileTabs)) {
+      res.status(400).json({ error: 'fileTabs must be an array' });
+      return;
+    }
+
+    // Validate activeTabIndex
+    if (typeof activeTabIndex !== 'number' || activeTabIndex < 0) {
+      res.status(400).json({ error: 'activeTabIndex must be a non-negative integer' });
+      return;
+    }
+
+    // Validate tabScrollPositions
+    if (typeof tabScrollPositions !== 'object' || tabScrollPositions === null || Array.isArray(tabScrollPositions)) {
+      res.status(400).json({ error: 'tabScrollPositions must be an object' });
+      return;
+    }
+
+    // Validate gitScrollPosition
+    if (typeof gitScrollPosition !== 'number' || gitScrollPosition < 0) {
+      res.status(400).json({ error: 'gitScrollPosition must be a non-negative integer' });
+      return;
+    }
+
+    // Validate previewUrl
+    if (typeof previewUrl !== 'string') {
+      res.status(400).json({ error: 'previewUrl must be a string' });
+      return;
+    }
+
+    // Validate panelWidthPercent
+    if (typeof panelWidthPercent !== 'number' || panelWidthPercent < 20 || panelWidthPercent > 80) {
+      res.status(400).json({ error: 'panelWidthPercent must be an integer between 20 and 80' });
+      return;
+    }
+
+    repo.savePanelState(id, {
+      activePanel,
+      fileTabs,
+      activeTabIndex,
+      tabScrollPositions,
+      gitScrollPosition,
+      previewUrl,
+      panelWidthPercent,
+    });
+
+    res.json({ success: true });
+  });
+
   // POST /api/sessions/:id/input — send input to an active session
   router.post('/:id/input', validateUuid('id'), (req, res) => {
     const id = String(req.params.id);
@@ -160,5 +243,129 @@ export function createSessionsRouter(repo: Repository, sessionManager: SessionMa
     res.json({ ok: true });
   });
 
+  // GET /api/sessions/:id/comments — list comments
+  router.get('/:id/comments', validateUuid('id'), (req, res) => {
+    const id = String(req.params.id);
+    const session = repo.getSession(id);
+    if (!session) {
+      res.status(404).json({ error: 'Session not found' });
+      return;
+    }
+
+    const status = req.query.status as string | undefined;
+    if (status && !['pending', 'sent'].includes(status)) {
+      res.status(400).json({ error: 'Invalid status filter. Must be pending or sent' });
+      return;
+    }
+
+    const comments = status
+      ? repo.getCommentsByStatus(id, status as 'pending' | 'sent')
+      : repo.getComments(id);
+    res.json({ comments });
+  });
+
+  // POST /api/sessions/:id/comments — create a comment
+  router.post('/:id/comments', validateUuid('id'), (req, res) => {
+    const id = String(req.params.id);
+    const session = repo.getSession(id);
+    if (!session) {
+      res.status(404).json({ error: 'Session not found' });
+      return;
+    }
+
+    const { filePath, startLine, endLine, codeSnippet, commentText } = req.body;
+
+    // Validate filePath
+    if (typeof filePath !== 'string' || !filePath) {
+      res.status(400).json({ error: 'filePath is required' });
+      return;
+    }
+    if (filePath.includes('..') || filePath.includes('\0')) {
+      res.status(400).json({ error: 'filePath must not contain path traversal characters' });
+      return;
+    }
+
+    // Validate line numbers
+    if (typeof startLine !== 'number' || startLine < 1) {
+      res.status(400).json({ error: 'startLine must be an integer >= 1' });
+      return;
+    }
+    if (typeof endLine !== 'number' || endLine < startLine) {
+      res.status(400).json({ error: 'endLine must be >= startLine' });
+      return;
+    }
+
+    // Validate text fields
+    if (typeof codeSnippet !== 'string' || !codeSnippet) {
+      res.status(400).json({ error: 'codeSnippet is required' });
+      return;
+    }
+    if (typeof commentText !== 'string' || !commentText) {
+      res.status(400).json({ error: 'commentText is required' });
+      return;
+    }
+
+    const comment = repo.createComment({ sessionId: id, filePath, startLine, endLine, codeSnippet, commentText });
+    logger.info({ sessionId: id, commentId: comment.id, filePath, startLine, endLine }, 'comment created');
+
+    // If session is active, inject comment into PTY
+    if (session.status === 'active') {
+      const message = composeCommentMessage(filePath, startLine, endLine, codeSnippet, commentText);
+      try {
+        sessionManager.sendInput(id, message);
+        repo.markCommentSent(comment.id);
+        comment.status = 'sent';
+        comment.sentAt = new Date().toISOString();
+        logger.info({ sessionId: id, commentId: comment.id }, 'comment delivered to active session');
+      } catch (err) {
+        logger.error({ sessionId: id, commentId: comment.id, err }, 'failed to deliver comment');
+      }
+    }
+
+    res.status(201).json(comment);
+  });
+
+  // POST /api/sessions/:id/comments/deliver — deliver pending comments
+  router.post('/:id/comments/deliver', validateUuid('id'), (req, res) => {
+    const id = String(req.params.id);
+    const session = repo.getSession(id);
+    if (!session) {
+      res.status(404).json({ error: 'Session not found' });
+      return;
+    }
+
+    const pending = repo.getCommentsByStatus(id, 'pending');
+    const delivered: string[] = [];
+
+    for (const comment of pending) {
+      const message = composeCommentMessage(comment.filePath, comment.startLine, comment.endLine, comment.codeSnippet, comment.commentText);
+      try {
+        sessionManager.sendInput(id, message);
+        repo.markCommentSent(comment.id);
+        delivered.push(comment.id);
+        logger.info({ sessionId: id, commentId: comment.id }, 'pending comment delivered');
+      } catch (err) {
+        logger.error({ sessionId: id, commentId: comment.id, err }, 'failed to deliver pending comment');
+      }
+    }
+
+    res.json({ delivered, count: delivered.length });
+  });
+
   return router;
+}
+
+/**
+ * Compose a contextual comment message for injection into the session PTY.
+ * Format follows research.md R2 — structured message with file context.
+ */
+function composeCommentMessage(
+  filePath: string,
+  startLine: number,
+  endLine: number,
+  codeSnippet: string,
+  commentText: string,
+): string {
+  const lineRange = startLine === endLine ? `line ${startLine}` : `lines ${startLine}-${endLine}`;
+  return `\n[Code Review Comment]\nFile: ${filePath} (${lineRange})\nCode:\n${codeSnippet}\n\nFeedback: ${commentText}\n\nPlease address this feedback.\n`;
 }
