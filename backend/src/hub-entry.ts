@@ -14,7 +14,8 @@ import { createFilesRouter } from './api/routes/files.js';
 import { createWorkersRouter } from './api/routes/workers.js';
 import { createDirectoriesRouter } from './api/routes/directories.js';
 import { createHooksRouter } from './api/routes/hooks.js';
-import { setupWebSocket } from './api/websocket.js';
+import { setupWebSocket, broadcastToSession } from './api/websocket.js';
+import { FileWatcher } from './worker/file-watcher.js';
 import { requestLogger, errorHandler } from './api/middleware.js';
 import { logger } from './services/logger.js';
 
@@ -38,6 +39,41 @@ async function main() {
   const queueManager = new QueueManager(repo);
   const sessionManager = new SessionManager(repo, ptySpawner, queueManager);
   const workerManager = new WorkerManager(repo);
+
+  // File watcher — watches session working directories for changes
+  const fileWatcher = new FileWatcher();
+
+  // Wire file change events → WebSocket broadcasts
+  fileWatcher.on('changes', (event: { sessionId: string; paths: string[]; timestamp: string }) => {
+    broadcastToSession(event.sessionId, {
+      type: 'file_changed',
+      paths: event.paths,
+      timestamp: event.timestamp,
+    });
+  });
+
+  fileWatcher.on('port_change', (event: { sessionId: string; port: number; pid: number; process: string; action: string }) => {
+    broadcastToSession(event.sessionId, {
+      type: 'port_change',
+      port: event.port,
+      pid: event.pid,
+      process: event.process,
+      action: event.action,
+    });
+  });
+
+  // Start/stop watching when sessions activate/complete
+  sessionManager.on('session_activated', (session: { id: string; workingDirectory: string; pid: number | null }) => {
+    fileWatcher.startWatching(session.id, session.workingDirectory, session.pid || undefined);
+  });
+
+  sessionManager.on('session_completed', (sessionId: string) => {
+    fileWatcher.stopWatching(sessionId);
+  });
+
+  sessionManager.on('session_failed', (sessionId: string) => {
+    fileWatcher.stopWatching(sessionId);
+  });
 
   // Resume sessions that were active before restart
   sessionManager.resumeSessions(ptySpawner);
@@ -86,6 +122,7 @@ async function main() {
     logger.info('shutting down...');
     queueManager.stopAutoDispatch();
     workerManager.destroy();
+    fileWatcher.destroy();
     ptySpawner.destroy();
     server.close();
     db.close();
