@@ -58,7 +58,7 @@ export function FileViewer({
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState(false);
   const [isModified, setIsModified] = useState(false);
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const flashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveStatusTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevContentRef = useRef<string>('');
@@ -110,7 +110,9 @@ export function FileViewer({
       if (saveStatusTimeoutRef.current) clearTimeout(saveStatusTimeoutRef.current);
       saveStatusTimeoutRef.current = setTimeout(() => setSaveStatus('idle'), 1500);
     } catch {
-      setSaveStatus('idle');
+      setSaveStatus('error');
+      if (saveStatusTimeoutRef.current) clearTimeout(saveStatusTimeoutRef.current);
+      saveStatusTimeoutRef.current = setTimeout(() => setSaveStatus('idle'), 3000);
     }
   }, [sessionId, filePath]);
 
@@ -184,9 +186,9 @@ export function FileViewer({
       {/* Save Status */}
       {saveStatus !== 'idle' && (
         <div className={`px-3 py-0.5 text-xs border-b border-gray-700 ${
-          saveStatus === 'saving' ? 'text-gray-400' : 'text-green-400'
+          saveStatus === 'saving' ? 'text-gray-400' : saveStatus === 'error' ? 'text-red-400' : 'text-green-400'
         }`}>
-          {saveStatus === 'saving' ? 'Saving...' : 'Saved'}
+          {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'error' ? 'Save failed' : 'Saved'}
         </div>
       )}
 
