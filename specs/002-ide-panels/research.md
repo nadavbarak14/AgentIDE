@@ -378,3 +378,37 @@ Comment: This variable should be named `userCount` not `count` to avoid ambiguit
 - **Always hidden**: Would lose discoverability of overflow sessions. Rejected.
 - **Dropdown menu instead of strip**: Less visual, harder to scan. Rejected.
 - **Virtual scrolling in main grid**: Over-engineered — the overflow strip serves a different purpose (secondary sessions). Rejected.
+
+## R25: Background Diff Refresh Without Loading Spinner (v7)
+
+**Decision**: Split the DiffViewer's load effect into two paths: (1) initial load — shows "Loading diff..." spinner when `diff === null`, and (2) background refresh — silently re-fetches diff data when `refreshKey` changes while a diff is already loaded. The background fetch replaces `diff` and `parsedFiles` state in-place without touching `loading`. The `selectedFile`, scroll position, and `existingComments` (pending comments) are separate state variables and are not affected by the data swap.
+
+**Rationale**: The Files panel already updates smoothly via background re-fetch (FileTree and FileViewer receive new `refreshKey` and reload without a spinner). The Git panel should behave identically. The current implementation calls `setLoading(true)` on every refreshKey change, causing a full-screen "Loading diff..." flash that interrupts the user's review.
+
+**Implementation approach**:
+- Keep the existing `useEffect` for initial load (when `diff` is null or `sessionId` changes)
+- Add a separate `useEffect` for refreshKey changes: only runs when `diff !== null` (i.e., already loaded). Calls `filesApi.diff(sessionId)` silently and updates `diff` + `parsedFiles` without touching `loading`
+- Use a ref (`prevRefreshKeyRef`) to detect actual refreshKey changes vs. initial mount
+- If the background fetch fails, silently ignore (keep showing existing diff)
+
+**Alternatives considered**:
+- **Debounce + loading skeleton**: Still shows visual disruption. Rejected.
+- **Optimistic update (diff locally)**: Would require local git logic. Over-engineered. Rejected.
+- **Polling instead of event-driven**: Already have file watcher events. Polling adds unnecessary load. Rejected.
+
+## R26: Ephemeral Comments — Clear After Delivery (v7)
+
+**Decision**: Comments are ephemeral feedback. After "Send All" successfully delivers comments to the Claude session via the deliver endpoint, the frontend clears them from `existingComments` state (removing them from the diff view). The backend deletes the delivered comments from the database in the same deliver request — they have served their purpose and don't need to persist.
+
+**Rationale**: User explicitly said "lets remove comments, they don't need to stay just used to give feedback to claude." Comments are a communication mechanism, not a persistent record. Keeping delivered comments clutters the diff view with stale feedback and confuses users about which comments are actionable.
+
+**Implementation approach**:
+- Frontend (DiffViewer.tsx `handleSendAll`): After `commentsApi.deliver()` succeeds, filter out delivered comment IDs from `existingComments` state
+- Backend (sessions.ts deliver endpoint): After marking comments as 'sent' and injecting into PTY, delete them from the database using `repo.deleteComment(id)` or a batch delete
+- Backend (repository.ts): Add `deleteCommentsByIds(ids: string[])` method if not present
+- The comment entity in the database becomes truly transient — created on "Add Comment", deleted on "Send All"
+
+**Alternatives considered**:
+- **Keep in DB, hide in UI**: Adds complexity with no benefit. If the user wants to see comment history, they can see it in the Claude session's terminal output. Rejected.
+- **Auto-expire after N minutes**: Over-engineered for feedback that should be explicit. Rejected.
+- **Soft-delete (mark as 'archived')**: No use case for retrieving old comments. Rejected.

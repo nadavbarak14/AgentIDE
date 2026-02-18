@@ -160,8 +160,8 @@ describe('IDE Panels API', () => {
       expect(res.body.id).toBeTruthy();
       expect(res.body.filePath).toBe('src/App.tsx');
       expect(res.body.commentText).toBe('Rename this variable');
-      // Session is active, so comment should be sent
-      expect(res.body.status).toBe('sent');
+      // Comments are always created as 'pending' — use deliver endpoint to send
+      expect(res.body.status).toBe('pending');
     });
 
     it('lists comments ordered by createdAt', async () => {
@@ -284,6 +284,76 @@ describe('IDE Panels API', () => {
       expect(res.status).toBe(200);
       expect(res.body.count).toBe(2);
       expect(res.body.delivered).toHaveLength(2);
+    });
+
+    it('deletes comments from DB after successful delivery (ephemeral)', async () => {
+      const dir = path.join(tmpDir, 'p1');
+      const createRes = await request(app)
+        .post('/api/sessions')
+        .send({ workingDirectory: dir, title: 'S1' });
+      const sessionId = createRes.body.id;
+
+      repo.createComment({
+        sessionId,
+        filePath: 'a.ts',
+        startLine: 1,
+        endLine: 1,
+        codeSnippet: 'code',
+        commentText: 'Ephemeral comment',
+      });
+
+      // Verify comment exists before delivery
+      const before = repo.getComments(sessionId);
+      expect(before).toHaveLength(1);
+
+      await request(app).post(`/api/sessions/${sessionId}/comments/deliver`);
+
+      // After delivery, comments should be deleted from DB
+      const after = repo.getComments(sessionId);
+      expect(after).toHaveLength(0);
+    });
+
+    it('deleteCommentsByIds removes specific comments', () => {
+      const session = repo.createSession({ workingDirectory: path.join(tmpDir, 'p1'), title: 'S1' });
+
+      const c1 = repo.createComment({
+        sessionId: session.id,
+        filePath: 'a.ts',
+        startLine: 1,
+        endLine: 1,
+        codeSnippet: 'code',
+        commentText: 'Comment 1',
+      });
+      const c2 = repo.createComment({
+        sessionId: session.id,
+        filePath: 'b.ts',
+        startLine: 2,
+        endLine: 2,
+        codeSnippet: 'code',
+        commentText: 'Comment 2',
+      });
+      repo.createComment({
+        sessionId: session.id,
+        filePath: 'c.ts',
+        startLine: 3,
+        endLine: 3,
+        codeSnippet: 'code',
+        commentText: 'Comment 3',
+      });
+
+      // Delete only first two
+      const deleted = repo.deleteCommentsByIds([c1.id, c2.id]);
+      expect(deleted).toBe(2);
+
+      // Third comment should remain
+      const remaining = repo.getComments(session.id);
+      expect(remaining).toHaveLength(1);
+      expect(remaining[0].commentText).toBe('Comment 3');
+    });
+
+    it('deleteCommentsByIds returns 0 for empty array', () => {
+      const deleted = repo.deleteCommentsByIds([]);
+      expect(deleted).toBe(0);
     });
   });
 

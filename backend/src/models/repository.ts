@@ -509,4 +509,13 @@ export class Repository {
       .prepare("UPDATE comments SET status = 'sent', sent_at = datetime('now') WHERE id = ?")
       .run(commentId);
   }
+
+  deleteCommentsByIds(ids: string[]): number {
+    if (ids.length === 0) return 0;
+    const placeholders = ids.map(() => '?').join(',');
+    const result = this.db
+      .prepare(`DELETE FROM comments WHERE id IN (${placeholders})`)
+      .run(...ids);
+    return result.changes;
+  }
 }

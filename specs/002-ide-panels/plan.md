@@ -1,41 +1,38 @@
-# Implementation Plan: IDE Panels v6 — Diff Fix, Sidebar Toggle, Collapsible Overflow
+# Implementation Plan: IDE Panels v7 — Real-Time Git Diff + Ephemeral Comments
 
 **Branch**: `002-ide-panels` | **Date**: 2026-02-18 | **Spec**: `specs/002-ide-panels/spec.md`
-**Input**: Feature specification from `/specs/002-ide-panels/spec.md` — v6 clarification session
-
-**Context**: This is a v6 update. The v1-v5 code is committed with 112 tests passing. Changes needed:
-1. Fix diff scrollbars — remove all horizontal scrollbars, use word wrapping instead
-2. Collapsible SessionQueue sidebar with toggle button in top bar
-3. Collapsible "More Sessions" overflow strip
+**Input**: v7 clarifications — real-time Git diff auto-refresh (FR-030), ephemeral comments (FR-009/FR-010 updated)
 
 ## Summary
 
-Three targeted improvements: (1) fix the diff view CSS so long lines wrap cleanly without any scrollbars on individual lines or the content area horizontally, (2) add a sidebar toggle button so users can hide the SessionQueue to reclaim screen space, (3) make the "More Sessions" overflow strip collapsible to a compact count bar.
+Two changes in v7:
+1. **Real-time Git diff refresh**: The DiffViewer currently shows a "Loading diff..." spinner every time `refreshKey` changes (file watcher event). Fix: fetch new diff in the background and swap data in-place, preserving selected file, scroll position, and pending comments. Same responsiveness as the Files panel.
+2. **Ephemeral comments**: After "Send All" delivers comments to Claude, clear them from the diff view entirely. No "Sent" badges, no comment history. Comments exist only as transient feedback. Also clean up: delete delivered comments from the backend database after delivery.
 
 ## Technical Context
 
 **Language/Version**: TypeScript 5.x, Node.js 20 LTS
-**Primary Dependencies**: React 18, Tailwind CSS 3, xterm.js 5, Monaco Editor, Express
-**Storage**: SQLite (better-sqlite3) — no schema changes in v6
-**Testing**: Vitest 2.1 (112 tests: 92 backend + 20 frontend)
-**Target Platform**: Web browser (desktop)
-**Project Type**: Web application (frontend + backend workspaces)
-**Constraints**: All changes are frontend-only in v6 — no backend modifications needed
+**Primary Dependencies**: React 18, Tailwind CSS 3, Express, SQLite (better-sqlite3)
+**Storage**: SQLite (comments table already exists)
+**Testing**: Vitest 2.1 (92 backend + 27 frontend tests)
+**Target Platform**: Linux server, modern browser
+**Project Type**: Web application (monorepo: backend/ + frontend/)
+**Constraints**: All changes frontend-only except comment cleanup on deliver
 
 ## Constitution Check
 
-| Principle | Status | Notes |
-|-----------|--------|-------|
-| I. Comprehensive Testing | PASS | Frontend tests for new behavior; backend unchanged |
-| II. UX-First Design | PASS | All changes driven by user feedback on specific pain points |
-| III. UI Quality & Consistency | PASS | Removing ugly scrollbars, collapsible UI elements |
-| IV. Simplicity | PASS | Targeted fixes, localStorage for toggle state |
-| V. CI/CD Pipeline | PASS | Will push, wait CI, merge via PR |
-| VI. Frontend Plugin Quality | PASS | No new plugins needed |
-| VII. Backend Security | PASS | No backend changes in v6 |
-| VIII. Observability | PASS | No new backend operations |
+*GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-No violations. All changes align with principles.
+| # | Principle | Status | Notes |
+|---|-----------|--------|-------|
+| I | Comprehensive Testing | PASS | Will add tests for background refresh behavior and ephemeral comment clearing |
+| II | UX-First Design | PASS | Background refresh eliminates disruptive loading spinner; clearing sent comments reduces UI clutter |
+| III | UI Quality & Consistency | PASS | Matches Files panel behavior (smooth background updates) |
+| IV | Simplicity | PASS | Two targeted changes, no new abstractions |
+| V | CI/CD Pipeline | PASS | Will verify tests + lint + build before commit |
+| VI | Frontend Plugin Quality | PASS | No new dependencies |
+| VII | Backend Security | PASS | Comment deletion uses existing safe patterns |
+| VIII | Observability | PASS | Existing logging covers deliver + delete operations |
 
 ## Project Structure
 
@@ -43,61 +40,60 @@ No violations. All changes align with principles.
 
 ```text
 specs/002-ide-panels/
-├── plan.md              # This file (v6 update)
-├── research.md          # R22-R24 added for v6
-├── spec.md              # FR-028, FR-029 added for v6
-├── data-model.md        # Unchanged
-├── quickstart.md        # Updated for v6
-├── contracts/           # Unchanged — no new API endpoints
-└── tasks.md             # Will be regenerated for v6
+├── plan.md              # This file (v7)
+├── research.md          # R1-R24 (v1-v6) + R25-R26 (v7)
+├── spec.md              # Updated with v7 clarifications
+├── quickstart.md        # Updated for v7
+└── tasks.md             # Generated by /speckit.tasks
 ```
 
-### Source Code (repository root)
+### Source Code (files modified in v7)
 
 ```text
 frontend/
 ├── src/
-│   ├── components/
-│   │   ├── DiffViewer.tsx     # MODIFY: fix scrollbar CSS
-│   │   ├── SessionGrid.tsx    # MODIFY: add collapsible overflow strip
-│   │   └── SessionQueue.tsx   # No internal changes — parent controls visibility
-│   ├── pages/
-│   │   └── Dashboard.tsx      # MODIFY: add sidebar toggle button, manage toggle state
-│   └── hooks/
-│       └── usePanel.ts        # Unchanged
+│   └── components/
+│       └── DiffViewer.tsx     # Background refresh, ephemeral comment clearing
 └── tests/
     └── unit/
-        └── v6-features.test.ts  # NEW: v6 tests
+        └── v7-features.test.ts  # Tests for v7 changes
+
+backend/
+├── src/
+│   └── api/
+│       └── routes/sessions.ts  # Delete comments after delivery
+└── tests/
+    └── integration/
+        └── ide-panels.test.ts  # Update deliver test expectations
 ```
 
-**Structure Decision**: Web application structure. All v6 changes are frontend-only (3 component files + 1 test file).
+## Changes
 
-## Changes Summary
+### Change 1: Background Diff Refresh (FR-030)
 
-### 1. Diff Scrollbar Fix (FR-025 update, R22)
+**Problem**: When `refreshKey` changes (file watcher event), `DiffViewer` calls `setLoading(true)` → fetches diff → `setLoading(false)`. This flashes "Loading diff..." on every file change, disrupting the user's review.
 
-**Files**: `frontend/src/components/DiffViewer.tsx`
+**Solution**: Fetch the new diff without setting `loading = true`. Only show loading on initial load (when `diff` is null). On subsequent refreshes, fetch in the background and silently replace `diff` and `parsedFiles` state. The selected file, scroll position, and pending comments are preserved because they're separate state variables that aren't reset.
 
-- Change DiffCell content div from `whitespace-pre-wrap break-all` to `whitespace-pre-wrap` with `overflow-wrap: anywhere` (Tailwind: `break-all` → `[overflow-wrap:anywhere]`)
-  - `break-all` is too aggressive — it breaks in the middle of any word including short ones. `overflow-wrap: anywhere` only breaks when a word would overflow, preferring natural break points
-- Verify the main diff content container keeps `overflow-auto` for vertical scrolling only — no horizontal scrollbar should appear since all content wraps
-- Verify the side-by-side layout still renders correctly with wrapping
+**Specific change in DiffViewer.tsx**:
+- Split the load effect into initial load (shows spinner) vs. background refresh (silent)
+- On refreshKey change when diff already exists: fetch without `setLoading(true)`
+- Only show loading spinner when `diff === null` (first load or error)
 
-### 2. Collapsible SessionQueue Sidebar (FR-028, R23)
+### Change 2: Ephemeral Comments (FR-009, FR-010)
 
-**Files**: `frontend/src/pages/Dashboard.tsx`
+**Problem**: After "Send All" delivers comments, they remain in the diff view with "Sent" / "Pending" badges. The user wanted comments to be temporary feedback — once sent, they should disappear.
 
-- Add `sidebarOpen` state (default `true`), persist to `localStorage` key `c3-sidebar-open`
-- Add toggle button in top bar (right side, before settings). Chevron icon: `>>` when open (hides sidebar), `<<` when closed (shows sidebar)
-- Conditionally render `SessionQueue` based on `sidebarOpen`
-- Smooth transition: wrap sidebar in a container with `transition-all duration-200` and toggle between `w-80` and `w-0 overflow-hidden`
+**Solution**: After `commentsApi.deliver()` succeeds in `handleSendAll`, clear `existingComments` that were delivered. On the backend, the deliver endpoint should delete comments from the database after marking them sent (they served their purpose).
 
-### 3. Collapsible "More Sessions" Overflow Strip (FR-029, R24)
+**Frontend changes (DiffViewer.tsx)**:
+- In `handleSendAll`: after deliver succeeds, remove delivered comments from `existingComments` state
+- Remove the "Pending"/"Sent" badge rendering — comments only show while pending (yellow indicator), then vanish after send
 
-**Files**: `frontend/src/components/SessionGrid.tsx`
+**Backend changes (sessions.ts)**:
+- In `POST /comments/deliver`: after successfully injecting and marking comments as sent, delete them from the database. They're ephemeral.
+- Add `deleteComment(id)` to repository if not present, or use existing delete functionality.
 
-- Add `overflowCollapsed` state (default `true` — start collapsed for cleaner look)
-- Persist to `localStorage` key `c3-overflow-collapsed`
-- When collapsed: show compact bar with count "+N more" and a down-chevron
-- When expanded: show existing horizontal mini-card strip with an up-chevron to collapse
-- Click the bar to toggle
+## Complexity Tracking
+
+No violations. Both changes are simple, targeted modifications to existing code.

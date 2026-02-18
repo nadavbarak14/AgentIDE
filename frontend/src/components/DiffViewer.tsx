@@ -8,15 +8,6 @@ interface DiffViewerProps {
   refreshKey?: number;
 }
 
-interface DraftComment {
-  id: string;
-  filePath: string;
-  startLine: number;
-  endLine: number;
-  codeSnippet: string;
-  commentText: string;
-}
-
 export function DiffViewer({ sessionId, onClose, refreshKey = 0 }: DiffViewerProps) {
   const [diff, setDiff] = useState<DiffResult | null>(null);
   const [loading, setLoading] = useState(true);
@@ -26,21 +17,32 @@ export function DiffViewer({ sessionId, onClose, refreshKey = 0 }: DiffViewerPro
   const [showCommentInput, setShowCommentInput] = useState(false);
   const [commentText, setCommentText] = useState('');
   const [existingComments, setExistingComments] = useState<CommentData[]>([]);
+  const [savingComment, setSavingComment] = useState(false);
+  const [sendingAll, setSendingAll] = useState(false);
 
-  // Draft comments — local state for batch submission
-  const [draftComments, setDraftComments] = useState<DraftComment[]>([]);
-  const [submittingAll, setSubmittingAll] = useState(false);
+  // Track previous refreshKey to distinguish initial load from background refresh
+  const prevRefreshKeyRef = useRef(refreshKey);
 
-  // Load diff
+  // Load diff — initial load shows spinner, subsequent refreshKey changes fetch silently
   useEffect(() => {
-    setLoading(true);
+    const isBackgroundRefresh = diff !== null && prevRefreshKeyRef.current !== refreshKey;
+    prevRefreshKeyRef.current = refreshKey;
+
+    if (!isBackgroundRefresh) {
+      setLoading(true);
+    }
+
     filesApi.diff(sessionId)
       .then((result) => {
         setDiff(result);
         setParsedFiles(parseDiff(result.diff));
       })
-      .catch(() => setDiff(null))
-      .finally(() => setLoading(false));
+      .catch(() => {
+        if (!isBackgroundRefresh) setDiff(null);
+      })
+      .finally(() => {
+        if (!isBackgroundRefresh) setLoading(false);
+      });
   }, [sessionId, refreshKey]);
 
   // Load existing comments
@@ -64,14 +66,13 @@ export function DiffViewer({ sessionId, onClose, refreshKey = 0 }: DiffViewerPro
     setCommentText('');
   }, [selectedLines]);
 
-  // "Add Comment" — saves to local draft state (not to backend)
-  const handleAddComment = useCallback(() => {
+  // "Add Comment" — saves to backend immediately as 'pending'
+  const handleAddComment = useCallback(async () => {
     if (!selectedFile || !selectedLines || !commentText.trim()) return;
 
     const file = parsedFiles.find((f) => f.path === selectedFile);
     if (!file) return;
 
-    // Extract code snippet from side-by-side lines
     const selectedContent = file.sideBySideLines
       .filter((pair) => {
         const lineNum = pair.right?.lineNumber ?? pair.left?.lineNumber ?? 0;
@@ -80,48 +81,42 @@ export function DiffViewer({ sessionId, onClose, refreshKey = 0 }: DiffViewerPro
       .map((pair) => (pair.right?.content ?? pair.left?.content ?? ''))
       .join('\n');
 
-    const draft: DraftComment = {
-      id: crypto.randomUUID(),
-      filePath: selectedFile,
-      startLine: selectedLines.start,
-      endLine: selectedLines.end,
-      codeSnippet: selectedContent || '(selected code)',
-      commentText: commentText.trim(),
-    };
-
-    setDraftComments((prev) => [...prev, draft]);
-    setCommentText('');
-    setShowCommentInput(false);
-    setSelectedLines(null);
-  }, [selectedFile, selectedLines, commentText, parsedFiles]);
-
-  // Remove a draft comment
-  const handleRemoveDraft = useCallback((draftId: string) => {
-    setDraftComments((prev) => prev.filter((d) => d.id !== draftId));
-  }, []);
-
-  // "Submit All" — sends all drafts to backend
-  const handleSubmitAll = useCallback(async () => {
-    if (draftComments.length === 0) return;
-    setSubmittingAll(true);
-    const remaining: DraftComment[] = [];
-    for (const draft of draftComments) {
-      try {
-        const created = await commentsApi.create(sessionId, {
-          filePath: draft.filePath,
-          startLine: draft.startLine,
-          endLine: draft.endLine,
-          codeSnippet: draft.codeSnippet,
-          commentText: draft.commentText,
-        });
-        setExistingComments((prev) => [...prev, created]);
-      } catch {
-        remaining.push(draft);
-      }
+    setSavingComment(true);
+    try {
+      const created = await commentsApi.create(sessionId, {
+        filePath: selectedFile,
+        startLine: selectedLines.start,
+        endLine: selectedLines.end,
+        codeSnippet: selectedContent || '(selected code)',
+        commentText: commentText.trim(),
+      });
+      setExistingComments((prev) => [...prev, created]);
+      setCommentText('');
+      setShowCommentInput(false);
+      setSelectedLines(null);
+    } catch {
+      // Keep input open so user can retry
+    } finally {
+      setSavingComment(false);
     }
-    setDraftComments(remaining);
-    setSubmittingAll(false);
-  }, [sessionId, draftComments]);
+  }, [sessionId, selectedFile, selectedLines, commentText, parsedFiles]);
+
+  // "Send All" — delivers all pending comments to the session at once
+  const handleSendAll = useCallback(async () => {
+    const pending = existingComments.filter((c) => c.status === 'pending');
+    if (pending.length === 0) return;
+    setSendingAll(true);
+    try {
+      const result = await commentsApi.deliver(sessionId);
+      // Remove delivered comments from view (ephemeral — already deleted from DB)
+      const deliveredSet = new Set(result.delivered);
+      setExistingComments((prev) => prev.filter((c) => !deliveredSet.has(c.id)));
+    } catch {
+      // Stay as pending
+    } finally {
+      setSendingAll(false);
+    }
+  }, [sessionId, existingComments]);
 
   // Handler for gutter drag / text selection — sets selected lines without opening comment input
   const handleSelectLines = useCallback((start: number, end: number) => {
@@ -143,13 +138,13 @@ export function DiffViewer({ sessionId, onClose, refreshKey = 0 }: DiffViewerPro
               <span className="text-red-400">-{diff.deletions}</span>
             </span>
           )}
-          {draftComments.length > 0 && (
+          {existingComments.filter((c) => c.status === 'pending').length > 0 && (
             <button
-              onClick={handleSubmitAll}
-              disabled={submittingAll}
+              onClick={handleSendAll}
+              disabled={sendingAll}
               className="px-2 py-0.5 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
             >
-              {submittingAll ? 'Submitting...' : `Submit All (${draftComments.length})`}
+              {sendingAll ? 'Sending...' : `Send All (${existingComments.filter((c) => c.status === 'pending').length})`}
             </button>
           )}
         </div>
@@ -211,7 +206,7 @@ export function DiffViewer({ sessionId, onClose, refreshKey = 0 }: DiffViewerPro
                 showCommentInput={showCommentInput}
                 commentText={commentText}
                 existingComments={existingComments}
-                draftComments={draftComments.filter((d) => d.filePath === selectedFile)}
+                savingComment={savingComment}
                 onGutterPlusClick={handleGutterPlusClick}
                 onSelectLines={handleSelectLines}
                 onCommentTextChange={setCommentText}
@@ -221,7 +216,6 @@ export function DiffViewer({ sessionId, onClose, refreshKey = 0 }: DiffViewerPro
                   setCommentText('');
                   setSelectedLines(null);
                 }}
-                onRemoveDraft={handleRemoveDraft}
               />
             ) : (
               <div className="flex items-center justify-center h-full text-gray-500 text-xs">
@@ -244,13 +238,12 @@ interface SideBySideDiffProps {
   showCommentInput: boolean;
   commentText: string;
   existingComments: CommentData[];
-  draftComments: DraftComment[];
+  savingComment: boolean;
   onGutterPlusClick: (lineNum: number, shiftKey: boolean) => void;
   onSelectLines: (start: number, end: number) => void;
   onCommentTextChange: (text: string) => void;
   onCommentSubmit: () => void;
   onCommentCancel: () => void;
-  onRemoveDraft: (draftId: string) => void;
 }
 
 function SideBySideDiff({
@@ -260,13 +253,12 @@ function SideBySideDiff({
   showCommentInput,
   commentText,
   existingComments,
-  draftComments,
+  savingComment,
   onGutterPlusClick,
   onSelectLines,
   onCommentTextChange,
   onCommentSubmit,
   onCommentCancel,
-  onRemoveDraft,
 }: SideBySideDiffProps) {
   const rows = file.sideBySideLines;
   const isNewFile = file.changeType === 'A';
@@ -427,11 +419,6 @@ function SideBySideDiff({
           (c) => c.filePath === filePath && c.startLine === lineNum
         );
 
-        // Draft comments anchored to this line
-        const lineDrafts = draftComments.filter(
-          (d) => d.startLine === lineNum
-        );
-
         return (
           <div key={rowIdx}>
             {/* The side-by-side row (or full-width for new files) */}
@@ -468,35 +455,10 @@ function SideBySideDiff({
               <div className="border-l-2 border-blue-500 bg-blue-500/5 px-3 py-1.5">
                 {lineComments.map((c) => (
                   <div key={c.id} className="text-xs mb-1">
-                    <span className={`inline-block px-1.5 py-0.5 rounded mr-2 text-[10px] ${
-                      c.status === 'sent' ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'
-                    }`}>
-                      {c.status === 'sent' ? 'Sent' : 'Pending'}
+                    <span className="inline-block px-1.5 py-0.5 rounded mr-2 text-[10px] bg-yellow-500/20 text-yellow-400">
+                      Pending
                     </span>
                     <span className="text-gray-300">{c.commentText}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Draft comments — yellow "Draft" badge with remove button */}
-            {lineDrafts.length > 0 && (
-              <div className="border-l-2 border-yellow-500 bg-yellow-500/5 px-3 py-1.5">
-                {lineDrafts.map((d) => (
-                  <div key={d.id} className="text-xs mb-1 flex items-start justify-between">
-                    <div>
-                      <span className="inline-block px-1.5 py-0.5 rounded mr-2 text-[10px] bg-yellow-500/20 text-yellow-400">
-                        Draft
-                      </span>
-                      <span className="text-gray-300">{d.commentText}</span>
-                    </div>
-                    <button
-                      onClick={() => onRemoveDraft(d.id)}
-                      className="text-gray-500 hover:text-red-400 text-xs ml-2 flex-shrink-0"
-                      title="Remove draft"
-                    >
-                      ×
-                    </button>
                   </div>
                 ))}
               </div>
@@ -521,10 +483,10 @@ function SideBySideDiff({
                 <div className="flex gap-2 mt-1">
                   <button
                     onClick={onCommentSubmit}
-                    disabled={!commentText.trim()}
+                    disabled={!commentText.trim() || savingComment}
                     className="px-2 py-1 text-xs bg-yellow-500 text-black rounded hover:bg-yellow-400 disabled:opacity-50"
                   >
-                    Add Comment
+                    {savingComment ? 'Saving...' : 'Add Comment'}
                   </button>
                   <button
                     onClick={onCommentCancel}

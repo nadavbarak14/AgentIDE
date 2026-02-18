@@ -49,31 +49,30 @@ npm test --workspace=frontend
 npm run test:system --workspace=frontend
 ```
 
-## Key Files to Modify (v6 Update)
+## Key Files to Modify (v7 Update)
 
-### Frontend (v6 changes — all frontend-only)
+### Frontend (v7 changes)
 
 | File | Changes |
 |------|---------|
-| `frontend/src/components/DiffViewer.tsx` | **MODIFY**: Fix scrollbar CSS (`break-all` → `overflow-wrap: anywhere`) |
-| `frontend/src/components/SessionGrid.tsx` | **MODIFY**: Add collapsible overflow strip (collapsed by default, "+N more" bar) |
-| `frontend/src/pages/Dashboard.tsx` | **MODIFY**: Add sidebar toggle button in top bar, manage `sidebarOpen` state |
+| `frontend/src/components/DiffViewer.tsx` | **MODIFY**: Background diff refresh (no loading spinner on refreshKey change); clear comments from view after "Send All" delivery |
 
-### Backend (v6 changes)
+### Backend (v7 changes)
 
-None — all v6 changes are frontend-only.
+| File | Changes |
+|------|---------|
+| `backend/src/api/routes/sessions.ts` | **MODIFY**: Delete comments from DB after successful delivery in deliver endpoint |
+| `backend/src/models/repository.ts` | **MODIFY**: Add `deleteCommentsByIds()` method (if needed) |
 
-### Unchanged in v6
+### Unchanged in v7
 
 | File | Status |
 |------|--------|
 | `frontend/src/components/SessionCard.tsx` | Unchanged (v5 changes complete) |
-| `frontend/src/components/SessionQueue.tsx` | Unchanged (parent controls visibility) |
-| `frontend/src/components/FileTree.tsx` | Unchanged |
-| `frontend/src/components/FileViewer.tsx` | Unchanged |
-| `frontend/src/components/LivePreview.tsx` | Unchanged |
+| `frontend/src/components/SessionGrid.tsx` | Unchanged (v6 changes complete) |
+| `frontend/src/pages/Dashboard.tsx` | Unchanged (v6 changes complete) |
 | `frontend/src/hooks/usePanel.ts` | Unchanged |
-| `backend/src/*` | Unchanged |
+| `backend/src/services/session-manager.ts` | Unchanged (v7 batch format already applied) |
 
 ## Feature Flags / Configuration
 
@@ -126,19 +125,20 @@ Method 2 — Text Selection:
   Click button → open comment input for range
 ```
 
-### Batch Comment Flow (v3)
+### Comment Flow (v7 — Ephemeral)
 
 ```
 User clicks "+" on line → Comment box opens
 User types comment → Clicks "Add Comment"
-  → Comment saved to React state as "Draft"
-  → Yellow "Draft" badge shown on diff line
+  → POST /api/sessions/:id/comments (saved as 'pending' in DB)
+  → "Pending" indicator shown on diff line
   → User can switch files, add more comments
 
-User clicks "Submit All (3)" button in header
-  → For each draft comment:
-    → POST /api/sessions/:id/comments
-    → Move draft to existingComments with status "pending" or "sent"
-  → Clear draftComments state
-  → Badge updates to show 0
+User clicks "Send All (3)" button in header
+  → POST /api/sessions/:id/comments/deliver
+  → All pending comments composed into single-line batch message
+  → Injected into Claude session PTY as one input
+  → Comments deleted from DB (ephemeral)
+  → Comments cleared from diff view
+  → Badge disappears
 ```

@@ -12,6 +12,8 @@ Auto-generated from all feature plans. Last updated: 2026-02-17
 - SQLite (existing panel_states table) (002-ide-panels)
 - SQLite (better-sqlite3) — no schema changes in v5 (002-ide-panels)
 - SQLite (better-sqlite3) — no schema changes in v6 (002-ide-panels)
+- TypeScript 5.x, Node.js 20 LTS + React 18, Tailwind CSS 3, Express, SQLite (better-sqlite3) (002-ide-panels)
+- SQLite (comments table already exists) (002-ide-panels)
 
 - TypeScript 5.x, Node.js 20 LTS + React 18, Tailwind CSS 3, xterm.js 5, Monaco Editor, Express, node-pty, ssh2, chokidar, diff2html, ws (001-c3-dashboard)
 
@@ -31,9 +33,9 @@ npm test && npm run lint
 TypeScript 5.x, Node.js 20 LTS: Follow standard conventions
 
 ## Recent Changes
+- 002-ide-panels: Added TypeScript 5.x, Node.js 20 LTS + React 18, Tailwind CSS 3, Express, SQLite (better-sqlite3)
 - 002-ide-panels: Added TypeScript 5.x, Node.js 20 LTS + React 18, Tailwind CSS 3, xterm.js 5, Monaco Editor, Express
 - 002-ide-panels: Added TypeScript 5.x, Node.js 20 LTS + React 18, Tailwind CSS 3, xterm.js 5, Monaco Editor, Express
-- 002-ide-panels: Added TypeScript 5.x, Node.js 20 LTS + React 18, Monaco Editor, xterm.js 5, Express 4, better-sqlite3
 
 
 <!-- MANUAL ADDITIONS START -->

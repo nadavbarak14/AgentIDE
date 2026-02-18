@@ -165,6 +165,16 @@ export function FileViewer({
               </div>
             );
           })}
+          {/* Save Button */}
+          {isModified && (
+            <button
+              onClick={handleSave}
+              disabled={saveStatus === 'saving'}
+              className="ml-auto px-3 py-1 text-xs font-medium bg-blue-600 hover:bg-blue-500 disabled:bg-blue-600/50 text-white rounded mx-1.5 my-0.5 flex-shrink-0 transition-colors"
+            >
+              {saveStatus === 'saving' ? 'Saving...' : 'Save'}
+            </button>
+          )}
         </div>
       )}
 
