@@ -71,7 +71,7 @@ export function createSessionsRouter(repo: Repository, sessionManager: SessionMa
       workingDirectory: resolvedDir,
       title,
       targetWorker: targetWorker || null,
-    });
+    }, !!startFresh);
     logger.info({ sessionId: session.id, status: session.status }, 'new session created');
     res.status(201).json(session);
   });

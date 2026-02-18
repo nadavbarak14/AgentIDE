@@ -63,6 +63,7 @@ export function FileViewer({
   const saveStatusTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevContentRef = useRef<string>('');
   const editorContentRef = useRef<string>('');
+  const saveRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     setLoading(prevContentRef.current === ''); // Only show loading on first load
@@ -99,7 +100,7 @@ export function FileViewer({
   }, []);
 
   const handleSave = useCallback(async () => {
-    if (!isModified) return;
+    if (editorContentRef.current === prevContentRef.current) return;
     setSaveStatus('saving');
     try {
       await filesApi.save(sessionId, filePath, editorContentRef.current);
@@ -111,7 +112,10 @@ export function FileViewer({
     } catch {
       setSaveStatus('idle');
     }
-  }, [sessionId, filePath, isModified]);
+  }, [sessionId, filePath]);
+
+  // Keep ref in sync so Monaco's onMount closure always calls the latest version
+  saveRef.current = handleSave;
 
   const handleEditorChange = useCallback((value: string | undefined) => {
     if (value !== undefined) {
@@ -121,13 +125,12 @@ export function FileViewer({
   }, []);
 
   const handleEditorMount: OnMount = useCallback((editor) => {
-    // Bind Ctrl+S / Cmd+S to save
+    // Bind Ctrl+S / Cmd+S to save — uses ref to avoid stale closure
     editor.addCommand(
-      // Monaco.KeyMod.CtrlCmd | Monaco.KeyCode.KeyS
       2048 | 49, // CtrlCmd = 2048, KeyS = 49
-      () => { handleSave(); },
+      () => { saveRef.current(); },
     );
-  }, [handleSave]);
+  }, []);
 
   const isTruncated = fileSize > ONE_MB;
 
