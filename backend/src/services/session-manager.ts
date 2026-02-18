@@ -255,6 +255,7 @@ export class SessionManager extends EventEmitter {
   /**
    * Deliver any pending comments for a session that just activated.
    * Uses a delay to allow the Claude process to initialize first.
+   * Sends all comments as a single batch message (one PTY write).
    */
   private deliverPendingComments(sessionId: string): void {
     const log = createSessionLogger(sessionId);
@@ -262,18 +263,28 @@ export class SessionManager extends EventEmitter {
       const pending = this.repo.getCommentsByStatus(sessionId, 'pending');
       if (pending.length === 0) return;
 
-      log.info({ count: pending.length }, 'delivering pending comments');
-      for (const comment of pending) {
-        const lineRange = comment.startLine === comment.endLine
-          ? `line ${comment.startLine}`
-          : `lines ${comment.startLine}-${comment.endLine}`;
-        const message = `\n[Code Review Comment]\nFile: ${comment.filePath} (${lineRange})\nCode:\n${comment.codeSnippet}\n\nFeedback: ${comment.commentText}\n\nPlease address this feedback.\n`;
-        try {
-          this.ptySpawner.write(sessionId, message);
+      log.info({ count: pending.length }, 'delivering pending comments as batch');
+
+      // Compose single-line batch message
+      const items = pending.map((c, i) => {
+        const lineRange = c.startLine === c.endLine ? `line ${c.startLine}` : `lines ${c.startLine}-${c.endLine}`;
+        const snippet = c.codeSnippet.replace(/\n/g, ' ').slice(0, 200);
+        return pending.length === 1
+          ? `File: ${c.filePath} (${lineRange}), Code: \`${snippet}\`, Feedback: ${c.commentText}`
+          : `(${i + 1}) File: ${c.filePath} (${lineRange}), Code: \`${snippet}\`, Feedback: ${c.commentText}`;
+      });
+
+      const message = pending.length === 1
+        ? `[Code Review] ${items[0]}. Please address this feedback.\n`
+        : `[Code Review — ${pending.length} comments] ${items.join(' ')}. Please address all comments.\n`;
+
+      try {
+        this.ptySpawner.write(sessionId, message);
+        for (const comment of pending) {
           this.repo.markCommentSent(comment.id);
-        } catch (err) {
-          log.error({ commentId: comment.id, err }, 'failed to deliver pending comment');
         }
+      } catch (err) {
+        log.error({ err }, 'failed to deliver batch comments');
       }
     }, 3000); // Wait 3s for Claude to initialize
   }

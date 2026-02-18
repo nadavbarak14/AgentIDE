@@ -306,26 +306,14 @@ export function createSessionsRouter(repo: Repository, sessionManager: SessionMa
     }
 
     const comment = repo.createComment({ sessionId: id, filePath, startLine, endLine, codeSnippet, commentText });
-    logger.info({ sessionId: id, commentId: comment.id, filePath, startLine, endLine }, 'comment created');
+    logger.info({ sessionId: id, commentId: comment.id, filePath, startLine, endLine }, 'comment created (pending)');
 
-    // If session is active, inject comment into PTY
-    if (session.status === 'active') {
-      const message = composeCommentMessage(filePath, startLine, endLine, codeSnippet, commentText);
-      try {
-        sessionManager.sendInput(id, message);
-        repo.markCommentSent(comment.id);
-        comment.status = 'sent';
-        comment.sentAt = new Date().toISOString();
-        logger.info({ sessionId: id, commentId: comment.id }, 'comment delivered to active session');
-      } catch (err) {
-        logger.error({ sessionId: id, commentId: comment.id, err }, 'failed to deliver comment');
-      }
-    }
-
+    // Comments are always created as 'pending'.
+    // Use POST .../comments/deliver to send all pending comments at once.
     res.status(201).json(comment);
   });
 
-  // POST /api/sessions/:id/comments/deliver — deliver pending comments
+  // POST /api/sessions/:id/comments/deliver — deliver pending comments as a single batch
   router.post('/:id/comments/deliver', validateUuid('id'), (req, res) => {
     const id = String(req.params.id);
     const session = repo.getSession(id);
@@ -334,32 +322,39 @@ export function createSessionsRouter(repo: Repository, sessionManager: SessionMa
       return;
     }
 
-    const pending = repo.getCommentsByStatus(id, 'pending');
-    const delivered: string[] = [];
-
-    for (const comment of pending) {
-      const message = composeCommentMessage(comment.filePath, comment.startLine, comment.endLine, comment.codeSnippet, comment.commentText);
-      try {
-        sessionManager.sendInput(id, message);
-        repo.markCommentSent(comment.id);
-        delivered.push(comment.id);
-        logger.info({ sessionId: id, commentId: comment.id }, 'pending comment delivered');
-      } catch (err) {
-        logger.error({ sessionId: id, commentId: comment.id, err }, 'failed to deliver pending comment');
-      }
+    if (session.status !== 'active') {
+      res.status(400).json({ error: 'Session is not active — comments remain pending' });
+      return;
     }
 
-    res.json({ delivered, count: delivered.length });
+    const pending = repo.getCommentsByStatus(id, 'pending');
+    if (pending.length === 0) {
+      res.json({ delivered: [], count: 0 });
+      return;
+    }
+
+    // Compose one single-line message for all comments and send as one PTY input
+    const batchMessage = composeBatchMessage(pending);
+    try {
+      sessionManager.sendInput(id, batchMessage);
+      const deliveredIds = pending.map((c) => c.id);
+      repo.deleteCommentsByIds(deliveredIds);
+      logger.info({ sessionId: id, count: deliveredIds.length }, 'batch comments delivered and deleted');
+      res.json({ delivered: deliveredIds, count: deliveredIds.length });
+    } catch (err) {
+      logger.error({ sessionId: id, err }, 'failed to deliver batch comments');
+      res.status(500).json({ error: 'Failed to deliver comments to session' });
+    }
   });
 
   return router;
 }
 
 /**
- * Compose a contextual comment message for injection into the session PTY.
- * Format follows research.md R2 — structured message with file context.
+ * Compose a single-line comment for one review item.
+ * No trailing newline — callers batch these and add a final \n to submit.
  */
-function composeCommentMessage(
+function composeSingleComment(
   filePath: string,
   startLine: number,
   endLine: number,
@@ -367,5 +362,21 @@ function composeCommentMessage(
   commentText: string,
 ): string {
   const lineRange = startLine === endLine ? `line ${startLine}` : `lines ${startLine}-${endLine}`;
-  return `\n[Code Review Comment]\nFile: ${filePath} (${lineRange})\nCode:\n${codeSnippet}\n\nFeedback: ${commentText}\n\nPlease address this feedback.\n`;
+  const snippet = codeSnippet.replace(/\n/g, ' ').slice(0, 200);
+  return `File: ${filePath} (${lineRange}), Code: \`${snippet}\`, Feedback: ${commentText}`;
+}
+
+/**
+ * Compose a batch message for delivering comments to the PTY.
+ * Returns a single line ending with \n so the whole thing is submitted as one input.
+ */
+function composeBatchMessage(comments: Array<{ filePath: string; startLine: number; endLine: number; codeSnippet: string; commentText: string }>): string {
+  if (comments.length === 1) {
+    const c = comments[0];
+    return `[Code Review] ${composeSingleComment(c.filePath, c.startLine, c.endLine, c.codeSnippet, c.commentText)}. Please address this feedback.\n`;
+  }
+  const items = comments.map((c, i) =>
+    `(${i + 1}) ${composeSingleComment(c.filePath, c.startLine, c.endLine, c.codeSnippet, c.commentText)}`
+  ).join(' ');
+  return `[Code Review — ${comments.length} comments] ${items}. Please address all comments.\n`;
 }
