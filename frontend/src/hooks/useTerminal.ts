@@ -52,13 +52,18 @@ export function useTerminal(options: UseTerminalOptions = {}) {
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
 
-    // Handle container resize
+    // Handle container resize — debounced to avoid rapid fit/resize during panel transitions
+    let resizeTimer: ReturnType<typeof setTimeout> | null = null;
     const resizeObserver = new ResizeObserver(() => {
-      fitAddon.fit();
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        fitAddon.fit();
+      }, 150);
     });
     resizeObserver.observe(container);
 
     return () => {
+      if (resizeTimer) clearTimeout(resizeTimer);
       resizeObserver.disconnect();
       terminal.dispose();
       terminalRef.current = null;
