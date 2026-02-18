@@ -92,6 +92,8 @@ export interface UpdateSettingsInput {
 
 // Panel State
 export type ActivePanel = 'none' | 'files' | 'git' | 'preview';
+export type LeftPanel = 'none' | 'files';
+export type RightPanel = 'none' | 'git' | 'preview';
 
 export interface ScrollPosition {
   line: number;
@@ -101,6 +103,10 @@ export interface ScrollPosition {
 export interface PanelState {
   sessionId: string;
   activePanel: ActivePanel;
+  leftPanel: LeftPanel;
+  rightPanel: RightPanel;
+  leftWidthPercent: number;
+  rightWidthPercent: number;
   fileTabs: string[];
   activeTabIndex: number;
   tabScrollPositions: Record<string, ScrollPosition>;

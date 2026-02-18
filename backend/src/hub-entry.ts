@@ -111,7 +111,7 @@ async function main() {
 
   // Start server
   server.listen(PORT, () => {
-    logger.info({ port: PORT }, 'C3 Hub started');
+    logger.info({ port: PORT }, 'Multy Hub started');
   });
 
   // Start worker health checks
