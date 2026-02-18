@@ -119,6 +119,8 @@ export interface PanelState {
 // Comment
 export type CommentStatus = 'pending' | 'sent';
 
+export type CommentSide = 'old' | 'new';
+
 export interface Comment {
   id: string;
   sessionId: string;
@@ -128,6 +130,7 @@ export interface Comment {
   codeSnippet: string;
   commentText: string;
   status: CommentStatus;
+  side: CommentSide;
   createdAt: string;
   sentAt: string | null;
 }

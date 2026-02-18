@@ -277,7 +277,7 @@ export function createSessionsRouter(repo: Repository, sessionManager: SessionMa
       return;
     }
 
-    const { filePath, startLine, endLine, codeSnippet, commentText } = req.body;
+    const { filePath, startLine, endLine, codeSnippet, commentText, side } = req.body;
 
     // Validate filePath
     if (typeof filePath !== 'string' || !filePath) {
@@ -309,12 +309,114 @@ export function createSessionsRouter(repo: Repository, sessionManager: SessionMa
       return;
     }
 
-    const comment = repo.createComment({ sessionId: id, filePath, startLine, endLine, codeSnippet, commentText });
+    // Validate side (optional, defaults to 'new')
+    if (side !== undefined && side !== 'old' && side !== 'new') {
+      res.status(400).json({ error: "side must be 'old' or 'new'" });
+      return;
+    }
+
+    const comment = repo.createComment({ sessionId: id, filePath, startLine, endLine, codeSnippet, commentText, side });
     logger.info({ sessionId: id, commentId: comment.id, filePath, startLine, endLine }, 'comment created (pending)');
 
     // Comments are always created as 'pending'.
     // Use POST .../comments/deliver to send all pending comments at once.
     res.status(201).json(comment);
+  });
+
+  // PUT /api/sessions/:id/comments/:commentId — update a pending comment
+  router.put('/:id/comments/:commentId', validateUuid('id'), (req, res) => {
+    const id = String(req.params.id);
+    const commentId = String(req.params.commentId);
+    const session = repo.getSession(id);
+    if (!session) {
+      res.status(404).json({ error: 'Session not found' });
+      return;
+    }
+
+    const { commentText } = req.body;
+    if (typeof commentText !== 'string' || !commentText.trim()) {
+      res.status(400).json({ error: 'commentText is required and must be a non-empty string' });
+      return;
+    }
+
+    // Verify comment belongs to this session
+    const comments = repo.getComments(id);
+    const comment = comments.find((c) => c.id === commentId);
+    if (!comment || comment.status !== 'pending') {
+      res.status(404).json({ error: 'Comment not found or not pending' });
+      return;
+    }
+
+    const updated = repo.updateComment(commentId, commentText.trim());
+    if (!updated) {
+      res.status(404).json({ error: 'Comment not found or not pending' });
+      return;
+    }
+
+    logger.info({ sessionId: id, commentId }, 'comment updated');
+    res.json(updated);
+  });
+
+  // DELETE /api/sessions/:id/comments/:commentId — delete a pending comment
+  router.delete('/:id/comments/:commentId', validateUuid('id'), (req, res) => {
+    const id = String(req.params.id);
+    const commentId = String(req.params.commentId);
+    const session = repo.getSession(id);
+    if (!session) {
+      res.status(404).json({ error: 'Session not found' });
+      return;
+    }
+
+    // Verify comment belongs to this session
+    const comments = repo.getComments(id);
+    const comment = comments.find((c) => c.id === commentId);
+    if (!comment || comment.status !== 'pending') {
+      res.status(404).json({ error: 'Comment not found or not pending' });
+      return;
+    }
+
+    const deleted = repo.deleteComment(commentId);
+    if (!deleted) {
+      res.status(404).json({ error: 'Comment not found or not pending' });
+      return;
+    }
+
+    logger.info({ sessionId: id, commentId }, 'comment deleted');
+    res.json({ success: true });
+  });
+
+  // POST /api/sessions/:id/comments/:commentId/deliver — deliver a single comment immediately
+  router.post('/:id/comments/:commentId/deliver', validateUuid('id'), (req, res) => {
+    const id = String(req.params.id);
+    const commentId = String(req.params.commentId);
+    const session = repo.getSession(id);
+    if (!session) {
+      res.status(404).json({ error: 'Session not found' });
+      return;
+    }
+
+    if (session.status !== 'active') {
+      res.status(400).json({ error: 'Session is not active — comment remains pending' });
+      return;
+    }
+
+    const comments = repo.getComments(id);
+    const comment = comments.find((c) => c.id === commentId);
+    if (!comment || comment.status !== 'pending') {
+      res.status(404).json({ error: 'Comment not found or not pending' });
+      return;
+    }
+
+    const message = composeBatchMessage([comment]);
+    try {
+      sessionManager.sendInput(id, message);
+      repo.deleteCommentsByIds([commentId]);
+      logger.info({ sessionId: id, commentId }, 'single comment delivered and deleted');
+      res.json({ delivered: [commentId], count: 1 });
+    } catch (err) {
+      logger.error({ sessionId: id, commentId, err }, 'failed to deliver single comment');
+      res.status(500).json({ error: 'Failed to deliver comment to session' });
+    }
   });
 
   // POST /api/sessions/:id/comments/deliver — deliver pending comments as a single batch
@@ -364,23 +466,25 @@ function composeSingleComment(
   endLine: number,
   codeSnippet: string,
   commentText: string,
+  side?: string,
 ): string {
   const lineRange = startLine === endLine ? `line ${startLine}` : `lines ${startLine}-${endLine}`;
   const snippet = codeSnippet.replace(/\n/g, ' ').slice(0, 200);
-  return `File: ${filePath} (${lineRange}), Code: \`${snippet}\`, Feedback: ${commentText}`;
+  const sideLabel = side === 'old' ? ' [old/removed code]' : ' [new/added code]';
+  return `File: ${filePath} (${lineRange}${sideLabel}), Code: \`${snippet}\`, Feedback: ${commentText}`;
 }
 
 /**
  * Compose a batch message for delivering comments to the PTY.
  * Returns a single line ending with \n so the whole thing is submitted as one input.
  */
-function composeBatchMessage(comments: Array<{ filePath: string; startLine: number; endLine: number; codeSnippet: string; commentText: string }>): string {
+function composeBatchMessage(comments: Array<{ filePath: string; startLine: number; endLine: number; codeSnippet: string; commentText: string; side?: string }>): string {
   if (comments.length === 1) {
     const c = comments[0];
-    return `[Code Review] ${composeSingleComment(c.filePath, c.startLine, c.endLine, c.codeSnippet, c.commentText)}. Please address this feedback.\n`;
+    return `[Code Review] ${composeSingleComment(c.filePath, c.startLine, c.endLine, c.codeSnippet, c.commentText, c.side)}. Please address this feedback.\n`;
   }
   const items = comments.map((c, i) =>
-    `(${i + 1}) ${composeSingleComment(c.filePath, c.startLine, c.endLine, c.codeSnippet, c.commentText)}`
+    `(${i + 1}) ${composeSingleComment(c.filePath, c.startLine, c.endLine, c.codeSnippet, c.commentText, c.side)}`
   ).join(' ');
   return `[Code Review — ${comments.length} comments] ${items}. Please address all comments.\n`;
 }

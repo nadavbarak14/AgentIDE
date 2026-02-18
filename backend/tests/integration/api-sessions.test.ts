@@ -207,4 +207,166 @@ describe('Sessions API', () => {
       expect(res.status).toBe(409);
     });
   });
+
+  // ─── T005: POST comment with side field ───
+
+  describe('POST /api/sessions/:id/comments with side', () => {
+    it('creates comment with side=old', async () => {
+      const session = repo.createSession({ workingDirectory: path.join(tmpDir, 'p1'), title: 'S1' });
+
+      const res = await request(app)
+        .post(`/api/sessions/${session.id}/comments`)
+        .send({
+          filePath: 'src/app.ts',
+          startLine: 5,
+          endLine: 5,
+          codeSnippet: 'old line',
+          commentText: 'Comment on old',
+          side: 'old',
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.side).toBe('old');
+      expect(res.body.status).toBe('pending');
+    });
+
+    it('defaults side to new when not provided', async () => {
+      const session = repo.createSession({ workingDirectory: path.join(tmpDir, 'p1'), title: 'S1' });
+
+      const res = await request(app)
+        .post(`/api/sessions/${session.id}/comments`)
+        .send({
+          filePath: 'src/app.ts',
+          startLine: 10,
+          endLine: 10,
+          codeSnippet: 'some code',
+          commentText: 'No side specified',
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.side).toBe('new');
+    });
+
+    it('returns 400 for invalid side value', async () => {
+      const session = repo.createSession({ workingDirectory: path.join(tmpDir, 'p1'), title: 'S1' });
+
+      const res = await request(app)
+        .post(`/api/sessions/${session.id}/comments`)
+        .send({
+          filePath: 'src/app.ts',
+          startLine: 1,
+          endLine: 1,
+          codeSnippet: 'code',
+          commentText: 'Bad side',
+          side: 'invalid',
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('side');
+    });
+  });
+
+  // ─── T007: PUT and DELETE comment endpoints ───
+
+  describe('PUT /api/sessions/:id/comments/:commentId', () => {
+    it('updates a pending comment text', async () => {
+      const session = repo.createSession({ workingDirectory: path.join(tmpDir, 'p1'), title: 'S1' });
+      const comment = repo.createComment({
+        sessionId: session.id,
+        filePath: 'src/app.ts',
+        startLine: 10,
+        endLine: 12,
+        codeSnippet: 'const x = 1;',
+        commentText: 'Original feedback',
+      });
+
+      const res = await request(app)
+        .put(`/api/sessions/${session.id}/comments/${comment.id}`)
+        .send({ commentText: 'Updated feedback' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.commentText).toBe('Updated feedback');
+      expect(res.body.id).toBe(comment.id);
+      expect(res.body.status).toBe('pending');
+    });
+
+    it('returns 404 for sent comment', async () => {
+      const session = repo.createSession({ workingDirectory: path.join(tmpDir, 'p1'), title: 'S1' });
+      const comment = repo.createComment({
+        sessionId: session.id,
+        filePath: 'src/app.ts',
+        startLine: 1,
+        endLine: 1,
+        codeSnippet: 'code',
+        commentText: 'Will be sent',
+      });
+      repo.markCommentSent(comment.id);
+
+      const res = await request(app)
+        .put(`/api/sessions/${session.id}/comments/${comment.id}`)
+        .send({ commentText: 'Should fail' });
+
+      expect(res.status).toBe(404);
+    });
+
+    it('returns 400 for empty commentText', async () => {
+      const session = repo.createSession({ workingDirectory: path.join(tmpDir, 'p1'), title: 'S1' });
+      const comment = repo.createComment({
+        sessionId: session.id,
+        filePath: 'src/app.ts',
+        startLine: 1,
+        endLine: 1,
+        codeSnippet: 'code',
+        commentText: 'Original',
+      });
+
+      const res = await request(app)
+        .put(`/api/sessions/${session.id}/comments/${comment.id}`)
+        .send({ commentText: '' });
+
+      expect(res.status).toBe(400);
+    });
+  });
+
+  describe('DELETE /api/sessions/:id/comments/:commentId', () => {
+    it('deletes a pending comment', async () => {
+      const session = repo.createSession({ workingDirectory: path.join(tmpDir, 'p1'), title: 'S1' });
+      const comment = repo.createComment({
+        sessionId: session.id,
+        filePath: 'src/app.ts',
+        startLine: 1,
+        endLine: 1,
+        codeSnippet: 'code',
+        commentText: 'To delete',
+      });
+
+      const res = await request(app)
+        .delete(`/api/sessions/${session.id}/comments/${comment.id}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+
+      // Verify it's gone
+      const comments = repo.getComments(session.id);
+      expect(comments).toHaveLength(0);
+    });
+
+    it('returns 404 for sent comment', async () => {
+      const session = repo.createSession({ workingDirectory: path.join(tmpDir, 'p1'), title: 'S1' });
+      const comment = repo.createComment({
+        sessionId: session.id,
+        filePath: 'src/app.ts',
+        startLine: 1,
+        endLine: 1,
+        codeSnippet: 'code',
+        commentText: 'Sent',
+      });
+      repo.markCommentSent(comment.id);
+
+      const res = await request(app)
+        .delete(`/api/sessions/${session.id}/comments/${comment.id}`);
+
+      expect(res.status).toBe(404);
+    });
+  });
 });
