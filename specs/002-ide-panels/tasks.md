@@ -55,7 +55,7 @@
 - [x] T006 Run `npm test` across both workspaces. Fix any test failures.
 - [x] T007 Run `npm run lint` across both workspaces. Fix any lint errors (unused imports, unused variables from removed code paths).
 - [x] T008 Manually verify the v3 changes: (1) files panel opens on LEFT of terminal, (2) git panel shows vertical file sidebar on left, (3) "Add Comment" saves as draft with yellow badge, (4) "Submit All" sends all drafts at once. Update tasks.md to mark all tasks complete.
-- [ ] T009 Push branch, wait for CI green, rebase-merge to main (Principle V)
+- [x] T009 Push branch, wait for CI green, rebase-merge to main (Principle V)
 
 ---
 
