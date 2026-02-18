@@ -249,24 +249,30 @@ export function SessionCard({
             style={{ width: `${panel.panelWidthPercent}%` }}
           >
             {panel.activePanel === 'files' && (
-              <div className="flex flex-col h-full">
-                {panel.fileTabs.length > 0 ? (
-                  <FileViewer
-                    sessionId={session.id}
-                    filePath={panel.fileTabs[panel.activeTabIndex] || panel.fileTabs[0]}
-                    fileTabs={panel.fileTabs}
-                    activeTabIndex={panel.activeTabIndex}
-                    onTabSelect={panel.setActiveTab}
-                    onTabClose={panel.removeFileTab}
-                    onClose={() => {
-                      // Close all tabs and show tree
-                      panel.fileTabs.forEach((t) => panel.removeFileTab(t));
-                    }}
-                    refreshKey={fileChangeVersion}
-                  />
-                ) : (
+              <div className="flex h-full">
+                {/* File tree — always visible on left */}
+                <div className="w-[200px] min-w-[150px] flex-shrink-0 border-r border-gray-700 overflow-hidden">
                   <FileTree sessionId={session.id} onFileSelect={handleFileSelect} refreshKey={fileChangeVersion} />
-                )}
+                </div>
+                {/* Editor area — right side */}
+                <div className="flex-1 min-w-0">
+                  {panel.fileTabs.length > 0 ? (
+                    <FileViewer
+                      sessionId={session.id}
+                      filePath={panel.fileTabs[panel.activeTabIndex] || panel.fileTabs[0]}
+                      fileTabs={panel.fileTabs}
+                      activeTabIndex={panel.activeTabIndex}
+                      onTabSelect={panel.setActiveTab}
+                      onTabClose={panel.removeFileTab}
+                      onClose={panel.closePanel}
+                      refreshKey={fileChangeVersion}
+                    />
+                  ) : (
+                    <div className="flex items-center justify-center h-full text-gray-500 text-sm">
+                      Select a file to view
+                    </div>
+                  )}
+                </div>
               </div>
             )}
             {panel.activePanel === 'git' && (
