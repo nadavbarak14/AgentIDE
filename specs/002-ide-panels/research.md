@@ -106,3 +106,40 @@ Comment: This variable should be named `userCount` not `count` to avoid ambiguit
 - **Current `<pre>` element with CSS**: Already in FileViewer.tsx. Lacks proper syntax highlighting quality and line numbers. Needs upgrade.
 - **CodeMirror**: Would add another code editor dependency when Monaco already exists. Rejected.
 - **highlight.js**: Simpler but lacks line numbers, minimap, and the polished editor feel. Rejected.
+
+## R9: Side-by-Side Diff Rendering Strategy (v2 Clarification)
+
+**Decision**: Rewrite the diff parser to produce paired left/right line arrays, then render as a CSS grid with two columns. Each row is a `{ left: DiffLine | null, right: DiffLine | null }` pair. Context lines populate both sides. Additions fill only the right (left is an empty placeholder). Deletions fill only the left (right is an empty placeholder). This produces a vertically-aligned side-by-side view.
+
+**Rationale**: The user explicitly requested side-by-side two-column diffs (like GitHub PR "Split" view). This is the standard approach used by GitHub, GitLab, VS Code, and other diff tools. It provides the clearest visual comparison for code review. A custom parser is preferred over adding a heavy diff library since we already parse unified diff output from `git diff`.
+
+**Alternatives considered**:
+- **diff2html library (side-by-side mode)**: Already in the project's dependencies list but not actively used in the frontend. Could generate side-by-side HTML, but would give less control over the gutter "+" comment interaction. Rejected — custom rendering gives full control over the comment UX.
+- **Monaco diff editor**: Monaco has a built-in diff editor mode (`MonacoDiffEditor`). However, it doesn't support custom gutter icons or inline comment boxes, which are essential for the review flow. Rejected.
+- **Keep unified with a toggle**: User was explicit about side-by-side. No toggle needed.
+
+**Implementation notes**:
+- The `parseDiff()` function must track both old-file and new-file line numbers separately
+- Hunk headers contain both ranges: `@@ -oldStart,oldCount +newStart,newCount @@`
+- Context lines increment both counters; additions increment only new; deletions increment only old
+- Empty placeholder cells should be styled with a subtle background to indicate "no change on this side"
+
+## R10: Files Panel Tree+Editor Coexistence (v2 Clarification)
+
+**Decision**: When the files panel is active, render the file tree and file editor side-by-side within the panel — tree as a narrow sidebar (~200px or 30%), editor taking the remaining space. The tree is always visible for navigation.
+
+**Rationale**: The user explicitly requested "tree + editor side-by-side" like a standard IDE (VS Code, IntelliJ). In v1, clicking a file replaced the tree with the editor, losing navigation context. The side-by-side approach maintains IDE ergonomics.
+
+**Alternatives considered**:
+- **Tree replaces editor (v1)**: Current implementation. User found it insufficient — loses navigation. Rejected.
+- **Tree as a collapsible sidebar within the editor**: More complex, not what user requested. Rejected.
+
+## R11: Gutter "+" Icon for Comments (v2 Clarification)
+
+**Decision**: Each line in the diff right column has a "+" icon in the gutter, visible on hover. Clicking opens an inline comment box immediately below that line (no intermediate button). Shift-click extends the selection to a range.
+
+**Rationale**: The user explicitly chose the GitHub-style gutter "+" pattern. This is faster (one click) and more discoverable than the v1 approach (click gutter → "Comment" button → click button → input opens).
+
+**Alternatives considered**:
+- **Select-then-Comment (v1)**: Two-step process, slower. User wanted direct interaction. Rejected.
+- **Right-click context menu**: Not discoverable. Rejected.

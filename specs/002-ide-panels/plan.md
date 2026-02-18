@@ -1,48 +1,44 @@
-# Implementation Plan: IDE Panels
+# Implementation Plan: IDE Panels (v2 — Clarification Update)
 
 **Branch**: `002-ide-panels` | **Date**: 2026-02-18 | **Spec**: [spec.md](./spec.md)
-**Input**: Feature specification from `/specs/002-ide-panels/spec.md`
+**Input**: Feature specification from `/specs/002-ide-panels/spec.md` (post-clarification)
 
 ## Summary
 
-Transform the single-session (1-view) display mode from a terminal-only view into an IDE-like workspace with contextual side panels. Three panel types — File Explorer (browse and view project files with Monaco Editor), Git Changes (split-view diffs with inline commenting that injects feedback into the Claude Code session), and Web Preview (embedded iframe for dev server output) — slide open beside the terminal. Panel state (which panel is open, open file tabs, scroll positions, preview URL) persists per session across session switches and browser refreshes via SQLite storage. The feature builds on existing backend infrastructure (file reading, git diffs, file watching, port scanning) and upgrades frontend components (FileTree, FileViewer, DiffViewer, LivePreview) from stubs to fully functional IDE panels.
+Transform the single-session terminal view into an IDE-like workspace with three contextual side panels: **File Explorer** (tree + editor side-by-side), **Git Changes** (side-by-side two-column diff with gutter "+" commenting), and **Web Preview** (iframe). Panel state persists per session via SQLite. Only active in 1-view mode.
+
+This is a **v2 update** to the existing implementation. The v1 code is already committed. The following changes are required based on user clarifications:
+
+1. **DiffViewer**: Rewrite from unified diff to **side-by-side two-column** layout (old left, new right, line-aligned). Add **"+" gutter icon** for inline comments instead of select-then-click.
+2. **Files panel**: Change from tree-replaces-editor to **tree + editor side-by-side** (tree always visible on left, editor on right within the panel).
+3. **Diff parser**: Rewrite `parseDiff()` to produce paired left/right line arrays for side-by-side rendering.
 
 ## Technical Context
 
 **Language/Version**: TypeScript 5.7, Node.js 20 LTS
-**Primary Dependencies**: Express 4, React 18, Vite 6, better-sqlite3, xterm.js 5, @monaco-editor/react 4.6, diff2html 3.4, chokidar 4, ws 8, Tailwind CSS 3
-**Storage**: SQLite (better-sqlite3) with WAL mode — existing `c3.db` database
-**Testing**: Vitest 2.1 (unit + integration), Playwright (system/E2E)
-**Target Platform**: Linux server (backend), modern browsers (frontend)
-**Project Type**: Web application (backend + frontend monorepo with npm workspaces)
-**Performance Goals**: File viewer loads in <2s, file tree updates within 2s of FS change, diff renders in <3s for 500 modified lines, panel state restore is instant on session switch
-**Constraints**: Files >1MB truncated in viewer, lazy-loaded directory tree for projects with thousands of files, single SQLite database for all persistence
-**Scale/Scope**: Single user dashboard, up to 10 concurrent sessions, projects up to 10k files
+**Primary Dependencies**: React 18, Tailwind CSS 3, Monaco Editor (@monaco-editor/react 4.6), xterm.js 5, Express 4, ws, chokidar, diff2html, better-sqlite3
+**Storage**: SQLite (better-sqlite3) with WAL mode
+**Testing**: Vitest 2.1 (unit + integration)
+**Target Platform**: Linux server (single-machine deployment)
+**Project Type**: Web application (backend + frontend npm workspaces)
+**Performance Goals**: File open <2s, diff render <3s for 500 modified lines, panel state restore instant
+**Constraints**: Side-by-side diff must align old/new lines vertically; "+" icon must be discoverable
+**Scale/Scope**: Single developer, 1-10 concurrent sessions
 
 ## Constitution Check
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-### Pre-Phase 0 Gate
-
 | Principle | Status | Notes |
 |-----------|--------|-------|
-| I. Comprehensive Testing | PASS | Plan includes unit tests for all new backend logic (panel state CRUD, comment CRUD, comment delivery), unit tests for new frontend hooks and component behavior, integration tests for API endpoints, and system tests for end-to-end panel workflows |
-| II. UX-First Design | PASS | Spec defines complete user scenarios (P1-P4) with acceptance criteria. Panel layout follows standard IDE conventions (VS Code-style side panel). Comment workflow mirrors GitHub PR review UX |
-| III. UI Quality & Consistency | PASS | Panels use existing Tailwind design system, Monaco Editor matches dashboard theme (dark/light), consistent toolbar placement, resizable split pane with drag handle |
-| IV. Simplicity | PASS | Leverages existing backend infrastructure (file reader, git operations, file watcher, port scanner). No new services or abstractions — extends existing Repository with new table methods. Frontend upgrades existing stub components rather than creating new ones |
-| V. CI/CD Pipeline | PASS | Feature developed on branch, will PR to main. Existing CI pipeline runs tests + lint + typecheck |
-| VI. Frontend Plugin Quality | PASS | Monaco Editor (already a dependency, Microsoft-maintained), diff2html (already a dependency). No new frontend plugins required |
-| VII. Backend Security | PASS | Path sanitization already exists in file-reader.ts. Comment filePath validated against path traversal. Panel state is session-scoped, no cross-session access |
-| VIII. Observability & Logging | PASS | New endpoints will use existing Pino logger with session-scoped context. Comment delivery logged as INFO events |
-
-### Post-Phase 1 Gate (re-evaluation)
-
-| Principle | Status | Notes |
-|-----------|--------|-------|
-| I. Comprehensive Testing | PASS | Data model has clear query patterns suitable for unit testing. API contracts define request/response shapes for integration tests. Comment delivery flow testable with real PTY |
-| IV. Simplicity | PASS | Two new tables (panel_states, comments), four new API endpoints, one new hook (usePanel). No new abstractions, no new services — extends existing patterns |
-| VII. Backend Security | PASS | Comment text is injected as PTY input (same as user typing). No shell injection risk — PTY stdin handles arbitrary text safely. File paths validated before use |
+| I. Comprehensive Testing | PASS | Existing 90 tests cover panel state + comments. New tests needed for side-by-side diff parser and tree+editor layout |
+| II. UX-First Design | PASS | Clarifications directly address UX (side-by-side diff, tree+editor, gutter "+") |
+| III. UI Quality & Consistency | PASS | Side-by-side diff with green/red highlights follows standard code review patterns |
+| IV. Simplicity | PASS | Changes are focused on 3 frontend components, no new abstractions |
+| V. CI/CD Pipeline | PASS | Work on feature branch, PR to main with rebase merge |
+| VI. Frontend Plugin Quality | PASS | No new plugins needed — Monaco and existing deps sufficient |
+| VII. Backend Security | PASS | No backend changes in this update — only frontend rendering |
+| VIII. Observability & Logging | PASS | No new logging needed — existing infrastructure covers API calls |
 
 ## Project Structure
 
@@ -50,16 +46,12 @@ Transform the single-session (1-view) display mode from a terminal-only view int
 
 ```text
 specs/002-ide-panels/
-├── plan.md              # This file
-├── spec.md              # Feature specification
-├── research.md          # Phase 0: research decisions
-├── data-model.md        # Phase 1: database schema additions
-├── quickstart.md        # Phase 1: developer setup guide
-├── contracts/
-│   └── api.md           # Phase 1: API endpoint contracts
-├── checklists/
-│   └── requirements.md  # Spec quality checklist
-└── tasks.md             # Phase 2 output (created by /speckit.tasks)
+├── plan.md              # This file (v2 update)
+├── research.md          # Phase 0 output (updated with R9)
+├── data-model.md        # Unchanged from v1
+├── quickstart.md        # Updated with v2 changes
+├── contracts/api.md     # Unchanged from v1
+└── tasks.md             # Will be regenerated by /speckit.tasks
 ```
 
 ### Source Code (repository root)
@@ -67,55 +59,74 @@ specs/002-ide-panels/
 ```text
 backend/
 ├── src/
-│   ├── api/
-│   │   ├── routes/
-│   │   │   └── sessions.ts          # Extended: panel-state + comments endpoints
-│   │   └── middleware.ts            # Unchanged (reuse validation)
-│   ├── models/
-│   │   ├── db.ts                    # Extended: panel_states + comments tables
-│   │   ├── types.ts                 # Extended: PanelState + Comment interfaces
-│   │   └── repository.ts           # Extended: panel state + comment CRUD
-│   ├── services/
-│   │   └── session-manager.ts      # Extended: deliver pending comments on activate
-│   └── worker/
-│       ├── file-reader.ts           # Unchanged (already supports 1MB limit, lang detection)
-│       ├── file-watcher.ts          # Unchanged (already emits file_changed events)
-│       └── git-operations.ts        # Unchanged (already returns diff + stats)
-├── tests/
-│   ├── unit/
-│   │   ├── panel-state.test.ts      # New: panel state repository tests
-│   │   └── comments.test.ts         # New: comment repository + delivery tests
-│   └── integration/
-│       └── ide-panels.test.ts       # New: API endpoint integration tests
-│
+│   ├── models/          # db.ts, types.ts, repository.ts — UNCHANGED
+│   ├── services/        # session-manager.ts — UNCHANGED
+│   ├── api/routes/      # sessions.ts — UNCHANGED
+│   └── worker/          # git-operations.ts — UNCHANGED
+└── tests/               # Existing tests remain valid
+
 frontend/
 ├── src/
 │   ├── components/
-│   │   ├── SessionCard.tsx          # Modified: split layout, toolbar visibility, panel container
-│   │   ├── SessionGrid.tsx          # Modified: pass isSingleView prop
-│   │   ├── FileTree.tsx             # Modified: lazy loading, search filter, live updates
-│   │   ├── FileViewer.tsx           # Modified: Monaco Editor, tabbed UI, live reload
-│   │   ├── DiffViewer.tsx           # Modified: line selection, comment UI, status tracking
-│   │   └── LivePreview.tsx          # Modified: auto-detect, URL input, open-in-tab fallback
+│   │   ├── SessionCard.tsx   # MODIFY: files panel layout (tree + editor side-by-side)
+│   │   ├── DiffViewer.tsx    # REWRITE: side-by-side two-column diff + gutter "+" comments
+│   │   ├── FileTree.tsx      # UNCHANGED
+│   │   ├── FileViewer.tsx    # UNCHANGED (but now rendered alongside FileTree)
+│   │   ├── LivePreview.tsx   # UNCHANGED
+│   │   ├── SessionGrid.tsx   # UNCHANGED
+│   │   └── TerminalView.tsx  # UNCHANGED
 │   ├── hooks/
-│   │   └── usePanel.ts              # New: panel state management + persistence
+│   │   └── usePanel.ts       # UNCHANGED
 │   └── services/
-│       └── api.ts                   # Extended: panel state + comment API methods
-├── tests/
-│   ├── unit/
-│   │   ├── usePanel.test.ts         # New: panel state hook tests
-│   │   ├── FileViewer.test.tsx      # New: Monaco, tabs, live reload
-│   │   └── DiffViewer.test.tsx      # New: line selection, comment UI
-│   └── system/
-│       └── ide-panels.test.ts       # New: E2E panel workflows
+│       └── api.ts            # UNCHANGED
+└── tests/
+    └── unit/
+        └── api.test.ts       # Add tests for side-by-side diff parser
 ```
 
-**Structure Decision**: Follows the existing web application structure (backend/ + frontend/ workspaces). No new directories created — all changes fit within existing directory layout. New files are limited to test files and one new hook (usePanel.ts).
+**Structure Decision**: Existing web application structure (backend + frontend workspaces). No structural changes needed for v2.
+
+## Changes Required (v2 Delta)
+
+### Change 1: Side-by-Side Diff Rendering (DiffViewer.tsx)
+
+**Current**: Unified diff — single column, lines prefixed with +/-, green/red highlighting.
+
+**Target**: Two-column layout — old file on left, new file on right, aligned by line number. Context lines appear in both columns. Added lines appear only in the right column (green). Deleted lines appear only in the left column (red). Empty placeholder rows maintain alignment.
+
+**Implementation approach**:
+- Rewrite `parseDiff()` to produce `SideBySideLine[]` pairs: `{ left: DiffLine | null, right: DiffLine | null }`
+- For context lines: both left and right populated with same content, different line numbers
+- For added lines: left is null (empty placeholder), right has the added content
+- For deleted lines: left has the deleted content, right is null (empty placeholder)
+- Render as a table/grid with two columns, each showing line number + content
+- Each column has its own gutter with "+" icon for commenting
+
+### Change 2: Gutter "+" Comment Icon (DiffViewer.tsx)
+
+**Current**: Click line number in gutter → line selected → "Comment" button appears at bottom → click to open text input.
+
+**Target**: Each line in the right column gutter has a "+" icon (visible on hover). Clicking "+" immediately opens an inline comment box below that row. Shift-click extends to a range. No intermediate "Comment" button needed.
+
+**Implementation approach**:
+- Add a "+" icon element in each gutter cell, visible on `:hover`
+- On click: immediately show inline comment textarea below the clicked row
+- On shift-click: extend selection range, comment box moves to end of range
+- Remove the separate "Comment" button that currently appears after selection
+
+### Change 3: Files Panel Tree+Editor Layout (SessionCard.tsx)
+
+**Current**: When files panel is open, if no tabs → show FileTree; if tabs exist → show FileViewer (tree disappears).
+
+**Target**: When files panel is open, always show both: FileTree on left (~30% width), FileViewer on right (~70% width). If no file is selected, right side shows "Select a file to view" placeholder.
+
+**Implementation approach**:
+- In SessionCard's files panel section, render `FileTree` and `FileViewer` side-by-side within a flex container
+- FileTree gets a fixed narrow width (~200px or 30% of panel)
+- FileViewer takes remaining space
+- When no file tabs exist, show a placeholder in the editor area
+- Remove the current conditional that swaps between tree and viewer
 
 ## Complexity Tracking
 
-No constitution violations. All design decisions align with simplicity:
-- Extends existing tables and repository rather than introducing new services
-- Reuses existing backend infrastructure (file reader, git ops, file watcher) without modification
-- Upgrades existing frontend component stubs rather than creating new components
-- One new custom hook (usePanel) — follows established hook pattern (useSession, useTerminal, etc.)
+No violations. All changes are focused frontend rendering updates within existing components.
