@@ -197,3 +197,52 @@ Comment: This variable should be named `userCount` not `count` to avoid ambiguit
 - **Persist drafts to backend**: Would require a new `draft` status in the DB and a new API endpoint. Over-engineered for local-only state. Rejected.
 - **Multi-select comments then submit**: More complex UX with checkboxes. Rejected — "Submit All" is simpler.
 - **Auto-save drafts to localStorage**: Would add complexity for a marginal benefit. Drafts are ephemeral within a review session. Rejected.
+
+## R15: Dual-Panel Mode — Three-Column Layout (v4 Clarification)
+
+**Decision**: Support showing both Files and Git panels simultaneously using a three-column layout: `[Files Panel | Terminal | Git Panel]`. The `usePanel` hook must track two independent panel states (`leftPanel` and `rightPanel`) instead of a single `activePanel`. Each toolbar button toggles its respective panel independently. Preview and Git are mutually exclusive on the right side.
+
+**Rationale**: User explicitly requested "i want option to show both files and git." Having file navigation on the left while reviewing diffs on the right (with the terminal in the center) mirrors a full IDE experience. This is the natural evolution — VS Code shows the explorer on the left and source control on the right simultaneously.
+
+**Implementation approach**:
+- Change `usePanel` to track `leftPanel: 'none' | 'files'` and `rightPanel: 'none' | 'git' | 'preview'` instead of a single `activePanel`
+- `SessionCard.tsx` renders all three columns when both panels are active
+- Width management: `leftWidthPercent` and `rightWidthPercent` as separate values, terminal gets the remainder
+- Two drag handles: one between left panel and terminal, one between terminal and right panel
+- Panel state persistence schema is backward-compatible (add leftPanel/rightPanel fields, keep activePanel for fallback)
+
+**Alternatives considered**:
+- **Stacked right panels (files + git both on right)**: Loses the IDE metaphor of files-on-left. Rejected.
+- **Tab switching between panels**: User explicitly wants both visible. Rejected.
+
+## R16: Writable File Editor — Save to Disk (v4 Clarification)
+
+**Decision**: Change Monaco editor from `readOnly: true` to `readOnly: false`. Add a save handler (Ctrl+S) that calls a new backend endpoint `PUT /api/sessions/:id/files/content` with the file path and new content. Show a modified indicator (dot on tab) when the editor buffer differs from the last saved/loaded content.
+
+**Rationale**: User explicitly said "files SHOULD be write permissions." A read-only viewer is limiting — users want to make quick edits directly rather than asking the agent for every small change. This is standard IDE behavior.
+
+**Implementation approach**:
+- Backend: Add `writeFile()` function in `file-reader.ts` and a `PUT` route in files router
+- Frontend API: Add `files.save(sessionId, filePath, content)` method
+- FileViewer.tsx: Remove `readOnly: true`, add `onChange` handler to track modifications, `onKeyDown` for Ctrl+S, modified indicator on tab
+- Security: Same path sanitization as readFile — `sanitizePath()` prevents traversal
+
+**Alternatives considered**:
+- **Send edits as Claude instructions**: Would not give users direct control over file content. Different use case. Rejected.
+- **Use file watcher to auto-detect manual edits**: Doesn't work for browser-based editing. Rejected.
+
+## R17: Terminal Clipboard Support (v4 Bug Fix)
+
+**Decision**: Load the `@xterm/addon-clipboard` in `useTerminal.ts` to enable native clipboard operations. Also enable the `rightClickSelectsWord` option and configure `allowProposedApi: true` for clipboard access. When text is selected and Ctrl+C is pressed, copy to clipboard instead of sending SIGINT.
+
+**Rationale**: xterm.js sets `user-select: none` on the terminal element, which prevents native browser text selection. The clipboard addon provides proper copy/paste support by integrating with the browser's Clipboard API. This is a critical usability bug — users cannot copy terminal output.
+
+**Implementation approach**:
+- Install `@xterm/addon-clipboard` package
+- Load addon in `useTerminal.ts` after terminal creation
+- Configure `allowProposedApi: true` in Terminal constructor options
+- The addon handles Ctrl+C (copy when selection exists, SIGINT when not) and Ctrl+V (paste) automatically
+
+**Alternatives considered**:
+- **Custom event handler for copy**: More code, less reliable than the official addon. Rejected.
+- **Enable `user-select: text` via CSS override**: Would conflict with xterm.js canvas rendering. Rejected.

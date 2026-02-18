@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
-import Editor from '@monaco-editor/react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import Editor, { type OnMount } from '@monaco-editor/react';
 import { files as filesApi } from '../services/api';
 
 interface FileViewerProps {
@@ -57,8 +57,12 @@ export function FileViewer({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState(false);
+  const [isModified, setIsModified] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const flashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveStatusTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevContentRef = useRef<string>('');
+  const editorContentRef = useRef<string>('');
 
   useEffect(() => {
     setLoading(prevContentRef.current === ''); // Only show loading on first load
@@ -70,7 +74,9 @@ export function FileViewer({
           triggerFlash();
         }
         prevContentRef.current = result.content;
+        editorContentRef.current = result.content;
         setContent(result.content);
+        setIsModified(false);
         setLanguage(getMonacoLanguage(filePath, result.language));
         setFileSize(result.size);
       })
@@ -85,12 +91,43 @@ export function FileViewer({
     flashTimeoutRef.current = setTimeout(() => setFlash(false), 500);
   };
 
-  // Expose triggerFlash for external use (file_changed events)
   useEffect(() => {
     return () => {
       if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current);
+      if (saveStatusTimeoutRef.current) clearTimeout(saveStatusTimeoutRef.current);
     };
   }, []);
+
+  const handleSave = useCallback(async () => {
+    if (!isModified) return;
+    setSaveStatus('saving');
+    try {
+      await filesApi.save(sessionId, filePath, editorContentRef.current);
+      prevContentRef.current = editorContentRef.current;
+      setIsModified(false);
+      setSaveStatus('saved');
+      if (saveStatusTimeoutRef.current) clearTimeout(saveStatusTimeoutRef.current);
+      saveStatusTimeoutRef.current = setTimeout(() => setSaveStatus('idle'), 1500);
+    } catch {
+      setSaveStatus('idle');
+    }
+  }, [sessionId, filePath, isModified]);
+
+  const handleEditorChange = useCallback((value: string | undefined) => {
+    if (value !== undefined) {
+      editorContentRef.current = value;
+      setIsModified(value !== prevContentRef.current);
+    }
+  }, []);
+
+  const handleEditorMount: OnMount = useCallback((editor) => {
+    // Bind Ctrl+S / Cmd+S to save
+    editor.addCommand(
+      // Monaco.KeyMod.CtrlCmd | Monaco.KeyCode.KeyS
+      2048 | 49, // CtrlCmd = 2048, KeyS = 49
+      () => { handleSave(); },
+    );
+  }, [handleSave]);
 
   const isTruncated = fileSize > ONE_MB;
 
@@ -113,6 +150,9 @@ export function FileViewer({
                 onClick={() => onTabSelect?.(index)}
               >
                 <span className="truncate max-w-[120px]" title={tab}>{fileName}</span>
+                {isActive && isModified && (
+                  <span className="w-2 h-2 rounded-full bg-yellow-400 flex-shrink-0" title="Unsaved changes" />
+                )}
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -125,6 +165,15 @@ export function FileViewer({
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Save Status */}
+      {saveStatus !== 'idle' && (
+        <div className={`px-3 py-0.5 text-xs border-b border-gray-700 ${
+          saveStatus === 'saving' ? 'text-gray-400' : 'text-green-400'
+        }`}>
+          {saveStatus === 'saving' ? 'Saving...' : 'Saved'}
         </div>
       )}
 
@@ -150,8 +199,10 @@ export function FileViewer({
             value={content}
             language={language}
             theme="vs-dark"
+            onChange={handleEditorChange}
+            onMount={handleEditorMount}
             options={{
-              readOnly: true,
+              readOnly: false,
               minimap: { enabled: false },
               scrollBeyondLastLine: false,
               wordWrap: 'on',
@@ -160,7 +211,6 @@ export function FileViewer({
               renderLineHighlight: 'line',
               folding: true,
               automaticLayout: true,
-              contextmenu: false,
             }}
           />
         )}

@@ -1,6 +1,7 @@
 import { useRef, useCallback } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { ClipboardAddon } from '@xterm/addon-clipboard';
 import '@xterm/xterm/css/xterm.css';
 
 interface UseTerminalOptions {
@@ -33,10 +34,14 @@ export function useTerminal(options: UseTerminalOptions = {}) {
       },
       scrollback: 10000,
       convertEol: true,
+      allowProposedApi: true,
     });
 
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
+
+    const clipboardAddon = new ClipboardAddon();
+    terminal.loadAddon(clipboardAddon);
 
     terminal.open(container);
     fitAddon.fit();

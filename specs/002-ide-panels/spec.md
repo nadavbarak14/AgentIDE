@@ -18,7 +18,7 @@ A developer is watching a Claude Code session work on their project. They want t
 **Acceptance Scenarios**:
 
 1. **Given** a session is displayed in 1-view grid mode, **When** the user clicks the "Files" toolbar button, **Then** a file explorer panel opens on the LEFT side of the terminal (like a traditional IDE) showing the project directory tree
-2. **Given** the file explorer is open, **When** the user clicks a file in the tree, **Then** the file content opens in the editor area (right side of the files panel) in a read-only code viewer with syntax highlighting appropriate to the file type. The file tree remains visible on the left for continued navigation
+2. **Given** the file explorer is open, **When** the user clicks a file in the tree, **Then** the file content opens in the editor area (right side of the files panel) in an editable code editor with syntax highlighting appropriate to the file type and write permissions enabled. The user can edit and save the file (Ctrl+S or save button). The file tree remains visible on the left for continued navigation
 3. **Given** a file is open in the viewer, **When** the agent modifies that file, **Then** the viewer updates to show the new content within 2 seconds (with a visual flash or indicator that the file changed)
 4. **Given** the file explorer is open, **When** the agent creates a new file, **Then** the file tree updates to show the new file within 2 seconds
 5. **Given** the file explorer is open, **When** the agent deletes a file, **Then** the file tree removes the entry within 2 seconds; if the deleted file was open in a tab, the tab closes automatically
@@ -95,14 +95,16 @@ A developer has Session A in 1-view mode with the Files panel open, viewing `src
 - What happens when the dev server runs on a non-standard port? The system attempts to detect any listening port. If multiple ports are detected, the user can choose which one to preview.
 - What happens when the user switches from 1-view to multi-view grid mode while a panel is open? The panel closes, the panel state is saved, and if the user returns to 1-view for that session, the panel state is restored.
 - What happens when a git diff is very large (hundreds of files changed)? The file list is paginated or virtualized. Individual file diffs load on demand when clicked.
+- What happens when both Files and Git panels are open and the browser is narrow? The terminal minimum width is 300px. If the combined panels + terminal exceed the viewport, the panels shrink proportionally, maintaining a minimum usable width of 200px each.
+- What happens when the user edits a file in the editor and the agent also modifies the same file? If the user has unsaved changes, a conflict indicator appears. The user can choose to keep their version, accept the agent's version, or view both.
 
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
 
-- **FR-001**: System MUST display an IDE toolbar when a session is shown in 1-view grid mode (single session visible). The toolbar MUST contain buttons for "Files," "Git," and "Preview." The toolbar MUST NOT appear when the grid shows 2 or more sessions. The Files panel MUST open on the LEFT side of the terminal (like a traditional IDE file explorer). The Git and Preview panels MUST open on the RIGHT side of the terminal
+- **FR-001**: System MUST display an IDE toolbar when a session is shown in 1-view grid mode (single session visible). The toolbar MUST contain buttons for "Files," "Git," and "Preview." The toolbar MUST NOT appear when the grid shows 2 or more sessions. The Files panel MUST open on the LEFT side of the terminal (like a traditional IDE file explorer). The Git and Preview panels MUST open on the RIGHT side of the terminal. The Files and Git panels MUST be togglable independently — when both are active, the layout MUST be three-column: Files (LEFT) | Terminal (CENTER) | Git (RIGHT). Each toolbar button toggles its panel on/off without affecting the other panels
 - **FR-002**: System MUST display a file explorer panel when the "Files" button is clicked. The panel shows the project directory tree of the session's working directory. Directories are expandable/collapsible. The tree uses lazy loading for directories with many entries
-- **FR-003**: System MUST display the files panel as a side-by-side layout: a narrow file tree on the left and a code editor area on the right. Clicking a file in the tree opens it in the editor area with syntax highlighting. The editor supports tabbed navigation for multiple open files. The file tree remains visible for navigation at all times
+- **FR-003**: System MUST display the files panel as a side-by-side layout: a narrow file tree on the left and an editable code editor area on the right. Clicking a file in the tree opens it in the editor with syntax highlighting and write permissions enabled. The user MUST be able to edit file contents directly and save changes to disk (via Ctrl+S keyboard shortcut or a save button). The editor supports tabbed navigation for multiple open files. The file tree remains visible for navigation at all times
 - **FR-004**: System MUST live-update the file tree and any open file viewers when the agent creates, modifies, or deletes files. Updates MUST appear within 2 seconds of the file system change
 - **FR-005**: System MUST provide a search/filter input at the top of the file tree that filters the tree to show only matching file and directory names
 - **FR-006**: System MUST display a Git changes panel on the RIGHT side of the terminal when the "Git" button is clicked. The panel MUST show a vertical sidebar on the left listing all uncommitted changed files (like a file tree layout, NOT a horizontal top bar) with per-file addition and deletion counts, and a diff viewer area on the right
@@ -119,6 +121,10 @@ A developer has Session A in 1-view mode with the Files panel open, viewing `src
 - **FR-017**: When the grid mode changes from 1-view to multi-view, the system MUST close any open panel, save the panel state, and hide the toolbar. When returning to 1-view, the system MUST restore the saved panel state and show the toolbar
 - **FR-018**: System MUST truncate files larger than 1 MB in the code viewer, showing the first 1 MB with a "File truncated" notice and option to load more
 - **FR-019**: System MUST support comment queuing — if a comment is submitted after the session's Claude process has exited, the comment is stored and delivered as the first message when the session is resumed
+- **FR-020**: System MUST allow editing file contents in the Monaco editor. When the user modifies a file and triggers save (Ctrl+S or save button), the system MUST write the updated content to disk via the backend API. A visual indicator (dot on tab or "modified" label) MUST show when a file has unsaved changes. After saving, the indicator clears
+- **FR-021**: System MUST support dual-panel mode where both Files and Git panels are visible simultaneously. In dual-panel mode, the layout MUST be three-column: Files panel (LEFT) | Terminal (CENTER) | Git panel (RIGHT). Each toolbar button toggles its respective panel independently. Preview and Git MUST NOT be shown simultaneously — activating Preview while Git is open replaces Git on the right side
+- **FR-022**: System MUST support text selection and copy-to-clipboard in the terminal view. The xterm.js terminal MUST have clipboard handling enabled so users can select text and copy it (Ctrl+C when text is selected, or right-click copy). The clipboard-addon for xterm.js MUST be loaded
+- **FR-023**: System MUST provide a backend API endpoint for saving file contents. When the user edits a file in the Monaco editor and triggers save, the frontend MUST call the save endpoint with the file path and new content. The endpoint writes the content to disk in the session's working directory
 
 ### Key Entities
 
@@ -153,6 +159,11 @@ A developer has Session A in 1-view mode with the Files panel open, viewing `src
 - Q: How should the Git panel list changed files? → A: Vertical sidebar (like a file tree), NOT a horizontal top bar. The sidebar stays visible while viewing diffs, similar to how the file tree stays visible in the Files panel
 - Q: Should comments support multi-line selection? → A: Yes, shift-click extends selection to a range of lines. The "+" gutter icon and shift-click behavior must be clearly visible
 - Q: Should comments be submitted one-at-a-time or in batches? → A: Batch mode — users can add multiple comments across different lines and files, then "Submit All" to send them all at once. Pending comments persist across file switches and show a count badge
+
+### Session 2026-02-18 (v4)
+
+- Q: Can both Files and Git panels be shown simultaneously? → A: Yes, three-column layout: Files panel on the LEFT, Terminal in the CENTER, Git panel on the RIGHT. All three are visible at the same time. The toolbar buttons toggle individual panels on/off independently
+- Q: Should the file editor support write/edit permissions (not just read-only)? → A: Yes, the Monaco editor MUST be writable. Users can edit file contents directly and save changes to disk via a save action (Ctrl+S or save button). This turns the Files panel into a true IDE editor, not just a viewer
 
 ## Assumptions
 

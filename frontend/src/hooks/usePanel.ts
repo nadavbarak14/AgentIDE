@@ -2,6 +2,8 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { panelState as panelStateApi } from '../services/api';
 
 export type ActivePanel = 'none' | 'files' | 'git' | 'preview';
+export type LeftPanel = 'none' | 'files';
+export type RightPanel = 'none' | 'git' | 'preview';
 
 interface ScrollPosition {
   line: number;
@@ -9,16 +11,27 @@ interface ScrollPosition {
 }
 
 export interface PanelStateValues {
+  // v4 dual-panel fields
+  leftPanel: LeftPanel;
+  rightPanel: RightPanel;
+  leftWidthPercent: number;
+  rightWidthPercent: number;
+  // Backward-compatible legacy field (derived from left/right)
   activePanel: ActivePanel;
+  // Shared fields
   fileTabs: string[];
   activeTabIndex: number;
   tabScrollPositions: Record<string, ScrollPosition>;
   gitScrollPosition: number;
   previewUrl: string;
-  panelWidthPercent: number;
+  panelWidthPercent: number; // legacy — kept for backward compat
 }
 
 const DEFAULT_STATE: PanelStateValues = {
+  leftPanel: 'none',
+  rightPanel: 'none',
+  leftWidthPercent: 25,
+  rightWidthPercent: 35,
   activePanel: 'none',
   fileTabs: [],
   activeTabIndex: 0,
@@ -28,36 +41,70 @@ const DEFAULT_STATE: PanelStateValues = {
   panelWidthPercent: 40,
 };
 
+/** Map legacy activePanel to left/right panels */
+function migrateFromLegacy(activePanel: ActivePanel): { leftPanel: LeftPanel; rightPanel: RightPanel } {
+  if (activePanel === 'files') return { leftPanel: 'files', rightPanel: 'none' };
+  if (activePanel === 'git') return { leftPanel: 'none', rightPanel: 'git' };
+  if (activePanel === 'preview') return { leftPanel: 'none', rightPanel: 'preview' };
+  return { leftPanel: 'none', rightPanel: 'none' };
+}
+
+/** Derive legacy activePanel from left/right (for backward compat) */
+function deriveActivePanel(left: LeftPanel, right: RightPanel): ActivePanel {
+  // If both are active, prefer right for legacy single-value compat
+  if (right !== 'none') return right;
+  if (left !== 'none') return left;
+  return 'none';
+}
+
 export function usePanel(sessionId: string | null) {
-  const [activePanel, setActivePanel] = useState<ActivePanel>('none');
+  const [leftPanel, setLeftPanel] = useState<LeftPanel>('none');
+  const [rightPanel, setRightPanel] = useState<RightPanel>('none');
+  const [leftWidthPercent, setLeftWidthPercent] = useState(25);
+  const [rightWidthPercent, setRightWidthPercent] = useState(35);
   const [fileTabs, setFileTabs] = useState<string[]>([]);
   const [activeTabIndex, setActiveTabIndex] = useState(0);
   const [tabScrollPositions, setTabScrollPositions] = useState<Record<string, ScrollPosition>>({});
   const [gitScrollPosition, setGitScrollPosition] = useState(0);
   const [previewUrl, setPreviewUrl] = useState('');
-  const [panelWidthPercent, setPanelWidthPercent] = useState(40);
 
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentSessionRef = useRef<string | null>(null);
 
   const getState = useCallback((): PanelStateValues => ({
-    activePanel,
+    leftPanel,
+    rightPanel,
+    leftWidthPercent,
+    rightWidthPercent,
+    activePanel: deriveActivePanel(leftPanel, rightPanel),
     fileTabs,
     activeTabIndex,
     tabScrollPositions,
     gitScrollPosition,
     previewUrl,
-    panelWidthPercent,
-  }), [activePanel, fileTabs, activeTabIndex, tabScrollPositions, gitScrollPosition, previewUrl, panelWidthPercent]);
+    panelWidthPercent: rightWidthPercent, // legacy compat
+  }), [leftPanel, rightPanel, leftWidthPercent, rightWidthPercent, fileTabs, activeTabIndex, tabScrollPositions, gitScrollPosition, previewUrl]);
 
   const restoreState = useCallback((state: PanelStateValues) => {
-    setActivePanel(state.activePanel);
+    // Handle v4 format (has leftPanel/rightPanel)
+    if (state.leftPanel !== undefined && state.rightPanel !== undefined) {
+      setLeftPanel(state.leftPanel);
+      setRightPanel(state.rightPanel);
+      setLeftWidthPercent(state.leftWidthPercent ?? 25);
+      setRightWidthPercent(state.rightWidthPercent ?? 35);
+    } else {
+      // Legacy format — migrate from activePanel
+      const migrated = migrateFromLegacy(state.activePanel);
+      setLeftPanel(migrated.leftPanel);
+      setRightPanel(migrated.rightPanel);
+      setLeftWidthPercent(25);
+      setRightWidthPercent(state.panelWidthPercent ?? 35);
+    }
     setFileTabs(state.fileTabs);
     setActiveTabIndex(state.activeTabIndex);
     setTabScrollPositions(state.tabScrollPositions);
     setGitScrollPosition(state.gitScrollPosition);
     setPreviewUrl(state.previewUrl);
-    setPanelWidthPercent(state.panelWidthPercent);
   }, []);
 
   const resetToDefaults = useCallback(() => {
@@ -83,27 +130,12 @@ export function usePanel(sessionId: string | null) {
       return;
     }
 
-    // Save previous session state before switching
-    const prevSession = currentSessionRef.current;
-    if (prevSession && prevSession !== sessionId) {
-      // Get current state values directly (not from stale closure)
-      // We schedule save inline with the values from current render
-    }
-
     currentSessionRef.current = sessionId;
 
     // Load new session state
     panelStateApi.get(sessionId).then((loaded) => {
       if (currentSessionRef.current === sessionId) {
-        restoreState({
-          activePanel: loaded.activePanel as ActivePanel,
-          fileTabs: loaded.fileTabs,
-          activeTabIndex: loaded.activeTabIndex,
-          tabScrollPositions: loaded.tabScrollPositions,
-          gitScrollPosition: loaded.gitScrollPosition,
-          previewUrl: loaded.previewUrl,
-          panelWidthPercent: loaded.panelWidthPercent,
-        });
+        restoreState(loaded as unknown as PanelStateValues);
       }
     }).catch(() => {
       // No saved state — use defaults
@@ -119,21 +151,50 @@ export function usePanel(sessionId: string | null) {
     };
   }, [sessionId, restoreState, resetToDefaults]);
 
-  const openPanel = useCallback((panel: ActivePanel) => {
-    setActivePanel((prev) => {
-      const next = prev === panel ? 'none' : panel;
-      if (currentSessionRef.current) {
-        // Schedule save with updated value
-        const state = { ...DEFAULT_STATE, activePanel: next, fileTabs, activeTabIndex, tabScrollPositions, gitScrollPosition, previewUrl, panelWidthPercent };
-        scheduleSave(currentSessionRef.current, state);
-      }
-      return next;
-    });
-  }, [fileTabs, activeTabIndex, tabScrollPositions, gitScrollPosition, previewUrl, panelWidthPercent, scheduleSave]);
+  const doSave = useCallback((newLeft: LeftPanel, newRight: RightPanel) => {
+    if (currentSessionRef.current) {
+      const state: PanelStateValues = {
+        leftPanel: newLeft,
+        rightPanel: newRight,
+        leftWidthPercent,
+        rightWidthPercent,
+        activePanel: deriveActivePanel(newLeft, newRight),
+        fileTabs,
+        activeTabIndex,
+        tabScrollPositions,
+        gitScrollPosition,
+        previewUrl,
+        panelWidthPercent: rightWidthPercent,
+      };
+      scheduleSave(currentSessionRef.current, state);
+    }
+  }, [leftWidthPercent, rightWidthPercent, fileTabs, activeTabIndex, tabScrollPositions, gitScrollPosition, previewUrl, scheduleSave]);
+
+  const togglePanel = useCallback((panel: ActivePanel) => {
+    if (panel === 'files') {
+      setLeftPanel((prev) => {
+        const next = prev === 'files' ? 'none' : 'files';
+        doSave(next, rightPanel);
+        return next;
+      });
+    } else if (panel === 'git' || panel === 'preview') {
+      setRightPanel((prev) => {
+        // Toggle off if same panel, otherwise switch
+        const next: RightPanel = prev === panel ? 'none' : panel;
+        doSave(leftPanel, next);
+        return next;
+      });
+    } else {
+      // 'none' — close all
+      setLeftPanel('none');
+      setRightPanel('none');
+      doSave('none', 'none');
+    }
+  }, [leftPanel, rightPanel, doSave]);
 
   const closePanel = useCallback(() => {
-    openPanel('none' as ActivePanel);
-  }, [openPanel]);
+    togglePanel('none' as ActivePanel);
+  }, [togglePanel]);
 
   const addFileTab = useCallback((path: string) => {
     setFileTabs((prev) => {
@@ -166,15 +227,24 @@ export function usePanel(sessionId: string | null) {
     setTabScrollPositions((prev) => ({ ...prev, [path]: pos }));
   }, []);
 
+  // Computed legacy activePanel for backward compat
+  const activePanel = deriveActivePanel(leftPanel, rightPanel);
+  // Legacy panelWidthPercent — use rightWidthPercent for compat
+  const panelWidthPercent = rightWidthPercent;
+
   return {
+    // v4 dual-panel state
+    leftPanel,
+    rightPanel,
+    leftWidthPercent,
+    rightWidthPercent,
+    setLeftWidth: setLeftWidthPercent,
+    setRightWidth: setRightWidthPercent,
+    // Backward-compatible legacy fields
     activePanel,
-    fileTabs,
-    activeTabIndex,
-    tabScrollPositions,
-    gitScrollPosition,
-    previewUrl,
     panelWidthPercent,
-    openPanel,
+    // Actions
+    openPanel: togglePanel,
     closePanel,
     addFileTab,
     removeFileTab,
@@ -182,7 +252,14 @@ export function usePanel(sessionId: string | null) {
     updateScrollPosition,
     setGitScrollPosition,
     setPreviewUrl,
-    setPanelWidth: setPanelWidthPercent,
+    setPanelWidth: setRightWidthPercent, // legacy — maps to right width
+    // File tabs
+    fileTabs,
+    activeTabIndex,
+    tabScrollPositions,
+    gitScrollPosition,
+    previewUrl,
+    // State management
     getState,
     scheduleSave: (state: PanelStateValues) => {
       if (currentSessionRef.current) {

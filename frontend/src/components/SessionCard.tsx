@@ -37,7 +37,7 @@ export function SessionCard({
   onDelete,
 }: SessionCardProps) {
   const panel = usePanel(isSingleView ? session.id : null);
-  const [isResizing, setIsResizing] = useState(false);
+  const [resizingSide, setResizingSide] = useState<'left' | 'right' | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // File change tracking for live updates
@@ -46,7 +46,6 @@ export function SessionCard({
 
   const handleWsMessage = useCallback((msg: WsServerMessage) => {
     if (msg.type === 'file_changed') {
-      // Debounce: batch rapid file changes into a single refresh
       if (fileChangeDebounceRef.current) {
         clearTimeout(fileChangeDebounceRef.current);
       }
@@ -63,34 +62,42 @@ export function SessionCard({
   }, []);
 
   const showToolbar = isSingleView && (session.status === 'active' || session.status === 'completed');
-  const showSidePanel = showToolbar && panel.activePanel !== 'none';
-  const panelOnLeft = panel.activePanel === 'files';
+  const showLeftPanel = showToolbar && panel.leftPanel !== 'none';
+  const showRightPanel = showToolbar && panel.rightPanel !== 'none';
 
   // Drag handle resize logic
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+  const handleLeftMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
-    setIsResizing(true);
+    setResizingSide('left');
+  }, []);
+
+  const handleRightMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setResizingSide('right');
   }, []);
 
   useEffect(() => {
-    if (!isResizing) return;
+    if (!resizingSide) return;
 
     const handleMouseMove = (e: MouseEvent) => {
       if (!containerRef.current) return;
       const rect = containerRef.current.getBoundingClientRect();
       const percent = ((e.clientX - rect.left) / rect.width) * 100;
-      const clamped = Math.max(20, Math.min(80, percent));
-      // For left panel (files): drag right = wider panel = percent directly
-      // For right panel (git/preview): drag right = wider terminal = 100 - percent
-      if (panelOnLeft) {
-        panel.setPanelWidth(Math.round(clamped));
+
+      if (resizingSide === 'left') {
+        // Left drag handle: controls left panel width directly
+        const clamped = Math.max(15, Math.min(50, percent));
+        panel.setLeftWidth(Math.round(clamped));
       } else {
-        panel.setPanelWidth(Math.round(100 - clamped));
+        // Right drag handle: controls right panel width (inverted)
+        const rightPercent = 100 - percent;
+        const clamped = Math.max(15, Math.min(50, rightPercent));
+        panel.setRightWidth(Math.round(clamped));
       }
     };
 
     const handleMouseUp = () => {
-      setIsResizing(false);
+      setResizingSide(null);
     };
 
     document.addEventListener('mousemove', handleMouseMove);
@@ -99,10 +106,27 @@ export function SessionCard({
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [isResizing, panel]);
+  }, [resizingSide, panel]);
 
   const handleFileSelect = useCallback((filePath: string) => {
     panel.addFileTab(filePath);
+  }, [panel]);
+
+  // Calculate terminal width based on which panels are open
+  const terminalWidth = (() => {
+    let width = 100;
+    if (showLeftPanel) width -= panel.leftWidthPercent;
+    if (showRightPanel) width -= panel.rightWidthPercent;
+    return width;
+  })();
+
+  const closeLeftPanel = useCallback(() => {
+    panel.openPanel('files');
+  }, [panel]);
+
+  const closeRightPanel = useCallback(() => {
+    if (panel.rightPanel === 'git') panel.openPanel('git');
+    else if (panel.rightPanel === 'preview') panel.openPanel('preview');
   }, [panel]);
 
   return (
@@ -176,7 +200,7 @@ export function SessionCard({
           <button
             onClick={() => panel.openPanel('files')}
             className={`px-2 py-1 text-xs rounded transition-colors ${
-              panel.activePanel === 'files'
+              panel.leftPanel === 'files'
                 ? 'bg-blue-500/20 text-blue-400'
                 : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
             }`}
@@ -187,7 +211,7 @@ export function SessionCard({
           <button
             onClick={() => panel.openPanel('git')}
             className={`px-2 py-1 text-xs rounded transition-colors ${
-              panel.activePanel === 'git'
+              panel.rightPanel === 'git'
                 ? 'bg-blue-500/20 text-blue-400'
                 : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
             }`}
@@ -198,7 +222,7 @@ export function SessionCard({
           <button
             onClick={() => panel.openPanel('preview')}
             className={`px-2 py-1 text-xs rounded transition-colors ${
-              panel.activePanel === 'preview'
+              panel.rightPanel === 'preview'
                 ? 'bg-green-500/20 text-green-400'
                 : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
             }`}
@@ -209,13 +233,13 @@ export function SessionCard({
         </div>
       )}
 
-      {/* Main Content */}
-      <div ref={containerRef} className="flex-1 flex min-h-[300px]" style={{ cursor: isResizing ? 'col-resize' : undefined }}>
-        {/* Left Panel — Files panel renders on LEFT (like a traditional IDE) */}
-        {showSidePanel && panelOnLeft && (
+      {/* Main Content — Three-column layout: [Left Panel? | Terminal | Right Panel?] */}
+      <div ref={containerRef} className="flex-1 flex min-h-[300px]" style={{ cursor: resizingSide ? 'col-resize' : undefined }}>
+        {/* Left Panel — Files panel */}
+        {showLeftPanel && (
           <div
             className="border-r border-gray-700 flex flex-col overflow-hidden min-w-0"
-            style={{ width: `${panel.panelWidthPercent}%` }}
+            style={{ width: `${panel.leftWidthPercent}%` }}
           >
             <div className="flex h-full">
               {/* File tree — always visible on left */}
@@ -232,7 +256,7 @@ export function SessionCard({
                     activeTabIndex={panel.activeTabIndex}
                     onTabSelect={panel.setActiveTab}
                     onTabClose={panel.removeFileTab}
-                    onClose={panel.closePanel}
+                    onClose={closeLeftPanel}
                     refreshKey={fileChangeVersion}
                   />
                 ) : (
@@ -245,18 +269,18 @@ export function SessionCard({
           </div>
         )}
 
-        {/* Drag Handle (left side) */}
-        {showSidePanel && panelOnLeft && (
+        {/* Left Drag Handle */}
+        {showLeftPanel && (
           <div
             className="w-1 cursor-col-resize bg-gray-700 hover:bg-blue-500 transition-colors flex-shrink-0"
-            onMouseDown={handleMouseDown}
+            onMouseDown={handleLeftMouseDown}
           />
         )}
 
         {/* Terminal or Status */}
         <div
           className="flex flex-col min-w-0"
-          style={{ width: showSidePanel ? `${100 - panel.panelWidthPercent}%` : '100%' }}
+          style={{ width: `${terminalWidth}%` }}
         >
           {session.status === 'active' ? (
             <TerminalView sessionId={session.id} active={true} onWsMessage={handleWsMessage} />
@@ -282,28 +306,28 @@ export function SessionCard({
           )}
         </div>
 
-        {/* Drag Handle (right side) */}
-        {showSidePanel && !panelOnLeft && (
+        {/* Right Drag Handle */}
+        {showRightPanel && (
           <div
             className="w-1 cursor-col-resize bg-gray-700 hover:bg-blue-500 transition-colors flex-shrink-0"
-            onMouseDown={handleMouseDown}
+            onMouseDown={handleRightMouseDown}
           />
         )}
 
-        {/* Right Panel — Git and Preview render on RIGHT */}
-        {showSidePanel && !panelOnLeft && (
+        {/* Right Panel — Git or Preview */}
+        {showRightPanel && (
           <div
             className="border-l border-gray-700 flex flex-col overflow-hidden min-w-0"
-            style={{ width: `${panel.panelWidthPercent}%` }}
+            style={{ width: `${panel.rightWidthPercent}%` }}
           >
-            {panel.activePanel === 'git' && (
-              <DiffViewer sessionId={session.id} onClose={panel.closePanel} refreshKey={fileChangeVersion} />
+            {panel.rightPanel === 'git' && (
+              <DiffViewer sessionId={session.id} onClose={closeRightPanel} refreshKey={fileChangeVersion} />
             )}
-            {panel.activePanel === 'preview' && (
+            {panel.rightPanel === 'preview' && (
               <LivePreview
                 port={detectedPort?.port || 0}
                 localPort={detectedPort?.localPort || 0}
-                onClose={panel.closePanel}
+                onClose={closeRightPanel}
               />
             )}
           </div>

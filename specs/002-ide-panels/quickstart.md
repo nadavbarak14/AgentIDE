@@ -49,40 +49,35 @@ npm test --workspace=frontend
 npm run test:system --workspace=frontend
 ```
 
-## Key Files to Modify (v3 Update)
+## Key Files to Modify (v4 Update)
 
-The v3 update focuses on two frontend files. Backend is unchanged.
-
-### Frontend (v3 changes)
+### Frontend (v4 changes)
 
 | File | Changes |
 |------|---------|
-| `frontend/src/components/SessionCard.tsx` | **MODIFY**: Files panel renders on LEFT side of terminal; Git/Preview panels render on RIGHT side |
-| `frontend/src/components/DiffViewer.tsx` | **MODIFY**: Changed files in vertical sidebar (not horizontal tabs); batch commenting (Add Comment + Submit All) |
+| `frontend/src/hooks/usePanel.ts` | **MODIFY**: Dual-panel state (leftPanel + rightPanel instead of single activePanel) |
+| `frontend/src/components/SessionCard.tsx` | **MODIFY**: Three-column layout, two drag handles, independent panel toggles |
+| `frontend/src/components/FileViewer.tsx` | **MODIFY**: Writable Monaco editor, Ctrl+S save, modified indicator |
+| `frontend/src/hooks/useTerminal.ts` | **MODIFY**: Load clipboard addon for copy/paste support |
+| `frontend/src/services/api.ts` | **ADD**: files.save() method |
 
-### Frontend (v1/v2 — unchanged)
+### Backend (v4 changes)
+
+| File | Changes |
+|------|---------|
+| `backend/src/worker/file-reader.ts` | **ADD**: writeFile() function |
+| `backend/src/api/routes/files.ts` | **ADD**: PUT endpoint for file save |
+
+### Unchanged
 
 | File | Status |
 |------|--------|
 | `frontend/src/components/FileTree.tsx` | Unchanged |
-| `frontend/src/components/FileViewer.tsx` | Unchanged |
+| `frontend/src/components/DiffViewer.tsx` | Unchanged |
 | `frontend/src/components/LivePreview.tsx` | Unchanged |
 | `frontend/src/components/SessionGrid.tsx` | Unchanged |
 | `frontend/src/components/TerminalView.tsx` | Unchanged |
-| `frontend/src/hooks/usePanel.ts` | Unchanged |
-| `frontend/src/services/api.ts` | Unchanged |
 | `frontend/src/utils/diff-parser.ts` | Unchanged |
-
-### Backend (unchanged)
-
-All backend files remain unchanged. No schema changes, no API changes.
-
-### Tests (unchanged)
-
-| File | Status |
-|------|--------|
-| `frontend/tests/unit/diff-parser.test.ts` | Unchanged — all 10 tests still pass |
-| All backend tests | Unchanged — all 88 tests still pass |
 
 ## Feature Flags / Configuration
 
@@ -90,59 +85,47 @@ No feature flags needed. IDE panels are shown/hidden based on grid layout:
 - `grid_layout === '1x1'` → Show IDE toolbar and panels
 - Any other layout → Hide toolbar and panels
 
-## Architecture Overview (v3 Update)
+## Architecture Overview (v4 Update)
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│  Browser (Frontend)                                       │
-│  ┌────────────────────────────────────────────────────┐  │
-│  │  SessionCard (1-view mode)                          │  │
-│  │                                                      │  │
-│  │  Files mode (panel on LEFT):                         │  │
-│  │  ┌────────────────────────┬───────────────────────┐ │  │
-│  │  │  Files Panel            │  Terminal              │ │  │
-│  │  │  ┌─────────┬──────────┐│  (xterm.js)            │ │  │
-│  │  │  │FileTree │FileViewer││                         │ │  │
-│  │  │  │(narrow) │(Monaco)  ││                         │ │  │
-│  │  │  └─────────┴──────────┘│                         │ │  │
-│  │  └────────────────────────┴───────────────────────┘ │  │
-│  │                                                      │  │
-│  │  Git mode (panel on RIGHT):                          │  │
-│  │  ┌───────────────────────┬────────────────────────┐ │  │
-│  │  │  Terminal              │  Git Panel              │ │  │
-│  │  │  (xterm.js)            │  ┌────────┬───────────┐│ │  │
-│  │  │                         │  │File    │Side-by-   ││ │  │
-│  │  │                         │  │Sidebar │Side Diff  ││ │  │
-│  │  │                         │  │(vert.) │+ comments ││ │  │
-│  │  │                         │  └────────┴───────────┘│ │  │
-│  │  └───────────────────────┴────────────────────────┘ │  │
-│  │                                                      │  │
-│  │  Preview mode (panel on RIGHT):                      │  │
-│  │  ┌───────────────────────┬────────────────────────┐ │  │
-│  │  │  Terminal              │  Preview Panel          │ │  │
-│  │  │  (xterm.js)            │  [iframe]               │ │  │
-│  │  └───────────────────────┴────────────────────────┘ │  │
-│  └────────────────────────────────────────────────────┘  │
-│                                                           │
-│  REST API calls               WebSocket events            │
-│    ↕                            ↕                         │
-└───────────────────────────────────────────────────────────┘
-         │                             │
-         ↓                             ↓
-┌───────────────────────────────────────────────────────────┐
-│  Backend (Express + WS) — UNCHANGED in v3                  │
-│  ┌──────────┐  ┌───────────┐  ┌──────────────┐           │
-│  │ Panel    │  │ Comment   │  │ File/Git/    │           │
-│  │ State    │  │ CRUD +    │  │ Port APIs    │           │
-│  │ API      │  │ Delivery  │  │ (existing)   │           │
-│  └────┬─────┘  └────┬──────┘  └──────────────┘           │
-│       │              │                                     │
-│       ↓              ↓                                     │
-│  ┌──────────────────────────┐                             │
-│  │  SQLite (better-sqlite3) │                             │
-│  │  panel_states | comments │                             │
-│  └──────────────────────────┘                             │
-└───────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│  Browser (Frontend)                                                │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │  SessionCard (1-view mode) — v4 Dual Panel                  │  │
+│  │                                                              │  │
+│  │  Both Files + Git active (three-column):                     │  │
+│  │  ┌──────────────┬───────────────┬───────────────────────┐  │  │
+│  │  │ Files Panel   │ Terminal       │ Git Panel             │  │  │
+│  │  │ ┌────┬──────┐│ (xterm.js +    │ ┌────────┬──────────┐│  │  │
+│  │  │ │Tree│Editor││  clipboard     │ │Sidebar │Diff View ││  │  │
+│  │  │ │    │(R/W) ││  addon)        │ │        │+ comments││  │  │
+│  │  │ └────┴──────┘│               │ └────────┴──────────┘│  │  │
+│  │  └──────────────┴───────────────┴───────────────────────┘  │  │
+│  │                                                              │  │
+│  │  Files only: [Files | Terminal]                              │  │
+│  │  Git only:   [Terminal | Git]                                │  │
+│  │  Preview:    [Terminal | Preview]                             │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                                                                    │
+│  REST API calls (+ PUT files/content)    WebSocket events          │
+│    ↕                                       ↕                       │
+└────────────────────────────────────────────────────────────────────┘
+         │                                    │
+         ↓                                    ↓
+┌────────────────────────────────────────────────────────────────────┐
+│  Backend (Express + WS)                                             │
+│  ┌──────────┐  ┌───────────┐  ┌──────────────────────┐           │
+│  │ Panel    │  │ Comment   │  │ File/Git/Port APIs   │           │
+│  │ State    │  │ CRUD +    │  │ + PUT file save (v4) │           │
+│  │ API      │  │ Delivery  │  │                      │           │
+│  └────┬─────┘  └────┬──────┘  └──────────────────────┘           │
+│       │              │                                             │
+│       ↓              ↓                                             │
+│  ┌──────────────────────────┐                                     │
+│  │  SQLite (better-sqlite3) │                                     │
+│  │  panel_states | comments │                                     │
+│  └──────────────────────────┘                                     │
+└────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Batch Comment Flow (v3)

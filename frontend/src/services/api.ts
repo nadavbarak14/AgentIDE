@@ -129,6 +129,12 @@ export const files = {
     ),
 
   diff: (sessionId: string) => request<DiffResult>(`/sessions/${sessionId}/diff`),
+
+  save: (sessionId: string, filePath: string, content: string) =>
+    request<{ success: boolean }>(`/sessions/${sessionId}/files/content`, {
+      method: 'PUT',
+      body: JSON.stringify({ path: filePath, content }),
+    }),
 };
 
 // ─── Panel State ───

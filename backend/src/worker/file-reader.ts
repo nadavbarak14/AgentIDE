@@ -195,3 +195,31 @@ export function readFile(basePath: string, filePath: string): FileContent {
     size: stat.size,
   };
 }
+
+/**
+ * Write content to a file within a base directory.
+ * @param basePath - The root directory (e.g. session working directory)
+ * @param filePath - Relative path to the file within the base directory
+ * @param content - The new file content to write
+ */
+export function writeFile(basePath: string, filePath: string, content: string): void {
+  const resolvedPath = resolveSafePath(basePath, filePath);
+
+  if (!resolvedPath) {
+    throw new Error('Invalid path: directory traversal is not allowed');
+  }
+
+  // Ensure parent directory exists
+  const parentDir = path.dirname(resolvedPath);
+  if (!fs.existsSync(parentDir)) {
+    throw new Error(`Parent directory not found: ${path.dirname(filePath)}`);
+  }
+
+  try {
+    fs.writeFileSync(resolvedPath, content, 'utf-8');
+    logger.info({ filePath: resolvedPath }, 'file saved');
+  } catch (err) {
+    logger.error({ err, resolvedPath }, 'failed to write file');
+    throw new Error('Unable to write file');
+  }
+}
