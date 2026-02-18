@@ -19,6 +19,9 @@ export function DiffViewer({ sessionId, onClose, refreshKey = 0 }: DiffViewerPro
   const [existingComments, setExistingComments] = useState<CommentData[]>([]);
   const [savingComment, setSavingComment] = useState(false);
   const [sendingAll, setSendingAll] = useState(false);
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editCommentText, setEditCommentText] = useState('');
+  const [commentSide, setCommentSide] = useState<'old' | 'new'>('new');
 
   // Track previous refreshKey to distinguish initial load from background refresh
   const prevRefreshKeyRef = useRef(refreshKey);
@@ -53,7 +56,7 @@ export function DiffViewer({ sessionId, onClose, refreshKey = 0 }: DiffViewerPro
   }, [sessionId, refreshKey]);
 
   // Gutter "+" click — immediately opens comment input
-  const handleGutterPlusClick = useCallback((lineNum: number, shiftKey: boolean) => {
+  const handleGutterPlusClick = useCallback((lineNum: number, shiftKey: boolean, side: 'old' | 'new' = 'new') => {
     if (shiftKey && selectedLines) {
       setSelectedLines({
         start: Math.min(selectedLines.start, lineNum),
@@ -62,24 +65,37 @@ export function DiffViewer({ sessionId, onClose, refreshKey = 0 }: DiffViewerPro
     } else {
       setSelectedLines({ start: lineNum, end: lineNum });
     }
+    setCommentSide(side);
     setShowCommentInput(true);
     setCommentText('');
   }, [selectedLines]);
 
-  // "Add Comment" — saves to backend immediately as 'pending'
-  const handleAddComment = useCallback(async () => {
+  // Ref to capture exact selected text from text selection (T008)
+  const selectionTextRef = useRef<string>('');
+
+  // Create comment and optionally send immediately
+  const createComment = useCallback(async (sendImmediately: boolean) => {
     if (!selectedFile || !selectedLines || !commentText.trim()) return;
 
     const file = parsedFiles.find((f) => f.path === selectedFile);
     if (!file) return;
 
-    const selectedContent = file.sideBySideLines
-      .filter((pair) => {
-        const lineNum = pair.right?.lineNumber ?? pair.left?.lineNumber ?? 0;
-        return lineNum >= selectedLines.start && lineNum <= selectedLines.end;
-      })
-      .map((pair) => (pair.right?.content ?? pair.left?.content ?? ''))
-      .join('\n');
+    // Use exact selected text if available (from text selection), otherwise extract from correct column
+    let codeSnippet = selectionTextRef.current;
+    if (!codeSnippet) {
+      codeSnippet = file.sideBySideLines
+        .filter((pair) => {
+          const lineNum = commentSide === 'old'
+            ? (pair.left?.lineNumber ?? 0)
+            : (pair.right?.lineNumber ?? pair.left?.lineNumber ?? 0);
+          return lineNum >= selectedLines.start && lineNum <= selectedLines.end;
+        })
+        .map((pair) => {
+          if (commentSide === 'old') return pair.left?.content ?? '';
+          return pair.right?.content ?? '';
+        })
+        .join('\n');
+    }
 
     setSavingComment(true);
     try {
@@ -87,19 +103,39 @@ export function DiffViewer({ sessionId, onClose, refreshKey = 0 }: DiffViewerPro
         filePath: selectedFile,
         startLine: selectedLines.start,
         endLine: selectedLines.end,
-        codeSnippet: selectedContent || '(selected code)',
+        codeSnippet: codeSnippet || '(selected code)',
         commentText: commentText.trim(),
+        side: commentSide,
       });
-      setExistingComments((prev) => [...prev, created]);
+
+      if (sendImmediately) {
+        // Send right away — deliver and remove
+        try {
+          await commentsApi.deliverOne(sessionId, created.id);
+        } catch {
+          // If deliver fails, keep as pending
+          setExistingComments((prev) => [...prev, created]);
+        }
+      } else {
+        setExistingComments((prev) => [...prev, created]);
+      }
+
       setCommentText('');
       setShowCommentInput(false);
       setSelectedLines(null);
+      selectionTextRef.current = '';
     } catch {
       // Keep input open so user can retry
     } finally {
       setSavingComment(false);
     }
-  }, [sessionId, selectedFile, selectedLines, commentText, parsedFiles]);
+  }, [sessionId, selectedFile, selectedLines, commentText, parsedFiles, commentSide]);
+
+  // "Add to Review" — saves as pending
+  const handleAddComment = useCallback(() => createComment(false), [createComment]);
+
+  // "Send Comment" — saves and delivers immediately
+  const handleSendComment = useCallback(() => createComment(true), [createComment]);
 
   // "Send All" — delivers all pending comments to the session at once
   const handleSendAll = useCallback(async () => {
@@ -122,6 +158,49 @@ export function DiffViewer({ sessionId, onClose, refreshKey = 0 }: DiffViewerPro
   const handleSelectLines = useCallback((start: number, end: number) => {
     setSelectedLines({ start, end });
   }, []);
+
+  // Edit/delete handlers for inline comments
+  const handleEditStart = useCallback((id: string, text: string) => {
+    setEditingCommentId(id);
+    setEditCommentText(text);
+  }, []);
+
+  const handleEditSave = useCallback(async (id: string) => {
+    if (!editCommentText.trim()) return;
+    try {
+      const updated = await commentsApi.update(sessionId, id, editCommentText.trim());
+      setExistingComments((prev) => prev.map((x) => x.id === id ? updated : x));
+    } catch {
+      // Keep edit mode open for retry
+      return;
+    }
+    setEditingCommentId(null);
+    setEditCommentText('');
+  }, [sessionId, editCommentText]);
+
+  const handleEditCancel = useCallback(() => {
+    setEditingCommentId(null);
+    setEditCommentText('');
+  }, []);
+
+  const handleDeleteComment = useCallback(async (id: string) => {
+    try {
+      await commentsApi.delete(sessionId, id);
+      setExistingComments((prev) => prev.filter((x) => x.id !== id));
+    } catch {
+      // Ignore — comment stays
+    }
+  }, [sessionId]);
+
+  const handleSendNow = useCallback(async (id: string) => {
+    try {
+      const result = await commentsApi.deliverOne(sessionId, id);
+      const deliveredSet = new Set(result.delivered);
+      setExistingComments((prev) => prev.filter((c) => !deliveredSet.has(c.id)));
+    } catch {
+      // Keep comment as pending
+    }
+  }, [sessionId]);
 
   const selectedParsedFile = parsedFiles.find((f) => f.path === selectedFile);
 
@@ -207,15 +286,28 @@ export function DiffViewer({ sessionId, onClose, refreshKey = 0 }: DiffViewerPro
                 commentText={commentText}
                 existingComments={existingComments}
                 savingComment={savingComment}
+                editingCommentId={editingCommentId}
+                editCommentText={editCommentText}
+                commentSide={commentSide}
+                selectionTextRef={selectionTextRef}
                 onGutterPlusClick={handleGutterPlusClick}
                 onSelectLines={handleSelectLines}
+                onSetCommentSide={setCommentSide}
                 onCommentTextChange={setCommentText}
                 onCommentSubmit={handleAddComment}
+                onSendComment={handleSendComment}
                 onCommentCancel={() => {
                   setShowCommentInput(false);
                   setCommentText('');
                   setSelectedLines(null);
+                  selectionTextRef.current = '';
                 }}
+                onEditStart={handleEditStart}
+                onEditTextChange={setEditCommentText}
+                onEditSave={handleEditSave}
+                onEditCancel={handleEditCancel}
+                onDelete={handleDeleteComment}
+                onSendNow={handleSendNow}
               />
             ) : (
               <div className="flex items-center justify-center h-full text-gray-500 text-xs">
@@ -225,6 +317,7 @@ export function DiffViewer({ sessionId, onClose, refreshKey = 0 }: DiffViewerPro
           </div>
         </div>
       )}
+
     </div>
   );
 }
@@ -239,11 +332,23 @@ interface SideBySideDiffProps {
   commentText: string;
   existingComments: CommentData[];
   savingComment: boolean;
-  onGutterPlusClick: (lineNum: number, shiftKey: boolean) => void;
+  editingCommentId: string | null;
+  editCommentText: string;
+  commentSide: 'old' | 'new';
+  selectionTextRef: React.MutableRefObject<string>;
+  onGutterPlusClick: (lineNum: number, shiftKey: boolean, side?: 'old' | 'new') => void;
   onSelectLines: (start: number, end: number) => void;
+  onSetCommentSide: (side: 'old' | 'new') => void;
   onCommentTextChange: (text: string) => void;
   onCommentSubmit: () => void;
+  onSendComment: () => void;
   onCommentCancel: () => void;
+  onEditStart: (id: string, text: string) => void;
+  onEditTextChange: (text: string) => void;
+  onEditSave: (id: string) => void;
+  onEditCancel: () => void;
+  onDelete: (id: string) => void;
+  onSendNow: (id: string) => void;
 }
 
 function SideBySideDiff({
@@ -254,11 +359,23 @@ function SideBySideDiff({
   commentText,
   existingComments,
   savingComment,
+  editingCommentId,
+  editCommentText,
+  commentSide,
+  selectionTextRef,
   onGutterPlusClick,
   onSelectLines,
+  onSetCommentSide,
   onCommentTextChange,
   onCommentSubmit,
+  onSendComment,
   onCommentCancel,
+  onEditStart,
+  onEditTextChange,
+  onEditSave,
+  onEditCancel,
+  onDelete,
+  onSendNow,
 }: SideBySideDiffProps) {
   const rows = file.sideBySideLines;
   const isNewFile = file.changeType === 'A';
@@ -352,6 +469,25 @@ function SideBySideDiff({
             left: rect.left - containerRect.left + rect.width / 2,
           });
           onSelectLines(Math.min(startLine, endLine), Math.max(startLine, endLine));
+
+          // Detect which column the selection is in (old=left, new=right)
+          const selAnchor = sel.anchorNode;
+          if (selAnchor) {
+            const el = selAnchor instanceof Element ? selAnchor : selAnchor.parentElement;
+            const gridRow = el?.closest('.grid.grid-cols-2');
+            if (gridRow) {
+              // If the selection is in the first child (left column), it's 'old'
+              const leftCol = gridRow.children[0];
+              if (leftCol && leftCol.contains(selAnchor as Node)) {
+                onSetCommentSide('old');
+              } else {
+                onSetCommentSide('new');
+              }
+            } else {
+              // New file mode (no grid), always 'new'
+              onSetCommentSide('new');
+            }
+          }
         } else {
           setFloatingBtn(null);
         }
@@ -360,17 +496,22 @@ function SideBySideDiff({
 
     container.addEventListener('mouseup', handleMouseUp);
     return () => container.removeEventListener('mouseup', handleMouseUp);
-  }, [onSelectLines]);
+  }, [onSelectLines, onSetCommentSide]);
 
   const handleFloatingCommentClick = useCallback(() => {
     if (selectedLines) {
-      onGutterPlusClick(selectedLines.start, false);
+      // Capture exact selected text before clearing selection
+      const sel = window.getSelection();
+      if (sel && !sel.isCollapsed) {
+        selectionTextRef.current = sel.toString();
+      }
+      onGutterPlusClick(selectedLines.start, false, commentSide);
       // Re-set the range since onGutterPlusClick resets to single line
       onSelectLines(selectedLines.start, selectedLines.end);
     }
     setFloatingBtn(null);
     window.getSelection()?.removeAllRanges();
-  }, [selectedLines, onGutterPlusClick, onSelectLines]);
+  }, [selectedLines, onGutterPlusClick, onSelectLines, commentSide, selectionTextRef]);
 
   // Dismiss floating button on outside click
   useEffect(() => {
@@ -402,7 +543,6 @@ function SideBySideDiff({
       {/* Diff rows */}
       {rows.map((pair, rowIdx) => {
         const rightLineNum = pair.right?.lineNumber ?? null;
-        const lineNum = rightLineNum ?? pair.left?.lineNumber ?? 0;
         const isSelected = selectedLines && rightLineNum !== null &&
           rightLineNum >= selectedLines.start && rightLineNum <= selectedLines.end;
         const isSelectedLeft = selectedLines && pair.left?.lineNumber != null && pair.right === null &&
@@ -414,9 +554,12 @@ function SideBySideDiff({
         const showInputAfterLeftRow = showCommentInput && selectedLines && pair.right === null &&
           pair.left?.lineNumber === selectedLines.end;
 
-        // Existing comments anchored to this line
+        // Existing comments anchored to this line — side-aware matching
         const lineComments = existingComments.filter(
-          (c) => c.filePath === filePath && c.startLine === lineNum
+          (c) => c.filePath === filePath && (
+            (c.side === 'old' && pair.left !== null && c.startLine === pair.left.lineNumber) ||
+            (c.side === 'new' && c.startLine === (pair.right?.lineNumber ?? 0))
+          )
         );
 
         return (
@@ -437,28 +580,84 @@ function SideBySideDiff({
                   line={pair.left}
                   side="left"
                   isSelected={!!(isSelectedLeft)}
-                  onPlusClick={null}
+                  onPlusClick={(lineNum, shiftKey) => onGutterPlusClick(lineNum, shiftKey, 'old')}
+                  onGutterDragStart={handleGutterMouseDown}
                 />
                 {/* Right column (new) */}
                 <DiffCell
                   line={pair.right}
                   side="right"
                   isSelected={!!isSelected}
-                  onPlusClick={onGutterPlusClick}
+                  onPlusClick={(lineNum, shiftKey) => onGutterPlusClick(lineNum, shiftKey, 'new')}
                   onGutterDragStart={handleGutterMouseDown}
                 />
               </div>
             )}
 
-            {/* Existing comments — full width below the row */}
+            {/* Existing comments — inline with edit/delete controls */}
             {lineComments.length > 0 && (
               <div className="border-l-2 border-blue-500 bg-blue-500/5 px-3 py-1.5">
                 {lineComments.map((c) => (
                   <div key={c.id} className="text-xs mb-1">
-                    <span className="inline-block px-1.5 py-0.5 rounded mr-2 text-[10px] bg-yellow-500/20 text-yellow-400">
-                      Pending
-                    </span>
-                    <span className="text-gray-300">{c.commentText}</span>
+                    {editingCommentId === c.id ? (
+                      <div className="mt-1">
+                        <div className="text-[10px] text-gray-500 mb-1">
+                          Edit comment on line {c.startLine}
+                        </div>
+                        <textarea
+                          value={editCommentText}
+                          onChange={(e) => onEditTextChange(e.target.value)}
+                          className="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-gray-300 focus:outline-none focus:border-blue-500 resize-none"
+                          rows={3}
+                          autoFocus
+                          onKeyDown={(e) => {
+                            if (e.key === 'Escape') {
+                              onEditCancel();
+                            }
+                          }}
+                        />
+                        <div className="flex gap-2 mt-1">
+                          <button
+                            onClick={() => onEditSave(c.id)}
+                            disabled={!editCommentText.trim()}
+                            className="px-2 py-1 text-xs bg-yellow-500 text-black rounded hover:bg-yellow-400 disabled:opacity-50"
+                          >
+                            Save
+                          </button>
+                          <button
+                            onClick={onEditCancel}
+                            className="px-2 py-1 text-xs text-gray-400 hover:text-white"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className="inline-block px-1.5 py-0.5 rounded text-[10px] bg-yellow-500/20 text-yellow-400 flex-shrink-0">
+                          Pending
+                        </span>
+                        <span className="text-gray-300 flex-1">{c.commentText}</span>
+                        <button
+                          onClick={() => onSendNow(c.id)}
+                          className="text-[10px] text-green-500 hover:text-green-400"
+                        >
+                          send
+                        </button>
+                        <button
+                          onClick={() => onEditStart(c.id, c.commentText)}
+                          className="text-[10px] text-gray-500 hover:text-blue-400"
+                        >
+                          edit
+                        </button>
+                        <button
+                          onClick={() => onDelete(c.id)}
+                          className="text-[10px] text-gray-500 hover:text-red-400"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -482,11 +681,18 @@ function SideBySideDiff({
                 />
                 <div className="flex gap-2 mt-1">
                   <button
+                    onClick={onSendComment}
+                    disabled={!commentText.trim() || savingComment}
+                    className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-500 disabled:opacity-50"
+                  >
+                    {savingComment ? 'Sending...' : 'Send Comment'}
+                  </button>
+                  <button
                     onClick={onCommentSubmit}
                     disabled={!commentText.trim() || savingComment}
                     className="px-2 py-1 text-xs bg-yellow-500 text-black rounded hover:bg-yellow-400 disabled:opacity-50"
                   >
-                    {savingComment ? 'Saving...' : 'Add Comment'}
+                    Add to Review
                   </button>
                   <button
                     onClick={onCommentCancel}

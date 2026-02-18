@@ -172,6 +172,7 @@ export interface CommentData {
   codeSnippet: string;
   commentText: string;
   status: 'pending' | 'sent';
+  side: 'old' | 'new';
   createdAt: string;
   sentAt: string | null;
 }
@@ -182,6 +183,7 @@ export interface CreateCommentInput {
   endLine: number;
   codeSnippet: string;
   commentText: string;
+  side?: 'old' | 'new';
 }
 
 export const comments = {
@@ -196,9 +198,26 @@ export const comments = {
       body: JSON.stringify(data),
     }),
 
+  update: (sessionId: string, commentId: string, commentText: string) =>
+    request<CommentData>(`/sessions/${sessionId}/comments/${commentId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ commentText }),
+    }),
+
+  delete: (sessionId: string, commentId: string) =>
+    request<{ success: boolean }>(`/sessions/${sessionId}/comments/${commentId}`, {
+      method: 'DELETE',
+    }),
+
   deliver: (sessionId: string) =>
     request<{ delivered: string[]; count: number }>(
       `/sessions/${sessionId}/comments/deliver`,
+      { method: 'POST' },
+    ),
+
+  deliverOne: (sessionId: string, commentId: string) =>
+    request<{ delivered: string[]; count: number }>(
+      `/sessions/${sessionId}/comments/${commentId}/deliver`,
       { method: 'POST' },
     ),
 };

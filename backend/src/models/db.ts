@@ -119,6 +119,13 @@ function migrate(database: Database.Database): void {
       ALTER TABLE panel_states ADD COLUMN right_width_percent INTEGER NOT NULL DEFAULT 35;
     `);
   }
+
+  // Add side column to comments table
+  const commentCols = database.pragma('table_info(comments)') as Array<{ name: string }>;
+  const commentColNames = new Set(commentCols.map((c) => c.name));
+  if (!commentColNames.has('side')) {
+    database.exec("ALTER TABLE comments ADD COLUMN side TEXT DEFAULT 'new'");
+  }
 }
 
 export function getDb(dbPath?: string): Database.Database {

@@ -73,10 +73,14 @@ export function FileViewer({
   const [savingComment, setSavingComment] = useState(false);
   const [sendingAll, setSendingAll] = useState(false);
   const [floatingBtnPos, setFloatingBtnPos] = useState<{ top: number; left: number } | null>(null);
+  const [pendingCloseTab, setPendingCloseTab] = useState<string | null>(null);
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editCommentText, setEditCommentText] = useState('');
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const editorRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const decorationIdsRef = useRef<string[]>([]);
+  const zoneIdsRef = useRef<string[]>([]);
 
   useEffect(() => {
     setLoading(prevContentRef.current === ''); // Only show loading on first load
@@ -201,8 +205,8 @@ export function FileViewer({
     });
   }, []);
 
-  // Add comment (T011)
-  const handleAddComment = useCallback(async () => {
+  // Create comment and optionally send immediately
+  const createComment = useCallback(async (sendImmediately: boolean) => {
     if (!selectedLines || !commentText.trim()) return;
 
     // Extract code snippet from editor
@@ -225,7 +229,18 @@ export function FileViewer({
         codeSnippet,
         commentText: commentText.trim(),
       });
-      setExistingComments((prev) => [...prev, created]);
+
+      if (sendImmediately) {
+        try {
+          await commentsApi.deliverOne(sessionId, created.id);
+        } catch {
+          // If deliver fails, keep as pending
+          setExistingComments((prev) => [...prev, created]);
+        }
+      } else {
+        setExistingComments((prev) => [...prev, created]);
+      }
+
       setCommentText('');
       setShowCommentInput(false);
       setSelectedLines(null);
@@ -236,6 +251,9 @@ export function FileViewer({
       setSavingComment(false);
     }
   }, [sessionId, filePath, selectedLines, commentText]);
+
+  const handleAddComment = useCallback(() => createComment(false), [createComment]);
+  const handleSendComment = useCallback(() => createComment(true), [createComment]);
 
   // Send All pending comments (T012)
   const handleSendAll = useCallback(async () => {
@@ -253,7 +271,7 @@ export function FileViewer({
     }
   }, [sessionId, existingComments]);
 
-  // Apply Monaco decorations for commented lines (T015)
+  // Apply Monaco decorations for commented lines
   useEffect(() => {
     const editor = editorRef.current;
     if (!editor) return;
@@ -281,6 +299,179 @@ export function FileViewer({
       newDecorations,
     );
   }, [existingComments]);
+
+  // Zone widgets for inline comment display with edit/delete (T011)
+  const editingCommentIdRef = useRef(editingCommentId);
+  editingCommentIdRef.current = editingCommentId;
+  const editCommentTextRef = useRef(editCommentText);
+  editCommentTextRef.current = editCommentText;
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+
+    const pendingComments = existingComments.filter((c) => c.status === 'pending');
+
+    // Group comments by endLine
+    const commentsByLine = new Map<number, CommentData[]>();
+    for (const c of pendingComments) {
+      const line = c.endLine;
+      if (!commentsByLine.has(line)) commentsByLine.set(line, []);
+      commentsByLine.get(line)!.push(c);
+    }
+
+    editor.changeViewZones((accessor: { addZone: (zone: unknown) => string; removeZone: (id: string) => void }) => {
+      // Remove old zones
+      for (const id of zoneIdsRef.current) {
+        accessor.removeZone(id);
+      }
+      zoneIdsRef.current = [];
+
+      for (const [line, lineComments] of commentsByLine) {
+        const domNode = document.createElement('div');
+        domNode.style.zIndex = '10';
+
+        const renderZoneContent = () => {
+          domNode.innerHTML = '';
+          for (const c of lineComments) {
+            const row = document.createElement('div');
+            row.style.cssText = 'display: flex; align-items: flex-start; gap: 8px; padding: 4px 12px; font-size: 12px; border-left: 2px solid #3b82f6; background: rgba(59,130,246,0.05);';
+
+            if (editingCommentIdRef.current === c.id) {
+              // Edit mode
+              row.style.flexDirection = 'column';
+              row.style.gap = '4px';
+
+              const label = document.createElement('div');
+              label.style.cssText = 'font-size: 10px; color: #6b7280;';
+              label.textContent = `Edit comment on line ${c.startLine}`;
+              row.appendChild(label);
+
+              const textarea = document.createElement('textarea');
+              textarea.value = editCommentTextRef.current;
+              textarea.rows = 3;
+              textarea.style.cssText = 'width: 100%; background: #111827; border: 1px solid #374151; border-radius: 4px; padding: 4px 8px; font-size: 12px; color: #d1d5db; resize: none; outline: none; font-family: inherit;';
+              textarea.addEventListener('input', (e) => {
+                const val = (e.target as HTMLTextAreaElement).value;
+                editCommentTextRef.current = val;
+                setEditCommentText(val);
+              });
+              textarea.addEventListener('focus', () => {
+                textarea.style.borderColor = '#3b82f6';
+              });
+              textarea.addEventListener('blur', () => {
+                textarea.style.borderColor = '#374151';
+              });
+              textarea.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') {
+                  setEditingCommentId(null);
+                  setEditCommentText('');
+                }
+              });
+              row.appendChild(textarea);
+
+              const btnRow = document.createElement('div');
+              btnRow.style.cssText = 'display: flex; gap: 8px;';
+
+              const saveBtn = document.createElement('button');
+              saveBtn.textContent = 'Save';
+              saveBtn.style.cssText = 'padding: 2px 8px; font-size: 12px; background: #eab308; color: black; border-radius: 4px; border: none; cursor: pointer;';
+              saveBtn.addEventListener('click', async () => {
+                const text = editCommentTextRef.current.trim();
+                if (!text) return;
+                try {
+                  const updated = await commentsApi.update(sessionId, c.id, text);
+                  setExistingComments((prev) => prev.map((x) => x.id === c.id ? updated : x));
+                } catch { /* keep open */ return; }
+                setEditingCommentId(null);
+                setEditCommentText('');
+              });
+              btnRow.appendChild(saveBtn);
+
+              const cancelBtn = document.createElement('button');
+              cancelBtn.textContent = 'Cancel';
+              cancelBtn.style.cssText = 'padding: 2px 8px; font-size: 12px; color: #9ca3af; border: none; cursor: pointer; background: none;';
+              cancelBtn.addEventListener('click', () => {
+                setEditingCommentId(null);
+                setEditCommentText('');
+              });
+              btnRow.appendChild(cancelBtn);
+
+              row.appendChild(btnRow);
+
+              // Auto-focus textarea
+              requestAnimationFrame(() => textarea.focus());
+            } else {
+              // Display mode
+              const badge = document.createElement('span');
+              badge.textContent = 'Pending';
+              badge.style.cssText = 'display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 10px; background: rgba(234,179,8,0.2); color: #eab308; flex-shrink: 0;';
+              row.appendChild(badge);
+
+              const text = document.createElement('span');
+              text.textContent = c.commentText;
+              text.style.cssText = 'color: #d1d5db; flex: 1;';
+              row.appendChild(text);
+
+              const sendBtn = document.createElement('button');
+              sendBtn.textContent = 'send';
+              sendBtn.style.cssText = 'font-size: 10px; color: #22c55e; border: none; cursor: pointer; background: none;';
+              sendBtn.addEventListener('mouseover', () => { sendBtn.style.color = '#4ade80'; });
+              sendBtn.addEventListener('mouseout', () => { sendBtn.style.color = '#22c55e'; });
+              sendBtn.addEventListener('click', async () => {
+                try {
+                  const result = await commentsApi.deliverOne(sessionId, c.id);
+                  const deliveredSet = new Set(result.delivered);
+                  setExistingComments((prev) => prev.filter((x) => !deliveredSet.has(x.id)));
+                } catch { /* keep as pending */ }
+              });
+              row.appendChild(sendBtn);
+
+              const editBtn = document.createElement('button');
+              editBtn.textContent = 'edit';
+              editBtn.style.cssText = 'font-size: 10px; color: #6b7280; border: none; cursor: pointer; background: none;';
+              editBtn.addEventListener('mouseover', () => { editBtn.style.color = '#60a5fa'; });
+              editBtn.addEventListener('mouseout', () => { editBtn.style.color = '#6b7280'; });
+              editBtn.addEventListener('click', () => {
+                setEditingCommentId(c.id);
+                setEditCommentText(c.commentText);
+              });
+              row.appendChild(editBtn);
+
+              const delBtn = document.createElement('button');
+              delBtn.textContent = '×';
+              delBtn.style.cssText = 'font-size: 10px; color: #6b7280; border: none; cursor: pointer; background: none;';
+              delBtn.addEventListener('mouseover', () => { delBtn.style.color = '#f87171'; });
+              delBtn.addEventListener('mouseout', () => { delBtn.style.color = '#6b7280'; });
+              delBtn.addEventListener('click', async () => {
+                try {
+                  await commentsApi.delete(sessionId, c.id);
+                  setExistingComments((prev) => prev.filter((x) => x.id !== c.id));
+                } catch { /* ignore */ }
+              });
+              row.appendChild(delBtn);
+            }
+
+            domNode.appendChild(row);
+          }
+        };
+
+        renderZoneContent();
+
+        const isEditing = lineComments.some((c) => editingCommentIdRef.current === c.id);
+        const heightPerComment = isEditing ? 100 : 28;
+        const totalHeight = lineComments.length * heightPerComment + 4;
+
+        const zoneId = accessor.addZone({
+          afterLineNumber: line,
+          heightInPx: totalHeight,
+          domNode,
+          suppressMouseDown: false,
+        });
+        zoneIdsRef.current.push(zoneId as string);
+      }
+    });
+  }, [existingComments, editingCommentId, editCommentText, sessionId]);
 
   const pendingCount = existingComments.filter((c) => c.status === 'pending').length;
   const isTruncated = fileSize > ONE_MB;
@@ -310,7 +501,11 @@ export function FileViewer({
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    onTabClose?.(tab);
+                    if (isActive && isModified) {
+                      setPendingCloseTab(tab);
+                    } else {
+                      onTabClose?.(tab);
+                    }
                   }}
                   className="ml-1 text-gray-500 hover:text-white"
                 >
@@ -339,6 +534,28 @@ export function FileViewer({
               {sendingAll ? 'Sending...' : `Send All (${pendingCount})`}
             </button>
           )}
+        </div>
+      )}
+
+      {/* Unsaved close confirmation */}
+      {pendingCloseTab && (
+        <div className="px-3 py-1 bg-yellow-500/10 border-b border-yellow-500/30 text-xs flex items-center gap-2 flex-shrink-0">
+          <span className="text-yellow-400">Unsaved changes</span>
+          <button
+            onClick={() => {
+              onTabClose?.(pendingCloseTab);
+              setPendingCloseTab(null);
+            }}
+            className="px-2 py-0.5 bg-red-600 hover:bg-red-500 text-white rounded text-xs"
+          >
+            Discard
+          </button>
+          <button
+            onClick={() => setPendingCloseTab(null)}
+            className="px-2 py-0.5 text-gray-400 hover:text-white text-xs"
+          >
+            Cancel
+          </button>
         </div>
       )}
 
@@ -424,11 +641,18 @@ export function FileViewer({
           />
           <div className="flex gap-2 mt-1">
             <button
+              onClick={handleSendComment}
+              disabled={!commentText.trim() || savingComment}
+              className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-500 disabled:opacity-50"
+            >
+              {savingComment ? 'Sending...' : 'Send Comment'}
+            </button>
+            <button
               onClick={handleAddComment}
               disabled={!commentText.trim() || savingComment}
               className="px-2 py-1 text-xs bg-yellow-500 text-black rounded hover:bg-yellow-400 disabled:opacity-50"
             >
-              {savingComment ? 'Saving...' : 'Add Comment'}
+              Add to Review
             </button>
             <button
               onClick={() => {
@@ -444,19 +668,6 @@ export function FileViewer({
         </div>
       )}
 
-      {/* Pending comments summary */}
-      {pendingCount > 0 && !showCommentInput && (
-        <div className="px-3 py-1 border-t border-gray-700 bg-gray-800/50 flex-shrink-0">
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] text-yellow-400">{pendingCount} pending comment{pendingCount > 1 ? 's' : ''}</span>
-            {existingComments.filter((c) => c.status === 'pending').slice(0, 3).map((c) => (
-              <span key={c.id} className="text-[10px] text-gray-500 truncate max-w-[200px]">
-                L{c.startLine}: {c.commentText}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

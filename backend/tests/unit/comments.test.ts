@@ -127,6 +127,157 @@ describe('Comment Repository', () => {
     expect(comments).toHaveLength(0);
   });
 
+  // ─── T006: updateComment and deleteComment ───
+
+  it('updateComment changes commentText for pending comment', () => {
+    const session = repo.createSession({ workingDirectory: '/p1', title: 'S1' });
+    const comment = repo.createComment({
+      sessionId: session.id,
+      filePath: 'a.ts',
+      startLine: 1,
+      endLine: 3,
+      codeSnippet: 'code',
+      commentText: 'Original text',
+    });
+
+    const updated = repo.updateComment(comment.id, 'Updated text');
+    expect(updated).not.toBeNull();
+    expect(updated!.commentText).toBe('Updated text');
+    expect(updated!.id).toBe(comment.id);
+    expect(updated!.status).toBe('pending');
+  });
+
+  it('updateComment fails on sent comment', () => {
+    const session = repo.createSession({ workingDirectory: '/p1', title: 'S1' });
+    const comment = repo.createComment({
+      sessionId: session.id,
+      filePath: 'a.ts',
+      startLine: 1,
+      endLine: 1,
+      codeSnippet: 'code',
+      commentText: 'Will be sent',
+    });
+    repo.markCommentSent(comment.id);
+
+    const result = repo.updateComment(comment.id, 'Should fail');
+    expect(result).toBeNull();
+  });
+
+  it('updateComment fails on non-existent comment', () => {
+    const result = repo.updateComment('nonexistent-id', 'Should fail');
+    expect(result).toBeNull();
+  });
+
+  it('deleteComment removes pending comment', () => {
+    const session = repo.createSession({ workingDirectory: '/p1', title: 'S1' });
+    const comment = repo.createComment({
+      sessionId: session.id,
+      filePath: 'a.ts',
+      startLine: 1,
+      endLine: 1,
+      codeSnippet: 'code',
+      commentText: 'To delete',
+    });
+
+    const deleted = repo.deleteComment(comment.id);
+    expect(deleted).toBe(true);
+
+    const comments = repo.getComments(session.id);
+    expect(comments).toHaveLength(0);
+  });
+
+  it('deleteComment fails on sent comment', () => {
+    const session = repo.createSession({ workingDirectory: '/p1', title: 'S1' });
+    const comment = repo.createComment({
+      sessionId: session.id,
+      filePath: 'a.ts',
+      startLine: 1,
+      endLine: 1,
+      codeSnippet: 'code',
+      commentText: 'Sent comment',
+    });
+    repo.markCommentSent(comment.id);
+
+    const deleted = repo.deleteComment(comment.id);
+    expect(deleted).toBe(false);
+  });
+
+  // ─── T004: side field tests ───
+
+  it('createComment with side=old stores correctly', () => {
+    const session = repo.createSession({ workingDirectory: '/p1', title: 'S1' });
+    const comment = repo.createComment({
+      sessionId: session.id,
+      filePath: 'src/app.ts',
+      startLine: 5,
+      endLine: 5,
+      codeSnippet: 'old code',
+      commentText: 'Comment on old side',
+      side: 'old',
+    });
+
+    expect(comment.side).toBe('old');
+    expect(comment.status).toBe('pending');
+  });
+
+  it('createComment defaults side to new', () => {
+    const session = repo.createSession({ workingDirectory: '/p1', title: 'S1' });
+    const comment = repo.createComment({
+      sessionId: session.id,
+      filePath: 'src/app.ts',
+      startLine: 10,
+      endLine: 10,
+      codeSnippet: 'new code',
+      commentText: 'Default side comment',
+    });
+
+    expect(comment.side).toBe('new');
+  });
+
+  it('getComments returns side field', () => {
+    const session = repo.createSession({ workingDirectory: '/p1', title: 'S1' });
+    repo.createComment({
+      sessionId: session.id,
+      filePath: 'a.ts',
+      startLine: 1,
+      endLine: 1,
+      codeSnippet: 'code',
+      commentText: 'Old side',
+      side: 'old',
+    });
+    repo.createComment({
+      sessionId: session.id,
+      filePath: 'b.ts',
+      startLine: 2,
+      endLine: 2,
+      codeSnippet: 'code',
+      commentText: 'New side',
+      side: 'new',
+    });
+
+    const comments = repo.getComments(session.id);
+    expect(comments).toHaveLength(2);
+    expect(comments[0].side).toBe('old');
+    expect(comments[1].side).toBe('new');
+  });
+
+  it('getCommentsByStatus returns side field', () => {
+    const session = repo.createSession({ workingDirectory: '/p1', title: 'S1' });
+    repo.createComment({
+      sessionId: session.id,
+      filePath: 'a.ts',
+      startLine: 1,
+      endLine: 1,
+      codeSnippet: 'code',
+      commentText: 'Pending old',
+      side: 'old',
+    });
+
+    const pending = repo.getCommentsByStatus(session.id, 'pending');
+    expect(pending).toHaveLength(1);
+    expect(pending[0].side).toBe('old');
+  });
+
   it('only returns comments for the specified session', () => {
     const s1 = repo.createSession({ workingDirectory: '/p1', title: 'S1' });
     const s2 = repo.createSession({ workingDirectory: '/p2', title: 'S2' });
