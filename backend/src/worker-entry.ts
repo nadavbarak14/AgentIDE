@@ -12,7 +12,7 @@ import { logger } from './services/logger.js';
 async function main() {
   const ptySpawner = new PtySpawner();
 
-  logger.info('C3 Worker started, listening for commands on stdin');
+  logger.info('Multy Worker started, listening for commands on stdin');
 
   process.stdin.setEncoding('utf8');
   let buffer = '';

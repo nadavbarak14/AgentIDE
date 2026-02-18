@@ -22,13 +22,16 @@ export function useSession(sessions: Session[]) {
     [sessions],
   );
 
-  // Priority order for display rebuilds: needs_input first, then remaining active.
+  // Priority order for display rebuilds: pinned sessions first, then needsInput.
+  // Order: pinned+needsInput > needsInput > pinned > autonomous.
   // This is used by Dashboard to populate displayedIds on rebuild triggers only —
   // NOT on every poll (the display is frozen between triggers).
   const focusSessions = useMemo(() => {
-    const needsInput = activeSessions.filter((s) => s.needsInput);
-    const autonomous = activeSessions.filter((s) => !s.needsInput);
-    return [...needsInput, ...autonomous];
+    const pinnedNeedsInput = activeSessions.filter((s) => s.lock && s.needsInput);
+    const needsInput = activeSessions.filter((s) => !s.lock && s.needsInput);
+    const pinnedAutonomous = activeSessions.filter((s) => s.lock && !s.needsInput);
+    const autonomous = activeSessions.filter((s) => !s.lock && !s.needsInput);
+    return [...pinnedNeedsInput, ...needsInput, ...pinnedAutonomous, ...autonomous];
   }, [activeSessions]);
 
   return {

@@ -151,46 +151,17 @@ export function usePanel(sessionId: string | null) {
     };
   }, [sessionId, restoreState, resetToDefaults]);
 
-  const doSave = useCallback((newLeft: LeftPanel, newRight: RightPanel) => {
-    if (currentSessionRef.current) {
-      const state: PanelStateValues = {
-        leftPanel: newLeft,
-        rightPanel: newRight,
-        leftWidthPercent,
-        rightWidthPercent,
-        activePanel: deriveActivePanel(newLeft, newRight),
-        fileTabs,
-        activeTabIndex,
-        tabScrollPositions,
-        gitScrollPosition,
-        previewUrl,
-        panelWidthPercent: rightWidthPercent,
-      };
-      scheduleSave(currentSessionRef.current, state);
-    }
-  }, [leftWidthPercent, rightWidthPercent, fileTabs, activeTabIndex, tabScrollPositions, gitScrollPosition, previewUrl, scheduleSave]);
-
   const togglePanel = useCallback((panel: ActivePanel) => {
     if (panel === 'files') {
-      setLeftPanel((prev) => {
-        const next = prev === 'files' ? 'none' : 'files';
-        doSave(next, rightPanel);
-        return next;
-      });
+      setLeftPanel((prev) => (prev === 'files' ? 'none' : 'files'));
     } else if (panel === 'git' || panel === 'preview') {
-      setRightPanel((prev) => {
-        // Toggle off if same panel, otherwise switch
-        const next: RightPanel = prev === panel ? 'none' : panel;
-        doSave(leftPanel, next);
-        return next;
-      });
+      setRightPanel((prev) => (prev === panel ? 'none' : panel));
     } else {
       // 'none' — close all
       setLeftPanel('none');
       setRightPanel('none');
-      doSave('none', 'none');
     }
-  }, [leftPanel, rightPanel, doSave]);
+  }, []);
 
   const closePanel = useCallback(() => {
     togglePanel('none' as ActivePanel);
@@ -226,6 +197,37 @@ export function usePanel(sessionId: string | null) {
   const updateScrollPosition = useCallback((path: string, pos: ScrollPosition) => {
     setTabScrollPositions((prev) => ({ ...prev, [path]: pos }));
   }, []);
+
+  // Unified auto-save: watches ALL panel state and debounce-saves on any change.
+  // Uses a render counter to skip the first render (initial load / session switch).
+  const saveGeneration = useRef(0);
+  useEffect(() => {
+    // Skip the very first effect run after mount or session change
+    if (saveGeneration.current < 2) {
+      saveGeneration.current++;
+      return;
+    }
+    if (!currentSessionRef.current) return;
+    const state: PanelStateValues = {
+      leftPanel,
+      rightPanel,
+      leftWidthPercent,
+      rightWidthPercent,
+      activePanel: deriveActivePanel(leftPanel, rightPanel),
+      fileTabs,
+      activeTabIndex,
+      tabScrollPositions,
+      gitScrollPosition,
+      previewUrl,
+      panelWidthPercent: rightWidthPercent,
+    };
+    scheduleSave(currentSessionRef.current, state);
+  }, [leftPanel, rightPanel, leftWidthPercent, rightWidthPercent, fileTabs, activeTabIndex, tabScrollPositions, gitScrollPosition, previewUrl, scheduleSave]);
+
+  // Reset generation counter when session changes so we skip the load-triggered renders
+  useEffect(() => {
+    saveGeneration.current = 0;
+  }, [sessionId]);
 
   // Computed legacy activePanel for backward compat
   const activePanel = deriveActivePanel(leftPanel, rightPanel);

@@ -41,30 +41,9 @@ export function SessionGrid({
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      {/* Focus Area: Main visible sessions (frozen order) */}
-      <div
-        className="flex-1 grid gap-3 p-3 auto-rows-fr overflow-auto"
-        style={{
-          gridTemplateColumns: `repeat(${cols || 1}, 1fr)`,
-        }}
-      >
-        {displayedSessions.map((session) => (
-          <SessionCard
-            key={session.id}
-            session={session}
-            focused={true}
-            isSingleView={displayedSessions.length === 1}
-            onContinue={onContinue}
-            onKill={onKill}
-            onToggleLock={onToggleLock}
-            onDelete={onDelete}
-          />
-        ))}
-      </div>
-
-      {/* Overflow: Collapsible section for sessions beyond max_visible */}
+      {/* Overflow: Collapsible section for sessions beyond max_visible — at top */}
       {overflowSessions.length > 0 && (
-        <div className="border-t border-gray-700 flex-shrink-0">
+        <div className="border-b border-gray-700 flex-shrink-0">
           <button
             onClick={() => {
               setOverflowCollapsed((prev) => {
@@ -75,10 +54,13 @@ export function SessionGrid({
             }}
             className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wide hover:bg-gray-800/50 transition-colors"
           >
-            <span>
+            <span className="flex items-center gap-1.5">
               {overflowCollapsed
                 ? `+${overflowSessions.length} more sessions`
                 : `More Sessions (${overflowSessions.length})`}
+              {overflowCollapsed && overflowSessions.some((s) => s.needsInput) && (
+                <span className="text-amber-400 animate-pulse font-bold">!</span>
+              )}
             </span>
             <span className="text-gray-500">{overflowCollapsed ? '▾' : '▴'}</span>
           </button>
@@ -114,6 +96,27 @@ export function SessionGrid({
           )}
         </div>
       )}
+
+      {/* Focus Area: Main visible sessions (frozen order) */}
+      <div
+        className="flex-1 grid gap-3 p-3 auto-rows-fr overflow-auto"
+        style={{
+          gridTemplateColumns: `repeat(${cols || 1}, 1fr)`,
+        }}
+      >
+        {displayedSessions.map((session) => (
+          <SessionCard
+            key={session.id}
+            session={session}
+            focused={true}
+            isSingleView={displayedSessions.length === 1}
+            onContinue={onContinue}
+            onKill={onKill}
+            onToggleLock={onToggleLock}
+            onDelete={onDelete}
+          />
+        ))}
+      </div>
     </div>
   );
 }

@@ -164,7 +164,7 @@ export function createSessionsRouter(repo: Repository, sessionManager: SessionMa
       return;
     }
 
-    const { activePanel, fileTabs, activeTabIndex, tabScrollPositions, gitScrollPosition, previewUrl, panelWidthPercent } = req.body;
+    const { activePanel, leftPanel, rightPanel, leftWidthPercent, rightWidthPercent, fileTabs, activeTabIndex, tabScrollPositions, gitScrollPosition, previewUrl, panelWidthPercent } = req.body;
 
     // Validate activePanel
     const validPanels = ['none', 'files', 'git', 'preview'];
@@ -211,6 +211,10 @@ export function createSessionsRouter(repo: Repository, sessionManager: SessionMa
 
     repo.savePanelState(id, {
       activePanel,
+      leftPanel,
+      rightPanel,
+      leftWidthPercent,
+      rightWidthPercent,
       fileTabs,
       activeTabIndex,
       tabScrollPositions,

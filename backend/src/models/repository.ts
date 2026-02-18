@@ -16,6 +16,8 @@ import type {
   Theme,
   PanelState,
   ActivePanel,
+  LeftPanel,
+  RightPanel,
   Comment,
   CommentStatus,
 } from './types.js';
@@ -72,6 +74,10 @@ function rowToPanelState(row: Record<string, unknown>): PanelState {
   return {
     sessionId: row.session_id as string,
     activePanel: row.active_panel as ActivePanel,
+    leftPanel: (row.left_panel as LeftPanel) || 'none',
+    rightPanel: (row.right_panel as RightPanel) || 'none',
+    leftWidthPercent: (row.left_width_percent as number) ?? 25,
+    rightWidthPercent: (row.right_width_percent as number) ?? 35,
     fileTabs: JSON.parse(row.file_tabs as string),
     activeTabIndex: row.active_tab_index as number,
     tabScrollPositions: JSON.parse(row.tab_scroll_positions as string),
@@ -437,6 +443,10 @@ export class Repository {
     sessionId: string,
     input: {
       activePanel: ActivePanel;
+      leftPanel?: LeftPanel;
+      rightPanel?: RightPanel;
+      leftWidthPercent?: number;
+      rightWidthPercent?: number;
       fileTabs: string[];
       activeTabIndex: number;
       tabScrollPositions: Record<string, { line: number; column: number }>;
@@ -448,13 +458,18 @@ export class Repository {
     this.db
       .prepare(
         `INSERT OR REPLACE INTO panel_states
-         (session_id, active_panel, file_tabs, active_tab_index, tab_scroll_positions,
+         (session_id, active_panel, left_panel, right_panel, left_width_percent, right_width_percent,
+          file_tabs, active_tab_index, tab_scroll_positions,
           git_scroll_position, preview_url, panel_width_percent, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
       )
       .run(
         sessionId,
         input.activePanel,
+        input.leftPanel || 'none',
+        input.rightPanel || 'none',
+        input.leftWidthPercent ?? 25,
+        input.rightWidthPercent ?? 35,
         JSON.stringify(input.fileTabs),
         input.activeTabIndex,
         JSON.stringify(input.tabScrollPositions),

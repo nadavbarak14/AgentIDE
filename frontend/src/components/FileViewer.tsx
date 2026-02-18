@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Editor, { type OnMount } from '@monaco-editor/react';
-import { files as filesApi } from '../services/api';
+import { files as filesApi, comments as commentsApi, type CommentData } from '../services/api';
 
 interface FileViewerProps {
   sessionId: string;
@@ -65,6 +65,19 @@ export function FileViewer({
   const editorContentRef = useRef<string>('');
   const saveRef = useRef<() => void>(() => {});
 
+  // Comment system state
+  const [selectedLines, setSelectedLines] = useState<{ start: number; end: number } | null>(null);
+  const [showCommentInput, setShowCommentInput] = useState(false);
+  const [commentText, setCommentText] = useState('');
+  const [existingComments, setExistingComments] = useState<CommentData[]>([]);
+  const [savingComment, setSavingComment] = useState(false);
+  const [sendingAll, setSendingAll] = useState(false);
+  const [floatingBtnPos, setFloatingBtnPos] = useState<{ top: number; left: number } | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const editorRef = useRef<any>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const decorationIdsRef = useRef<string[]>([]);
+
   useEffect(() => {
     setLoading(prevContentRef.current === ''); // Only show loading on first load
     setError(null);
@@ -84,6 +97,23 @@ export function FileViewer({
       .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load file'))
       .finally(() => setLoading(false));
   }, [sessionId, filePath, refreshKey]);
+
+  // Load existing comments for the current file
+  useEffect(() => {
+    commentsApi.list(sessionId)
+      .then((result) => {
+        setExistingComments(result.comments.filter((c) => c.filePath === filePath));
+      })
+      .catch(() => setExistingComments([]));
+  }, [sessionId, filePath, refreshKey]);
+
+  // Dismiss comment input on file tab switch (T016)
+  useEffect(() => {
+    setShowCommentInput(false);
+    setCommentText('');
+    setSelectedLines(null);
+    setFloatingBtnPos(null);
+  }, [filePath]);
 
   // Flash effect for content updates
   const triggerFlash = () => {
@@ -126,14 +156,133 @@ export function FileViewer({
     }
   }, []);
 
+  // Store refs for selection handler to avoid stale closures
+  const selectedLinesRef = useRef(selectedLines);
+  selectedLinesRef.current = selectedLines;
+  const showCommentInputRef = useRef(showCommentInput);
+  showCommentInputRef.current = showCommentInput;
+
   const handleEditorMount: OnMount = useCallback((editor) => {
+    editorRef.current = editor;
+
     // Bind Ctrl+S / Cmd+S to save — uses ref to avoid stale closure
     editor.addCommand(
       2048 | 49, // CtrlCmd = 2048, KeyS = 49
       () => { saveRef.current(); },
     );
+
+    // Listen for selection changes to show floating Comment button
+    editor.onDidChangeCursorSelection(() => {
+      const selection = editor.getSelection();
+      if (!selection || selection.isEmpty()) {
+        setFloatingBtnPos(null);
+        setSelectedLines(null);
+        return;
+      }
+
+      // Don't reset selection if comment input is open
+      if (showCommentInputRef.current) return;
+
+      const startLine = selection.startLineNumber;
+      const endLine = selection.endLineNumber;
+      setSelectedLines({ start: startLine, end: endLine });
+
+      // Position floating button near the end of selection
+      const endPos = editor.getScrolledVisiblePosition({
+        lineNumber: endLine,
+        column: selection.endColumn,
+      });
+      if (endPos && containerRef.current) {
+        setFloatingBtnPos({
+          top: endPos.top + endPos.height + 4,
+          left: Math.min(endPos.left + 20, containerRef.current.clientWidth - 100),
+        });
+      }
+    });
   }, []);
 
+  // Add comment (T011)
+  const handleAddComment = useCallback(async () => {
+    if (!selectedLines || !commentText.trim()) return;
+
+    // Extract code snippet from editor
+    const model = editorRef.current?.getModel();
+    const codeSnippet = model
+      ? model.getValueInRange({
+          startLineNumber: selectedLines.start,
+          startColumn: 1,
+          endLineNumber: selectedLines.end,
+          endColumn: model.getLineMaxColumn(selectedLines.end),
+        })
+      : '(selected code)';
+
+    setSavingComment(true);
+    try {
+      const created = await commentsApi.create(sessionId, {
+        filePath,
+        startLine: selectedLines.start,
+        endLine: selectedLines.end,
+        codeSnippet,
+        commentText: commentText.trim(),
+      });
+      setExistingComments((prev) => [...prev, created]);
+      setCommentText('');
+      setShowCommentInput(false);
+      setSelectedLines(null);
+      setFloatingBtnPos(null);
+    } catch {
+      // Keep input open for retry
+    } finally {
+      setSavingComment(false);
+    }
+  }, [sessionId, filePath, selectedLines, commentText]);
+
+  // Send All pending comments (T012)
+  const handleSendAll = useCallback(async () => {
+    const pending = existingComments.filter((c) => c.status === 'pending');
+    if (pending.length === 0) return;
+    setSendingAll(true);
+    try {
+      const result = await commentsApi.deliver(sessionId);
+      const deliveredSet = new Set(result.delivered);
+      setExistingComments((prev) => prev.filter((c) => !deliveredSet.has(c.id)));
+    } catch {
+      // Stay as pending
+    } finally {
+      setSendingAll(false);
+    }
+  }, [sessionId, existingComments]);
+
+  // Apply Monaco decorations for commented lines (T015)
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+
+    const pendingComments = existingComments.filter((c) => c.status === 'pending');
+    const newDecorations = pendingComments.map((c) => ({
+      range: {
+        startLineNumber: c.startLine,
+        startColumn: 1,
+        endLineNumber: c.endLine,
+        endColumn: 1,
+      },
+      options: {
+        isWholeLine: true,
+        linesDecorationsClassName: 'comment-line-decoration',
+        overviewRuler: {
+          color: '#eab308',
+          position: 1,
+        },
+      },
+    }));
+
+    decorationIdsRef.current = editor.deltaDecorations(
+      decorationIdsRef.current,
+      newDecorations,
+    );
+  }, [existingComments]);
+
+  const pendingCount = existingComments.filter((c) => c.status === 'pending').length;
   const isTruncated = fileSize > ONE_MB;
 
   return (
@@ -180,6 +329,16 @@ export function FileViewer({
               {saveStatus === 'saving' ? 'Saving...' : 'Save'}
             </button>
           )}
+          {/* Send All Button (T014) */}
+          {pendingCount > 0 && (
+            <button
+              onClick={handleSendAll}
+              disabled={sendingAll}
+              className={`${isModified ? '' : 'ml-auto '}px-2 py-0.5 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50 mx-1.5 my-0.5 flex-shrink-0`}
+            >
+              {sendingAll ? 'Sending...' : `Send All (${pendingCount})`}
+            </button>
+          )}
         </div>
       )}
 
@@ -199,8 +358,8 @@ export function FileViewer({
         </div>
       )}
 
-      {/* Editor Area */}
-      <div className="flex-1 overflow-hidden bg-gray-900">
+      {/* Editor Area (T013) */}
+      <div ref={containerRef} className="flex-1 overflow-hidden bg-gray-900 relative">
         {loading ? (
           <div className="flex items-center justify-center h-full text-gray-500">
             Loading...
@@ -226,10 +385,78 @@ export function FileViewer({
               renderLineHighlight: 'line',
               folding: true,
               automaticLayout: true,
+              glyphMargin: true,
             }}
           />
         )}
+
+        {/* Floating "Comment" button */}
+        {floatingBtnPos && !showCommentInput && (
+          <button
+            className="absolute z-20 px-2 py-1 text-xs bg-blue-500 text-white rounded shadow-lg hover:bg-blue-600"
+            style={{ top: floatingBtnPos.top, left: floatingBtnPos.left }}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              setShowCommentInput(true);
+              setFloatingBtnPos(null);
+            }}
+          >
+            Comment
+          </button>
+        )}
       </div>
+
+      {/* Inline comment input (T013) */}
+      {showCommentInput && selectedLines && (
+        <div className="border-l-2 border-blue-500 bg-gray-800 p-2 flex-shrink-0">
+          <div className="text-[10px] text-gray-500 mb-1">
+            Comment on {selectedLines.start === selectedLines.end
+              ? `line ${selectedLines.start}`
+              : `lines ${selectedLines.start}–${selectedLines.end}`}
+          </div>
+          <textarea
+            value={commentText}
+            onChange={(e) => setCommentText(e.target.value)}
+            placeholder="Enter your feedback..."
+            className="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-gray-300 placeholder-gray-600 focus:outline-none focus:border-blue-500 resize-none"
+            rows={3}
+            autoFocus
+          />
+          <div className="flex gap-2 mt-1">
+            <button
+              onClick={handleAddComment}
+              disabled={!commentText.trim() || savingComment}
+              className="px-2 py-1 text-xs bg-yellow-500 text-black rounded hover:bg-yellow-400 disabled:opacity-50"
+            >
+              {savingComment ? 'Saving...' : 'Add Comment'}
+            </button>
+            <button
+              onClick={() => {
+                setShowCommentInput(false);
+                setCommentText('');
+                setSelectedLines(null);
+              }}
+              className="px-2 py-1 text-xs text-gray-400 hover:text-white"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Pending comments summary */}
+      {pendingCount > 0 && !showCommentInput && (
+        <div className="px-3 py-1 border-t border-gray-700 bg-gray-800/50 flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] text-yellow-400">{pendingCount} pending comment{pendingCount > 1 ? 's' : ''}</span>
+            {existingComments.filter((c) => c.status === 'pending').slice(0, 3).map((c) => (
+              <span key={c.id} className="text-[10px] text-gray-500 truncate max-w-[200px]">
+                L{c.startLine}: {c.commentText}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
