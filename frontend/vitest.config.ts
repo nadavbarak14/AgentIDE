@@ -9,5 +9,18 @@ export default defineConfig({
     include: ['tests/unit/**/*.test.{ts,tsx}'],
     setupFiles: ['./tests/setup.ts'],
     testTimeout: 15000,
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'lcov'],
+      reportsDirectory: './coverage',
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: ['src/vite-env.d.ts'],
+      thresholds: {
+        lines: 0,
+        branches: 46,
+        functions: 0,
+        statements: 0,
+      },
+    },
   },
 });

@@ -1,0 +1,56 @@
+# Contract: CI Workflow Structure
+# This defines the expected CI job structure and required checks.
+# The actual implementation lives in .github/workflows/ci.yml
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Expected jobs and their dependencies
+jobs:
+  lint-typecheck:
+    # REQUIRED CHECK for branch protection
+    runs-on: ubuntu-latest
+    steps:
+      - checkout
+      - setup-node (20, npm cache)
+      - npm ci
+      - "npm run lint --workspaces --if-present"
+      - "npx tsc --noEmit (backend)"
+      - "npx tsc --noEmit (frontend)"
+
+  test-backend:
+    # REQUIRED CHECK for branch protection
+    runs-on: ubuntu-latest
+    steps:
+      - checkout
+      - setup-node (20, npm cache)
+      - install build-essential
+      - npm ci
+      - "cd backend && npx vitest run --coverage"
+      - upload-artifact (backend/coverage/)
+
+  test-frontend:
+    # REQUIRED CHECK for branch protection
+    runs-on: ubuntu-latest
+    steps:
+      - checkout
+      - setup-node (20, npm cache)
+      - npm ci
+      - "cd frontend && npx vitest run --coverage"
+      - "cd frontend && npx vite build"
+      - upload-artifact (frontend/coverage/)
+
+  test-system:
+    # NOT a required check (may have no tests initially)
+    needs: [test-backend]
+    runs-on: ubuntu-latest
+    steps:
+      - checkout
+      - setup-node (20, npm cache)
+      - install build-essential
+      - npm ci
+      - "cd backend && npx vitest run --config vitest.system.config.ts"
