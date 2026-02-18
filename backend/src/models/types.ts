@@ -90,6 +90,42 @@ export interface UpdateSettingsInput {
   theme?: Theme;
 }
 
+// Panel State
+export type ActivePanel = 'none' | 'files' | 'git' | 'preview';
+
+export interface ScrollPosition {
+  line: number;
+  column: number;
+}
+
+export interface PanelState {
+  sessionId: string;
+  activePanel: ActivePanel;
+  fileTabs: string[];
+  activeTabIndex: number;
+  tabScrollPositions: Record<string, ScrollPosition>;
+  gitScrollPosition: number;
+  previewUrl: string;
+  panelWidthPercent: number;
+  updatedAt: string;
+}
+
+// Comment
+export type CommentStatus = 'pending' | 'sent';
+
+export interface Comment {
+  id: string;
+  sessionId: string;
+  filePath: string;
+  startLine: number;
+  endLine: number;
+  codeSnippet: string;
+  commentText: string;
+  status: CommentStatus;
+  createdAt: string;
+  sentAt: string | null;
+}
+
 // WebSocket message types (Server → Client, text frames)
 export type WsServerMessage =
   | WsSessionStatusMessage

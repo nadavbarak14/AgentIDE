@@ -74,6 +74,10 @@ export class SessionManager extends EventEmitter {
       this.suspendGuardIds.add(sessionId);
       const activated = this.repo.activateSession(sessionId, ptyProc.pid);
       this.emit('session_activated', activated);
+
+      // Deliver pending comments after a short delay to let Claude initialize
+      this.deliverPendingComments(sessionId);
+
       return activated;
     } catch (err) {
       log.error({ err }, 'failed to activate session');
@@ -246,6 +250,32 @@ export class SessionManager extends EventEmitter {
 
     log.info('killing process for auto-suspend');
     ptyProc.kill();
+  }
+
+  /**
+   * Deliver any pending comments for a session that just activated.
+   * Uses a delay to allow the Claude process to initialize first.
+   */
+  private deliverPendingComments(sessionId: string): void {
+    const log = createSessionLogger(sessionId);
+    setTimeout(() => {
+      const pending = this.repo.getCommentsByStatus(sessionId, 'pending');
+      if (pending.length === 0) return;
+
+      log.info({ count: pending.length }, 'delivering pending comments');
+      for (const comment of pending) {
+        const lineRange = comment.startLine === comment.endLine
+          ? `line ${comment.startLine}`
+          : `lines ${comment.startLine}-${comment.endLine}`;
+        const message = `\n[Code Review Comment]\nFile: ${comment.filePath} (${lineRange})\nCode:\n${comment.codeSnippet}\n\nFeedback: ${comment.commentText}\n\nPlease address this feedback.\n`;
+        try {
+          this.ptySpawner.write(sessionId, message);
+          this.repo.markCommentSent(comment.id);
+        } catch (err) {
+          log.error({ commentId: comment.id, err }, 'failed to deliver pending comment');
+        }
+      }
+    }, 3000); // Wait 3s for Claude to initialize
   }
 
   private setupQueueListeners(): void {

@@ -131,6 +131,72 @@ export const files = {
   diff: (sessionId: string) => request<DiffResult>(`/sessions/${sessionId}/diff`),
 };
 
+// ─── Panel State ───
+
+export interface PanelStateData {
+  sessionId: string;
+  activePanel: 'none' | 'files' | 'git' | 'preview';
+  fileTabs: string[];
+  activeTabIndex: number;
+  tabScrollPositions: Record<string, { line: number; column: number }>;
+  gitScrollPosition: number;
+  previewUrl: string;
+  panelWidthPercent: number;
+}
+
+export const panelState = {
+  get: (sessionId: string) =>
+    request<PanelStateData>(`/sessions/${sessionId}/panel-state`),
+
+  save: (sessionId: string, state: Omit<PanelStateData, 'sessionId'>) =>
+    request<{ success: boolean }>(`/sessions/${sessionId}/panel-state`, {
+      method: 'PUT',
+      body: JSON.stringify(state),
+    }),
+};
+
+// ─── Comments ───
+
+export interface CommentData {
+  id: string;
+  sessionId: string;
+  filePath: string;
+  startLine: number;
+  endLine: number;
+  codeSnippet: string;
+  commentText: string;
+  status: 'pending' | 'sent';
+  createdAt: string;
+  sentAt: string | null;
+}
+
+export interface CreateCommentInput {
+  filePath: string;
+  startLine: number;
+  endLine: number;
+  codeSnippet: string;
+  commentText: string;
+}
+
+export const comments = {
+  list: (sessionId: string, status?: 'pending' | 'sent') =>
+    request<{ comments: CommentData[] }>(
+      `/sessions/${sessionId}/comments${status ? `?status=${status}` : ''}`,
+    ),
+
+  create: (sessionId: string, data: CreateCommentInput) =>
+    request<CommentData>(`/sessions/${sessionId}/comments`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  deliver: (sessionId: string) =>
+    request<{ delivered: string[]; count: number }>(
+      `/sessions/${sessionId}/comments/deliver`,
+      { method: 'POST' },
+    ),
+};
+
 // ─── Directories ───
 
 export interface DirectoryEntry {

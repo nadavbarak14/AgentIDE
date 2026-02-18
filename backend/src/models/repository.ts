@@ -14,6 +14,10 @@ import type {
   UpdateSettingsInput,
   GridLayout,
   Theme,
+  PanelState,
+  ActivePanel,
+  Comment,
+  CommentStatus,
 } from './types.js';
 
 // Helper: convert SQLite row to Session
@@ -61,6 +65,35 @@ function rowToArtifact(row: Record<string, unknown>): Artifact {
     type: row.type as ArtifactType,
     path: row.path as string,
     detectedAt: row.detected_at as string,
+  };
+}
+
+function rowToPanelState(row: Record<string, unknown>): PanelState {
+  return {
+    sessionId: row.session_id as string,
+    activePanel: row.active_panel as ActivePanel,
+    fileTabs: JSON.parse(row.file_tabs as string),
+    activeTabIndex: row.active_tab_index as number,
+    tabScrollPositions: JSON.parse(row.tab_scroll_positions as string),
+    gitScrollPosition: row.git_scroll_position as number,
+    previewUrl: row.preview_url as string,
+    panelWidthPercent: row.panel_width_percent as number,
+    updatedAt: row.updated_at as string,
+  };
+}
+
+function rowToComment(row: Record<string, unknown>): Comment {
+  return {
+    id: row.id as string,
+    sessionId: row.session_id as string,
+    filePath: row.file_path as string,
+    startLine: row.start_line as number,
+    endLine: row.end_line as number,
+    codeSnippet: row.code_snippet as string,
+    commentText: row.comment_text as string,
+    status: row.status as CommentStatus,
+    createdAt: row.created_at as string,
+    sentAt: (row.sent_at as string) || null,
   };
 }
 
@@ -389,5 +422,91 @@ export class Repository {
       this.db.prepare(`UPDATE settings SET ${updates.join(', ')} WHERE id = ?`).run(...params);
     }
     return this.getSettings();
+  }
+
+  // ─── Panel State ───
+
+  getPanelState(sessionId: string): PanelState | null {
+    const row = this.db
+      .prepare('SELECT * FROM panel_states WHERE session_id = ?')
+      .get(sessionId) as Record<string, unknown> | undefined;
+    return row ? rowToPanelState(row) : null;
+  }
+
+  savePanelState(
+    sessionId: string,
+    input: {
+      activePanel: ActivePanel;
+      fileTabs: string[];
+      activeTabIndex: number;
+      tabScrollPositions: Record<string, { line: number; column: number }>;
+      gitScrollPosition: number;
+      previewUrl: string;
+      panelWidthPercent: number;
+    },
+  ): void {
+    this.db
+      .prepare(
+        `INSERT OR REPLACE INTO panel_states
+         (session_id, active_panel, file_tabs, active_tab_index, tab_scroll_positions,
+          git_scroll_position, preview_url, panel_width_percent, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      )
+      .run(
+        sessionId,
+        input.activePanel,
+        JSON.stringify(input.fileTabs),
+        input.activeTabIndex,
+        JSON.stringify(input.tabScrollPositions),
+        input.gitScrollPosition,
+        input.previewUrl,
+        input.panelWidthPercent,
+      );
+  }
+
+  deletePanelState(sessionId: string): void {
+    this.db.prepare('DELETE FROM panel_states WHERE session_id = ?').run(sessionId);
+  }
+
+  // ─── Comments ───
+
+  createComment(input: {
+    sessionId: string;
+    filePath: string;
+    startLine: number;
+    endLine: number;
+    codeSnippet: string;
+    commentText: string;
+  }): Comment {
+    const id = uuid();
+    this.db
+      .prepare(
+        `INSERT INTO comments (id, session_id, file_path, start_line, end_line, code_snippet, comment_text, status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', datetime('now'))`,
+      )
+      .run(id, input.sessionId, input.filePath, input.startLine, input.endLine, input.codeSnippet, input.commentText);
+
+    const row = this.db.prepare('SELECT * FROM comments WHERE id = ?').get(id) as Record<string, unknown>;
+    return rowToComment(row);
+  }
+
+  getComments(sessionId: string): Comment[] {
+    const rows = this.db
+      .prepare('SELECT * FROM comments WHERE session_id = ? ORDER BY created_at ASC')
+      .all(sessionId) as Record<string, unknown>[];
+    return rows.map(rowToComment);
+  }
+
+  getCommentsByStatus(sessionId: string, status: CommentStatus): Comment[] {
+    const rows = this.db
+      .prepare('SELECT * FROM comments WHERE session_id = ? AND status = ? ORDER BY created_at ASC')
+      .all(sessionId, status) as Record<string, unknown>[];
+    return rows.map(rowToComment);
+  }
+
+  markCommentSent(commentId: string): void {
+    this.db
+      .prepare("UPDATE comments SET status = 'sent', sent_at = datetime('now') WHERE id = ?")
+      .run(commentId);
   }
 }

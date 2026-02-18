@@ -5,9 +5,10 @@ import { useWebSocket } from '../hooks/useWebSocket';
 interface TerminalViewProps {
   sessionId: string;
   active: boolean;
+  onWsMessage?: (msg: import('../services/ws').WsServerMessage) => void;
 }
 
-export function TerminalView({ sessionId, active }: TerminalViewProps) {
+export function TerminalView({ sessionId, active, onWsMessage }: TerminalViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Use refs so the terminal onData callback always calls the latest functions
@@ -31,10 +32,16 @@ export function TerminalView({ sessionId, active }: TerminalViewProps) {
     onResize: (cols, rows) => sendResizeRef.current(cols, rows),
   });
 
+  const onWsMessageRef = useRef(onWsMessage);
+  onWsMessageRef.current = onWsMessage;
+
   const { sendInput, sendResize } = useWebSocket({
     sessionId,
     enabled: active,
     onBinaryData: useCallback((data: ArrayBuffer) => write(data), [write]),
+    onMessage: useCallback((msg: import('../services/ws').WsServerMessage) => {
+      onWsMessageRef.current?.(msg);
+    }, []),
   });
 
   // Keep refs pointing to latest functions
