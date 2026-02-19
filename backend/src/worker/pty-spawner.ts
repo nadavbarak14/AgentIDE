@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createSessionLogger, logger } from '../services/logger.js';
+import { TerminalParser } from '../services/terminal-parser.js';
 
 export interface PtyProcess {
   pid: number;
@@ -24,6 +25,7 @@ export class PtySpawner extends EventEmitter {
   private scrollbackDir: string;
   private scrollbackWriters = new Map<string, ReturnType<typeof setTimeout>>();
   private idleNotified = new Map<string, boolean>();
+  private terminalParsers = new Map<string, TerminalParser>();
   private idlePoller: ReturnType<typeof setInterval> | null = null;
   private hookSettingsPath: string;
   private hubPort: number;
@@ -119,6 +121,7 @@ export class PtySpawner extends EventEmitter {
     this.processes.set(sessionId, proc);
     this.outputBuffers.set(sessionId, '');
     this.lastOutputTime.set(sessionId, Date.now());
+    this.terminalParsers.set(sessionId, new TerminalParser());
 
     log.info({ pid: proc.pid }, 'claude process spawned');
 
@@ -132,6 +135,15 @@ export class PtySpawner extends EventEmitter {
 
       // Emit binary data for WebSocket forwarding
       this.emit('data', sessionId, data);
+
+      // Parse for board commands (OSC escape sequences)
+      const parser = this.terminalParsers.get(sessionId);
+      if (parser) {
+        const commands = parser.parse(data);
+        for (const cmd of commands) {
+          this.emit('board_command', sessionId, cmd);
+        }
+      }
 
       // Schedule scrollback write (throttled)
       this.scheduleScrollbackWrite(sessionId, data);
@@ -254,6 +266,7 @@ export class PtySpawner extends EventEmitter {
     this.outputBuffers.delete(sessionId);
     this.lastOutputTime.delete(sessionId);
     this.idleNotified.delete(sessionId);
+    this.terminalParsers.delete(sessionId);
 
     const scrollbackTimer = this.scrollbackWriters.get(sessionId);
     if (scrollbackTimer) {

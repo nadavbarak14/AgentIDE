@@ -85,8 +85,8 @@ async function main() {
 
   // API routes
   app.use('/api/settings', createSettingsRouter(repo));
-  app.use('/api/sessions', createSessionsRouter(repo, sessionManager));
   app.use('/api/sessions', createFilesRouter(repo));
+  app.use('/api/sessions', createSessionsRouter(repo, sessionManager));
   app.use('/api/workers', createWorkersRouter(repo, workerManager));
   app.use('/api/directories', createDirectoriesRouter());
   app.use('/api/hooks', createHooksRouter(repo));
@@ -94,8 +94,16 @@ async function main() {
   // Serve static frontend in production
   const frontendDist = path.join(import.meta.dirname, '../../frontend/dist');
   if (fs.existsSync(frontendDist)) {
-    app.use(express.static(frontendDist));
+    // Cache hashed assets forever, never cache index.html
+    app.use(express.static(frontendDist, {
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith('.html')) {
+          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        }
+      },
+    }));
     app.get('*', (_req, res) => {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
       res.sendFile(path.join(frontendDist, 'index.html'));
     });
   }

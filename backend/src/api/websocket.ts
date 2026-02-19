@@ -4,7 +4,7 @@ import type { Repository } from '../models/repository.js';
 import type { SessionManager } from '../services/session-manager.js';
 import type { PtySpawner } from '../worker/pty-spawner.js';
 import type { FileWatcher } from '../worker/file-watcher.js';
-import type { WsClientMessage } from '../models/types.js';
+import type { WsClientMessage, BoardCommand } from '../models/types.js';
 import { createSessionLogger, logger } from '../services/logger.js';
 
 // Map of sessionId → Set of connected WebSocket clients
@@ -137,6 +137,16 @@ export function setupWebSocket(
         ws.send(buf, { binary: true });
       }
     }
+  });
+
+  // Forward board commands from terminal parser to connected clients
+  ptySpawner.on('board_command', (sessionId: string, command: BoardCommand) => {
+    broadcastJson(sessionId, {
+      type: 'board_command',
+      sessionId,
+      command: command.type,
+      params: command.params,
+    });
   });
 
   // Forward session status changes

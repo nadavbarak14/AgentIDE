@@ -477,7 +477,15 @@ export function FileViewer({
   const isTruncated = fileSize > ONE_MB;
 
   return (
-    <div className={`flex flex-col h-full transition-all duration-500 ${flash ? 'ring-2 ring-yellow-400/50' : ''}`}>
+    <div
+      className={`flex flex-col h-full transition-all duration-500 ${flash ? 'ring-2 ring-yellow-400/50' : ''}`}
+      onKeyDown={(e) => {
+        // Defensive Ctrl+Z prevention — stop browser back-nav if event reaches here
+        if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+          e.preventDefault();
+        }
+      }}
+    >
       {/* Tab Bar */}
       {fileTabs && fileTabs.length > 0 && (
         <div className="flex items-center border-b border-gray-700 bg-gray-800/50 overflow-x-auto flex-shrink-0">

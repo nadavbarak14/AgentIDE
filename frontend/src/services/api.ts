@@ -68,6 +68,14 @@ export interface DiffResult {
   deletions: number;
 }
 
+export interface SearchResult {
+  filePath: string;
+  lineNumber: number;
+  lineContent: string;
+  matchStart: number;
+  matchLength: number;
+}
+
 // ─── Sessions ───
 
 export const sessions = {
@@ -135,6 +143,11 @@ export const files = {
       method: 'PUT',
       body: JSON.stringify({ path: filePath, content }),
     }),
+
+  search: (sessionId: string, query: string, limit = 100, offset = 0) =>
+    request<{ query: string; results: SearchResult[]; totalMatches: number; truncated: boolean }>(
+      `/sessions/${sessionId}/search?q=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}`,
+    ),
 };
 
 // ─── Panel State ───

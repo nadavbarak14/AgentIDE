@@ -112,12 +112,20 @@ export function useTerminal(options: UseTerminalOptions = {}) {
     terminalRef.current?.focus();
   }, []);
 
+  const setFontSize = useCallback((size: number) => {
+    if (terminalRef.current) {
+      terminalRef.current.options.fontSize = size;
+      fitAddonRef.current?.fit();
+    }
+  }, []);
+
   return {
     initTerminal,
     write,
     fit,
     clear,
     focus,
+    setFontSize,
     terminal: terminalRef,
   };
 }
