@@ -5,10 +5,11 @@ import { useWebSocket } from '../hooks/useWebSocket';
 interface TerminalViewProps {
   sessionId: string;
   active: boolean;
+  fontSize?: number;
   onWsMessage?: (msg: import('../services/ws').WsServerMessage) => void;
 }
 
-export function TerminalView({ sessionId, active, onWsMessage }: TerminalViewProps) {
+export function TerminalView({ sessionId, active, fontSize = 14, onWsMessage }: TerminalViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Use refs so the terminal onData callback always calls the latest functions
@@ -16,7 +17,7 @@ export function TerminalView({ sessionId, active, onWsMessage }: TerminalViewPro
   const sendResizeRef = useRef<(cols: number, rows: number) => void>(() => {});
   const inputDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const { initTerminal, write, fit } = useTerminal({
+  const { initTerminal, write, fit, setFontSize } = useTerminal({
     onData: (data) => {
       sendInputRef.current(data);
       // Detect Enter key — triggers auto-switch in Dashboard
@@ -64,6 +65,11 @@ export function TerminalView({ sessionId, active, onWsMessage }: TerminalViewPro
       if (inputDebounceRef.current) clearTimeout(inputDebounceRef.current);
     };
   }, []);
+
+  // Update terminal font size when prop changes
+  useEffect(() => {
+    setFontSize(fontSize);
+  }, [fontSize, setFontSize]);
 
   return (
     <div

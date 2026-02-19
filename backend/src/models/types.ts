@@ -94,6 +94,9 @@ export interface UpdateSettingsInput {
 export type ActivePanel = 'none' | 'files' | 'git' | 'preview';
 export type LeftPanel = 'none' | 'files';
 export type RightPanel = 'none' | 'git' | 'preview';
+export type PanelContent = 'none' | 'files' | 'git' | 'preview' | 'claude' | 'search';
+export type TerminalPosition = 'center' | 'bottom';
+export type ViewportMode = 'desktop' | 'mobile';
 
 export interface ScrollPosition {
   line: number;
@@ -135,6 +138,23 @@ export interface Comment {
   sentAt: string | null;
 }
 
+// Search
+export interface SearchResult {
+  filePath: string;
+  lineNumber: number;
+  lineContent: string;
+  matchStart: number;
+  matchLength: number;
+}
+
+// Board Commands (Claude skills for dashboard control)
+export type BoardCommandType = 'open_file' | 'show_panel' | 'show_diff';
+
+export interface BoardCommand {
+  type: BoardCommandType;
+  params: Record<string, string>;
+}
+
 // WebSocket message types (Server → Client, text frames)
 export type WsServerMessage =
   | WsSessionStatusMessage
@@ -143,7 +163,8 @@ export type WsServerMessage =
   | WsPortClosedMessage
   | WsNeedsInputMessage
   | WsArtifactMessage
-  | WsErrorMessage;
+  | WsErrorMessage
+  | WsBoardCommandMessage;
 
 export interface WsSessionStatusMessage {
   type: 'session_status';
@@ -191,6 +212,13 @@ export interface WsErrorMessage {
   type: 'error';
   message: string;
   recoverable: boolean;
+}
+
+export interface WsBoardCommandMessage {
+  type: 'board_command';
+  sessionId: string;
+  command: BoardCommandType;
+  params: Record<string, string>;
 }
 
 // WebSocket message types (Client → Server, text frames)

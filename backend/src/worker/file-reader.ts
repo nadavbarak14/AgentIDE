@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { logger } from '../services/logger.js';
+import type { SearchResult } from '../models/types.js';
 
 const MAX_FILE_SIZE = 1024 * 1024; // 1MB
 
@@ -222,4 +224,105 @@ export function writeFile(basePath: string, filePath: string, content: string): 
     logger.error({ err, resolvedPath }, 'failed to write file');
     throw new Error('Unable to write file');
   }
+}
+
+const MAX_LINE_LENGTH = 500;
+
+const GREP_EXCLUDE_DIRS = [
+  'node_modules', '.git', 'dist', 'build', '.next', '__pycache__', 'coverage',
+];
+
+/**
+ * Search for text across files in a directory using grep.
+ * @param basePath - The root directory to search in
+ * @param query - The search term
+ * @param limit - Maximum number of results to return
+ * @param offset - Number of results to skip (for pagination)
+ */
+export function searchFiles(
+  basePath: string,
+  query: string,
+  limit: number = 100,
+  offset: number = 0,
+): { results: SearchResult[]; totalMatches: number; truncated: boolean } {
+  const startTime = Date.now();
+  const resolvedBase = path.resolve(basePath);
+
+  if (!fs.existsSync(resolvedBase) || !fs.statSync(resolvedBase).isDirectory()) {
+    throw new Error(`Search directory not found: ${basePath}`);
+  }
+
+  const args = [
+    '-rn',        // recursive, line numbers
+    '-I',         // skip binary files
+    '--color=never',
+    ...GREP_EXCLUDE_DIRS.flatMap((dir) => ['--exclude-dir', dir]),
+    '--',         // end of options
+    query,
+    resolvedBase,
+  ];
+
+  let stdout: string;
+  try {
+    stdout = execFileSync('grep', args, {
+      encoding: 'utf-8',
+      maxBuffer: 10 * 1024 * 1024, // 10MB
+      timeout: 15000, // 15s timeout
+    });
+  } catch (err: unknown) {
+    // grep exits with code 1 when no matches found — that's not an error
+    if (err && typeof err === 'object' && 'status' in err && (err as { status: number }).status === 1) {
+      logger.info({ query, basePath, resultCount: 0, durationMs: Date.now() - startTime }, 'search completed (no matches)');
+      return { results: [], totalMatches: 0, truncated: false };
+    }
+    logger.error({ err, query, basePath }, 'search failed');
+    throw new Error('Search failed');
+  }
+
+  const lines = stdout.split('\n').filter((line) => line.length > 0);
+  const totalMatches = lines.length;
+
+  const results: SearchResult[] = [];
+  const paginated = lines.slice(offset, offset + limit);
+
+  for (const line of paginated) {
+    // grep output format: /absolute/path/file.ts:123:line content
+    const firstColon = line.indexOf(':');
+    if (firstColon === -1) continue;
+    const secondColon = line.indexOf(':', firstColon + 1);
+    if (secondColon === -1) continue;
+
+    const absFilePath = line.substring(0, firstColon);
+    const lineNumber = parseInt(line.substring(firstColon + 1, secondColon), 10);
+    if (isNaN(lineNumber)) continue;
+
+    let lineContent = line.substring(secondColon + 1);
+    if (lineContent.length > MAX_LINE_LENGTH) {
+      lineContent = lineContent.substring(0, MAX_LINE_LENGTH);
+    }
+
+    // Make path relative to basePath
+    const filePath = path.relative(resolvedBase, absFilePath);
+
+    // Find the match position within the line content
+    const matchStart = lineContent.indexOf(query);
+    const matchLength = query.length;
+
+    results.push({
+      filePath,
+      lineNumber,
+      lineContent,
+      matchStart: matchStart >= 0 ? matchStart : 0,
+      matchLength,
+    });
+  }
+
+  const truncated = totalMatches > offset + limit;
+
+  logger.info(
+    { query, basePath, resultCount: results.length, totalMatches, durationMs: Date.now() - startTime },
+    'search completed',
+  );
+
+  return { results, totalMatches, truncated };
 }

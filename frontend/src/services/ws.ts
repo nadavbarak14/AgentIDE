@@ -5,6 +5,7 @@ export type WsServerMessage =
   | { type: 'port_closed'; port: number }
   | { type: 'needs_input'; sessionId: string; needsInput: boolean; detectedPattern: string; idleSeconds: number }
   | { type: 'artifact'; artifactId: string; artifactType: string; path: string; previewUrl: string }
+  | { type: 'board_command'; sessionId: string; command: string; params: Record<string, string> }
   | { type: 'error'; message: string; recoverable: boolean };
 
 export interface WsClientOptions {
