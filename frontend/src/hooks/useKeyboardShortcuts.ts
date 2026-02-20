@@ -6,6 +6,7 @@ export type ShortcutAction =
   | 'toggle_preview'
   | 'toggle_claude'
   | 'toggle_issues'
+  | 'toggle_shell'
   | 'focus_next'
   | 'focus_prev'
   | 'switch_next'
@@ -29,6 +30,7 @@ export const DEFAULT_SHORTCUT_MAP: Shortcut[] = [
   { key: 'v', action: 'toggle_preview', category: 'Panels', description: 'Toggle Preview panel' },
   { key: '\\', action: 'toggle_claude', category: 'Panels', description: 'Toggle Claude terminal' },
   { key: 'i', action: 'toggle_issues', category: 'Panels', description: 'Toggle Issues panel' },
+  { key: 's', action: 'toggle_shell', category: 'Panels', description: 'Toggle Shell terminal' },
   { key: 'ArrowRight', action: 'focus_next', category: 'Navigation', description: 'Focus next session' },
   { key: 'ArrowDown', action: 'focus_next', category: 'Navigation', description: 'Focus next session' },
   { key: 'ArrowLeft', action: 'focus_prev', category: 'Navigation', description: 'Focus previous session' },

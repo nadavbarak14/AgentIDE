@@ -1,7 +1,8 @@
 import { EventEmitter } from 'node:events';
 import type { Repository } from '../models/repository.js';
-import type { Session, CreateSessionInput } from '../models/types.js';
+import type { Session, CreateSessionInput, ShellInfo } from '../models/types.js';
 import type { PtySpawner, PtyProcess } from '../worker/pty-spawner.js';
+import type { ShellSpawner } from '../worker/shell-spawner.js';
 import type { QueueManager } from './queue-manager.js';
 import { createSessionLogger, logger } from './logger.js';
 
@@ -16,14 +17,22 @@ export class SessionManager extends EventEmitter {
   // Set when a session is activated. Cleared when the user sends input.
   private suspendGuardIds = new Set<string>();
 
+  private _shellSpawner: ShellSpawner | null = null;
+
   constructor(
     private repo: Repository,
     private ptySpawner: PtySpawner,
     private queueManager: QueueManager,
+    shellSpawner?: ShellSpawner,
   ) {
     super();
+    this._shellSpawner = shellSpawner || null;
     this.setupPtyListeners();
     this.setupQueueListeners();
+  }
+
+  get shellSpawner(): ShellSpawner | null {
+    return this._shellSpawner;
   }
 
   /**
@@ -142,6 +151,12 @@ export class SessionManager extends EventEmitter {
     const ptyProc = this.activePtys.get(sessionId);
     if (!ptyProc) return false;
 
+    // Kill shell terminal if running
+    if (this._shellSpawner?.hasShell(sessionId)) {
+      log.info('killing shell terminal for session');
+      this._shellSpawner.kill(sessionId);
+    }
+
     log.info('killing session');
     ptyProc.kill();
     return true;
@@ -172,6 +187,54 @@ export class SessionManager extends EventEmitter {
    */
   getPtyProcess(sessionId: string): PtyProcess | undefined {
     return this.activePtys.get(sessionId);
+  }
+
+  // ─── Shell Terminal Methods ───
+
+  /**
+   * Open a shell terminal for a session. Session must be active.
+   */
+  openShell(sessionId: string, cols?: number, rows?: number): ShellInfo {
+    if (!this._shellSpawner) throw new Error('Shell support not available');
+    const session = this.repo.getSession(sessionId);
+    if (!session) throw new Error('Session not found');
+    if (session.status !== 'active') throw new Error('Session is not active');
+    if (this._shellSpawner.hasShell(sessionId)) throw new Error('Shell already running');
+
+    const proc = this._shellSpawner.spawn(sessionId, session.workingDirectory, cols, rows);
+    return {
+      sessionId,
+      status: 'running',
+      pid: proc.pid,
+      shell: proc.shell,
+    };
+  }
+
+  /**
+   * Close (kill) the shell terminal for a session.
+   */
+  closeShell(sessionId: string): ShellInfo {
+    if (!this._shellSpawner) throw new Error('Shell support not available');
+    if (!this._shellSpawner.hasShell(sessionId)) throw new Error('No shell running');
+    this._shellSpawner.kill(sessionId);
+    return { sessionId, status: 'killed', pid: null, shell: null };
+  }
+
+  /**
+   * Get shell terminal status for a session.
+   */
+  getShellStatus(sessionId: string): ShellInfo {
+    if (!this._shellSpawner || !this._shellSpawner.hasShell(sessionId)) {
+      return { sessionId, status: 'none', pid: null, shell: null };
+    }
+    const info = this._shellSpawner.getShellInfo(sessionId);
+    const proc = this._shellSpawner.getProcess(sessionId);
+    return {
+      sessionId,
+      status: 'running',
+      pid: proc?.pid ?? null,
+      shell: info?.shell ?? null,
+    };
   }
 
   private setupPtyListeners(): void {
@@ -265,6 +328,12 @@ export class SessionManager extends EventEmitter {
       return;
     }
 
+    // Kill shell terminal if running
+    if (this._shellSpawner?.hasShell(sessionId)) {
+      log.info('killing shell terminal during auto-suspend');
+      this._shellSpawner.kill(sessionId);
+    }
+
     // Mark as suspending so exit handler re-queues instead of completing
     this.suspendingIds.add(sessionId);
 
@@ -336,6 +405,7 @@ export class SessionManager extends EventEmitter {
   }
 
   destroy(): void {
+    this._shellSpawner?.destroy();
     this.ptySpawner.destroy();
     this.queueManager.stopAutoDispatch();
   }

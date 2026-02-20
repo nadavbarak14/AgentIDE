@@ -101,6 +101,8 @@ export function createSessionsRouter(repo: Repository, sessionManager: SessionMa
       res.status(409).json({ error: 'Cannot delete an active session. Kill it first.' });
       return;
     }
+    // Clean up shell scrollback files
+    sessionManager.shellSpawner?.deleteScrollback(id);
     repo.deleteSession(id);
     res.status(204).send();
   });
@@ -225,6 +227,62 @@ export function createSessionsRouter(repo: Repository, sessionManager: SessionMa
     });
 
     res.json({ success: true });
+  });
+
+  // ─── Shell Terminal ───
+
+  // POST /api/sessions/:id/shell — open (spawn) a shell terminal
+  router.post('/:id/shell', validateUuid('id'), (req, res) => {
+    const id = String(req.params.id);
+    const { cols, rows } = req.body || {};
+    try {
+      const info = sessionManager.openShell(id, cols, rows);
+      res.status(201).json(info);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      if (message.includes('not found')) {
+        res.status(404).json({ error: message });
+      } else if (message.includes('already running')) {
+        res.status(409).json({ error: message });
+      } else if (message.includes('not active')) {
+        res.status(400).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
+    }
+  });
+
+  // DELETE /api/sessions/:id/shell — close (kill) the shell terminal
+  router.delete('/:id/shell', validateUuid('id'), (req, res) => {
+    const id = String(req.params.id);
+    const session = repo.getSession(id);
+    if (!session) {
+      res.status(404).json({ error: 'Session not found' });
+      return;
+    }
+    try {
+      const info = sessionManager.closeShell(id);
+      res.json(info);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      if (message.includes('No shell running')) {
+        res.status(404).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
+    }
+  });
+
+  // GET /api/sessions/:id/shell — get shell terminal status
+  router.get('/:id/shell', validateUuid('id'), (req, res) => {
+    const id = String(req.params.id);
+    const session = repo.getSession(id);
+    if (!session) {
+      res.status(404).json({ error: 'Session not found' });
+      return;
+    }
+    const info = sessionManager.getShellStatus(id);
+    res.json(info);
   });
 
   // POST /api/sessions/:id/input — send input to an active session

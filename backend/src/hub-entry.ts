@@ -7,6 +7,7 @@ import cookieParser from 'cookie-parser';
 import { initDb } from './models/db.js';
 import { Repository } from './models/repository.js';
 import { PtySpawner } from './worker/pty-spawner.js';
+import { ShellSpawner } from './worker/shell-spawner.js';
 import { QueueManager } from './services/queue-manager.js';
 import { SessionManager } from './services/session-manager.js';
 import { WorkerManager } from './services/worker-manager.js';
@@ -84,8 +85,9 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
 
   // Initialize services
   const ptySpawner = new PtySpawner({ hubPort: port });
+  const shellSpawner = new ShellSpawner();
   const queueManager = new QueueManager(repo);
-  const sessionManager = new SessionManager(repo, ptySpawner, queueManager);
+  const sessionManager = new SessionManager(repo, ptySpawner, queueManager, shellSpawner);
   const workerManager = new WorkerManager(repo);
 
   // File watcher — watches session working directories for changes
@@ -216,7 +218,7 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
   } else {
     server = http.createServer(app);
   }
-  setupWebSocket(server, repo, sessionManager, ptySpawner, fileWatcher, authConfig.jwtSecret, authRequired);
+  setupWebSocket(server, repo, sessionManager, ptySpawner, fileWatcher, authConfig.jwtSecret, authRequired, shellSpawner);
 
   // Start auto-dispatch
   queueManager.startAutoDispatch();

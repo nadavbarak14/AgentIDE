@@ -241,6 +241,33 @@ export const comments = {
     ),
 };
 
+// ─── Shell Terminal ───
+
+export type ShellStatus = 'none' | 'running' | 'stopped' | 'killed';
+
+export interface ShellInfo {
+  sessionId: string;
+  status: ShellStatus;
+  pid: number | null;
+  shell: string | null;
+}
+
+export const shell = {
+  open: (sessionId: string, opts?: { cols?: number; rows?: number }) =>
+    request<ShellInfo>(`/sessions/${sessionId}/shell`, {
+      method: 'POST',
+      body: JSON.stringify(opts || {}),
+    }),
+
+  close: (sessionId: string) =>
+    request<{ sessionId: string; status: string }>(`/sessions/${sessionId}/shell`, {
+      method: 'DELETE',
+    }),
+
+  status: (sessionId: string) =>
+    request<ShellInfo>(`/sessions/${sessionId}/shell`),
+};
+
 // ─── Directories ───
 
 export interface DirectoryEntry {

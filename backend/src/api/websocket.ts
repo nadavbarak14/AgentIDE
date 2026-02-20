@@ -3,6 +3,7 @@ import type { Server } from 'node:http';
 import type { Repository } from '../models/repository.js';
 import type { SessionManager } from '../services/session-manager.js';
 import type { PtySpawner } from '../worker/pty-spawner.js';
+import type { ShellSpawner } from '../worker/shell-spawner.js';
 import type { FileWatcher } from '../worker/file-watcher.js';
 import type { WsClientMessage, BoardCommand } from '../models/types.js';
 import { createSessionLogger, logger } from '../services/logger.js';
@@ -10,6 +11,8 @@ import { verifyToken, COOKIE_NAME } from '../auth/jwt.js';
 
 // Map of sessionId → Set of connected WebSocket clients
 const sessionClients = new Map<string, Set<WebSocket>>();
+// Map of sessionId → Set of connected shell WebSocket clients
+const shellClients = new Map<string, Set<WebSocket>>();
 
 export function setupWebSocket(
   server: Server,
@@ -19,15 +22,21 @@ export function setupWebSocket(
   fileWatcher?: FileWatcher,
   jwtSecret?: string,
   authRequired?: boolean,
+  shellSpawner?: ShellSpawner,
 ): void {
   const wss = new WebSocketServer({ noServer: true });
+  const shellWss = new WebSocketServer({ noServer: true });
 
   // Handle HTTP upgrade
   server.on('upgrade', async (request, socket, head) => {
     const url = new URL(request.url || '', `http://${request.headers.host}`);
-    const match = url.pathname.match(/^\/ws\/sessions\/([a-f0-9-]+)$/);
 
-    if (!match) {
+    // Match shell WebSocket: /ws/sessions/:id/shell
+    const shellMatch = url.pathname.match(/^\/ws\/sessions\/([a-f0-9-]+)\/shell$/);
+    // Match Claude terminal WebSocket: /ws/sessions/:id
+    const claudeMatch = url.pathname.match(/^\/ws\/sessions\/([a-f0-9-]+)$/);
+
+    if (!shellMatch && !claudeMatch) {
       socket.destroy();
       return;
     }
@@ -54,17 +63,27 @@ export function setupWebSocket(
       }
     }
 
-    const sessionId = match[1];
-    const session = repo.getSession(sessionId);
-
-    if (!session) {
-      socket.destroy();
-      return;
+    if (shellMatch) {
+      const sessionId = shellMatch[1];
+      const session = repo.getSession(sessionId);
+      if (!session) {
+        socket.destroy();
+        return;
+      }
+      shellWss.handleUpgrade(request, socket, head, (ws) => {
+        shellWss.emit('connection', ws, sessionId);
+      });
+    } else {
+      const sessionId = claudeMatch![1];
+      const session = repo.getSession(sessionId);
+      if (!session) {
+        socket.destroy();
+        return;
+      }
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        wss.emit('connection', ws, sessionId);
+      });
     }
-
-    wss.handleUpgrade(request, socket, head, (ws) => {
-      wss.emit('connection', ws, sessionId);
-    });
   });
 
   // Handle new connections
@@ -155,6 +174,94 @@ export function setupWebSocket(
     });
   });
 
+  // ─── Shell WebSocket ───
+
+  shellWss.on('connection', (ws: WebSocket, sessionId: string) => {
+    const log = createSessionLogger(sessionId);
+    log.info('shell websocket client connected');
+
+    // Register shell client
+    if (!shellClients.has(sessionId)) {
+      shellClients.set(sessionId, new Set());
+    }
+    shellClients.get(sessionId)!.add(ws);
+
+    // Send current shell status
+    if (shellSpawner) {
+      const hasShell = shellSpawner.hasShell(sessionId);
+      const info = shellSpawner.getShellInfo(sessionId);
+      const proc = shellSpawner.getProcess(sessionId);
+      ws.send(JSON.stringify({
+        type: 'shell_status',
+        sessionId,
+        status: hasShell ? 'running' : 'none',
+        pid: proc?.pid ?? null,
+        shell: info?.shell ?? null,
+      }));
+
+      // Send scrollback if available
+      const scrollback = shellSpawner.loadScrollback(sessionId);
+      if (scrollback) {
+        ws.send(Buffer.from(scrollback), { binary: true });
+      }
+    }
+
+    // Handle incoming messages
+    ws.on('message', (data, isBinary) => {
+      if (!shellSpawner) return;
+
+      if (isBinary) {
+        // Binary: keyboard input → shell PTY
+        shellSpawner.write(sessionId, data.toString());
+        return;
+      }
+
+      // Text: JSON control message
+      try {
+        const msg = JSON.parse(data.toString());
+        if (msg.type === 'resize' && typeof msg.cols === 'number' && typeof msg.rows === 'number') {
+          shellSpawner.resize(sessionId, msg.cols, msg.rows);
+        }
+      } catch {
+        // Ignore malformed messages
+      }
+    });
+
+    ws.on('close', () => {
+      log.info('shell websocket client disconnected');
+      const clients = shellClients.get(sessionId);
+      if (clients) {
+        clients.delete(ws);
+        if (clients.size === 0) {
+          shellClients.delete(sessionId);
+        }
+      }
+    });
+  });
+
+  // Forward shell PTY output to connected shell WebSocket clients
+  if (shellSpawner) {
+    shellSpawner.on('data', (sessionId: string, data: string) => {
+      const clients = shellClients.get(sessionId);
+      if (!clients) return;
+      const buf = Buffer.from(data);
+      for (const ws of clients) {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(buf, { binary: true });
+        }
+      }
+    });
+
+    shellSpawner.on('exit', (sessionId: string, exitCode: number) => {
+      broadcastShellJson(sessionId, {
+        type: 'shell_status',
+        sessionId,
+        status: exitCode === 0 ? 'stopped' : 'killed',
+        exitCode,
+      });
+    });
+  }
+
   // Forward PTY output to all connected WebSocket clients for a session
   ptySpawner.on('data', (sessionId: string, data: string) => {
     const clients = sessionClients.get(sessionId);
@@ -227,6 +334,17 @@ export function setupWebSocket(
 
 function broadcastJson(sessionId: string, message: Record<string, unknown>): void {
   const clients = sessionClients.get(sessionId);
+  if (!clients) return;
+  const json = JSON.stringify(message);
+  for (const ws of clients) {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(json);
+    }
+  }
+}
+
+function broadcastShellJson(sessionId: string, message: Record<string, unknown>): void {
+  const clients = shellClients.get(sessionId);
   if (!clients) return;
   const json = JSON.stringify(message);
   for (const ws of clients) {
