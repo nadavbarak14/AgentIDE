@@ -18,3 +18,5 @@ c3.db-wal
 c3.db-shm
 scrollback/
 .c3-hooks/
+*.tgz
+release-tests/report.json
