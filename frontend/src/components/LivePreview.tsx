@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { usePreviewBridge } from '../hooks/usePreviewBridge';
+import { usePreviewBridge, type UsePreviewBridgeReturn } from '../hooks/usePreviewBridge';
 import { PreviewOverlay } from './PreviewOverlay';
 
 type ViewportMode = 'desktop' | 'mobile' | 'custom';
@@ -16,6 +16,7 @@ interface LivePreviewProps {
   customViewportWidth?: number | null;
   customViewportHeight?: number | null;
   onCustomViewport?: (width: number, height: number) => void;
+  bridgeRef?: React.MutableRefObject<UsePreviewBridgeReturn | null>;
 }
 
 /** Convert a user-facing URL to a proxy URL that the backend can reach */
@@ -43,7 +44,7 @@ function toProxyUrl(sessionId: string, displayUrl: string): string {
   return displayUrl;
 }
 
-export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose, refreshKey = 0, viewportMode = 'desktop', onViewportChange, customViewportWidth, customViewportHeight, onCustomViewport }: LivePreviewProps) {
+export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose, refreshKey = 0, viewportMode = 'desktop', onViewportChange, customViewportWidth, customViewportHeight, onCustomViewport, bridgeRef }: LivePreviewProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [stopped, setStopped] = useState(false);
@@ -55,6 +56,12 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
 
   // Preview bridge for inspect mode, screenshots, and recordings
   const bridge = usePreviewBridge(iframeRef);
+
+  // Expose bridge to parent via ref (for board command relay in SessionCard)
+  useEffect(() => {
+    if (bridgeRef) bridgeRef.current = bridge;
+    return () => { if (bridgeRef) bridgeRef.current = null; };
+  }, [bridge, bridgeRef]);
 
   // Track content area size for overlay positioning
   useEffect(() => {

@@ -144,29 +144,77 @@
 
 ## Phase 7: User Story 5 — Video Recording & Playback (Priority: P5)
 
-**Goal**: Users can record preview interactions via rrweb, play them back in the IDE, send to Claude, or download
+**Goal**: Users can record preview interactions as WebM video, play them back in the IDE, send to Claude, or download
 
 **Independent Test**: Click record, interact with preview for a few seconds, click stop, verify playback works and recording can be sent to session
 
 ### Tests for User Story 5 (MANDATORY per Constitution Principle I)
 
 - [x] T042 [P] [US5] Unit test for video_recordings repository CRUD (create, list, get with events, delete) in `backend/tests/unit/video-recordings.test.ts` — use real in-memory SQLite
-- [x] T043 [P] [US5] Component test for RecordingPlayer (renders rrweb-player, shows playback controls, handles empty events) in `frontend/tests/components/RecordingPlayer.test.tsx`
+- [x] T043 [P] [US5] Component test for RecordingPlayer (renders video player, shows playback controls, handles empty video) in `frontend/tests/components/RecordingPlayer.test.tsx`
 
 ### Implementation for User Story 5
 
 - [x] T044 [US5] Add video_recordings repository CRUD methods to `backend/src/models/repository.ts`: `createVideoRecording()`, `getVideoRecordings(sessionId)`, `getVideoRecording(id)` (reads events JSON from disk), `deleteVideoRecording(id)` (deletes DB row and event file)
-- [x] T045 [US5] Add recording routes to `backend/src/api/routes/preview.ts`: `POST /api/sessions/:id/recordings` — save rrweb events JSON to `{workingDir}/.c3-uploads/recordings/{uuid}-events.json`, save thumbnail from thumbnailDataUrl, store metadata in DB. `GET /api/sessions/:id/recordings` — list with metadata. `GET /api/sessions/:id/recordings/:id` — return full events for playback. `POST /api/sessions/:id/recordings/:id/deliver` — extract key frame screenshots from events, deliver paths to Claude via PTY stdin
-- [x] T046 [US5] Add rrweb-record commands to bridge script in `backend/src/api/inspect-bridge.js`: on `c3:startRecording` — dynamically import rrweb record module, call `record({ emit(event) { parent.postMessage({type: 'c3:bridge:recordingEvent', event}, '*') } })`, send `c3:bridge:recordingStarted`. On `c3:stopRecording` — stop recording, send `c3:bridge:recordingStopped`. Enforce 5-minute max duration (300000ms timer that auto-stops and sends `c3:bridge:recordingAutoStopped`)
-- [x] T047 [US5] Extend usePreviewBridge with recording commands in `frontend/src/hooks/usePreviewBridge.ts`: `startRecording()`, `stopRecording()`. Accumulate `c3:bridge:recordingEvent` events in a ref array. Expose `isRecording` state, `recordingDuration` (timer), `recordedEvents` array. Handle `c3:bridge:recordingAutoStopped` to stop accumulating
-- [x] T048 [US5] Create RecordingPlayer component in `frontend/src/components/RecordingPlayer.tsx`: wrapper around `rrweb-player` package. Accept events array and viewport dimensions. Show standard playback controls (play, pause, seek slider, time display). "Send to session" button. "Download as WebM" button (use MediaRecorder on rrweb-player's replay canvas to export). Close button
-- [x] T049 [US5] Add record button and indicator to PreviewOverlay in `frontend/src/components/PreviewOverlay.tsx`: red circle record button in toolbar. While recording: pulsing red dot + elapsed time counter. Click stop to end recording and open RecordingPlayer modal with recorded events. Add recording API functions to `frontend/src/services/api.ts`: `recordings.save()`, `recordings.list()`, `recordings.get()`, `recordings.deliver()`
+- [x] T045 [US5] Add recording routes to `backend/src/api/routes/preview.ts`: `POST /api/sessions/:id/recordings` — save WebM video to `{workingDir}/.c3-uploads/recordings/{uuid}.webm`, save thumbnail from thumbnailDataUrl, store metadata in DB. `GET /api/sessions/:id/recordings` — list with metadata. `GET /api/sessions/:id/recordings/:id` — return recording metadata. `POST /api/sessions/:id/recordings/:id/deliver` — deliver video path to Claude via PTY stdin
+- [x] T046 [US5] Add MediaRecorder video recording commands to bridge script in `backend/src/api/inspect-bridge.js`: on `c3:startRecording` — use html2canvas-pro to capture frames at 3 FPS, draw to offscreen canvas, use `canvas.captureStream()` + `MediaRecorder` to record as WebM. Send `c3:bridge:recordingStarted`. On `c3:stopRecording` — stop MediaRecorder, collect blob, convert to data URL, send `c3:bridge:recordingStopped` with `{ videoDataUrl }`. Enforce 5-minute max (auto-stop timer)
+- [x] T047 [US5] Extend usePreviewBridge with recording commands in `frontend/src/hooks/usePreviewBridge.ts`: `startRecording()`, `stopRecording()`. Expose `isRecording` state, `recordingDuration` (timer), `videoDataUrl` (WebM data URL). Handle `c3:bridge:recordingAutoStopped`
+- [x] T048 [US5] Create RecordingPlayer component in `frontend/src/components/RecordingPlayer.tsx`: HTML5 `<video>` player for WebM playback. Accept `videoDataUrl` prop. Show standard playback controls (play, pause, seek). "Send to session" button. "Download" button. Close button
+- [x] T049 [US5] Add record button and indicator to PreviewOverlay in `frontend/src/components/PreviewOverlay.tsx`: red circle record button in toolbar. While recording: pulsing red dot + elapsed time counter. Click stop to end recording and open RecordingPlayer modal with video. Add recording API functions to `frontend/src/services/api.ts`: `recordings.save()`, `recordings.list()`, `recordings.get()`, `recordings.deliver()`
 
 **Checkpoint**: Users can record, replay, and share preview interaction recordings
 
 ---
 
-## Phase 8: Polish & Cross-Cutting Concerns
+## Phase 8: User Story 6 — Agent Browser Control (Priority: P6)
+
+**Goal**: The Claude agent can programmatically control the preview browser — navigating to pages, clicking elements by accessible role+name, typing text, reading page content as accessibility tree, and capturing screenshots/recordings — all via `/view.*` skills dispatched through the board command protocol with a new synchronous response pattern
+
+**Independent Test**: Have the agent navigate to a page, read the accessibility tree, click a button by role+name, verify the action succeeds, and read the updated page state
+
+### Foundational for User Story 6
+
+These tasks provide the synchronous board command response infrastructure that ALL `/view.*` skills depend on.
+
+- [x] T056 [US6] Add synchronous board command response endpoint to `backend/src/hub-entry.ts`: create an in-memory `Map<string, { resolve, timeout }>` for pending commands. Extend `POST /api/sessions/:id/board-command` to accept optional `requestId` and `waitForResult` fields — when `waitForResult` is true, store the pending request and return `202 Accepted` with `{ ok: true, requestId }`. Add `POST /api/sessions/:id/board-command-result` route — frontend calls this with `{ requestId, result }` to resolve a pending command. Add `GET /api/sessions/:id/board-command-result/:requestId` route — skill scripts poll this (long-poll up to 30s, return result when available, 202 if still pending, 408 on timeout). Clean up stale pending commands after 60s. Per research.md R-002 and contracts/api.md
+- [x] T057 [US6] Extend `frontend/src/components/SessionCard.tsx` to handle `view-*` board commands: in the `board_command` WebSocket handler, add cases for all `view-*` actions. For fire-and-forget commands (`view-set-resolution`, `view-record-start`): execute immediately via bridge hook. For result-returning commands (`view-screenshot`, `view-record-stop`, `view-navigate`, `view-click`, `view-type`, `view-read-page`): execute via bridge, wait for bridge response, then POST result to `/api/sessions/:id/board-command-result` with the `requestId` from the command. Must pass `requestId` through the bridge call chain. Handle the case where preview is not open by returning an error result
+
+### Tests for User Story 6 (MANDATORY per Constitution Principle I)
+
+- [x] T058 [P] [US6] Unit test for board command result endpoint in `backend/tests/unit/board-command-result.test.ts`: test pending command creation, result delivery resolving pending requests, polling returning results, polling timeout (202 then 408), stale command cleanup, invalid requestId handling. Use real Express app with supertest
+- [x] T059 [P] [US6] Unit test for accessibility tree extraction in `backend/tests/unit/accessibility-tree.test.ts`: create a JSDOM document with various HTML elements (headings, links, buttons, inputs, navigation, lists), call the tree-building function, verify output matches expected indented text format with correct roles, names, values, and states. Test hidden element filtering, aria-label priority, label-for association, input type mapping
+- [x] T060 [P] [US6] Unit test for element targeting by role+name in `backend/tests/unit/element-targeting.test.ts`: create JSDOM documents with multiple elements, test finding elements by role+name (case-insensitive, trimmed), test first-match behavior for duplicates, test error reporting when no match found (includes available elements of that role), test click event dispatch, test type action (focus + value set + input/change events)
+- [x] T061 [P] [US6] Integration test for `/view.*` skill round-trip in `backend/tests/integration/view-skills.test.ts`: test the full flow — POST board-command with requestId → verify 202 response → POST board-command-result → verify GET board-command-result returns the result. Test multiple concurrent pending commands. Test timeout behavior. Use supertest with real Express app
+
+### Bridge Script Extensions for User Story 6
+
+- [x] T062 [US6] Add accessibility tree extraction to bridge script in `backend/src/api/inspect-bridge.js`: implement `buildAccessibilityTree(root)` function per research.md R-001. Walk DOM depth-first, skip hidden elements (`display:none`, `visibility:hidden`, `aria-hidden="true"`). Map HTML elements to ARIA roles using W3C implicit role mapping: `<button>`→`button`, `<a>`→`link`, `<input type="text">`→`textbox`, `<input type="checkbox">`→`checkbox`, `<h1>`→`heading level=1`, `<nav>`→`navigation`, `<main>`→`main`, `<ul>`→`list`, `<li>`→`listitem`, `<select>`→`combobox`, `<textarea>`→`textbox`, `<img>`→`img`. Extract accessible name from (in priority order): `aria-label`, `aria-labelledby` referent text, `<label for="">` text, visible text content (trimmed), `title` attribute, `placeholder`. Include value for inputs, checked/selected/expanded states. Return indented text tree (2-space indent per depth level). On `c3:readPage` command → call `buildAccessibilityTree(document.body)` → post `c3:bridge:pageRead` with `{ tree: string }`. Skip elements with `data-c3-bridge` or `data-c3-overlay` attributes
+- [x] T063 [US6] Add click-by-role+name to bridge script in `backend/src/api/inspect-bridge.js`: implement `findElementByRoleAndName(role, name)` function per research.md R-003. Walk DOM, match elements by implicit ARIA role (same mapping as T062) and accessible name (case-insensitive, trimmed). If match found: scroll into view, dispatch `mousedown`, `mouseup`, `click` events (for proper event simulation), post `c3:bridge:elementClicked` with `{ ok: true }`. If no match: collect all elements of the requested role with their names, post `c3:bridge:elementClicked` with `{ ok: false, error: "Element not found", available: [...] }`. On `c3:clickElement` command with `{ role, name }` → execute. If element is `<a>` with `href`, click triggers natural navigation
+- [x] T064 [US6] Add type-by-role+name to bridge script in `backend/src/api/inspect-bridge.js`: on `c3:typeElement` command with `{ role, name, text }` → find element using same `findElementByRoleAndName()` from T063. If found and element is an input/textarea/contenteditable: focus the element, set `element.value = text` (or `textContent` for contenteditable), dispatch `input` event and `change` event (for form frameworks like React that listen on these), post `c3:bridge:elementTyped` with `{ ok: true }`. If found but not an input type: post error `{ ok: false, error: "Element is not an input. Role: {actualRole}" }`. If not found: same error as click with available elements
+- [x] T065 [US6] Add navigate command to bridge script in `backend/src/api/inspect-bridge.js`: on `c3:navigateTo` command with `{ url }` → set `window.location.href = url`. The bridge will reload with the new page. The parent frame detects navigation via the iframe `onload` event. Post `c3:bridge:navigated` with `{ ok: true }` immediately before navigation. Note: since navigation reloads the bridge, the frontend must handle the case where the bridge reloads and re-sends `c3:bridge:ready` — use a one-time `load` listener on the iframe to detect navigation completion and resolve the result
+
+### usePreviewBridge Hook Extensions for User Story 6
+
+- [x] T066 [US6] Extend `usePreviewBridge` hook in `frontend/src/hooks/usePreviewBridge.ts`: add `readPage()`, `clickElement(role, name)`, `typeElement(role, name, text)`, `navigateTo(url)` command methods. Handle new bridge responses: `c3:bridge:pageRead` (returns tree string), `c3:bridge:elementClicked` (returns ok/error), `c3:bridge:elementTyped` (returns ok/error), `c3:bridge:navigated` (returns ok). Add a callback-based request/response pattern: each command sends a unique `msgId`, responses include the `msgId`, hook resolves the matching Promise. This enables the SessionCard to await bridge results for the board-command-result relay
+
+### `/view.*` Skill Scripts for User Story 6
+
+Each skill script: create `SKILL.md` with name and description, create shell script that uses `curl` to POST board command and (for result skills) poll for result. Use `$C3_SESSION_ID` and `$C3_HUB_PORT` env vars. Generate a UUID for `requestId` using `uuidgen` or `cat /proc/sys/kernel/random/uuid`.
+
+- [x] T067 [P] [US6] Create `/view.screenshot` skill in `.claude-skills/skills/view-screenshot/`: `SKILL.md` (description: "Capture a screenshot of the current preview browser viewport. Returns the file path of the saved PNG image."). Script at `scripts/view-screenshot.sh` — POST board command `{ "command": "view-screenshot", "params": {}, "requestId": "$REQ_ID", "waitForResult": true }`, poll for result, output the `path` field from result JSON to stdout
+- [x] T068 [P] [US6] Create `/view.record-start` skill in `.claude-skills/skills/view-record-start/`: `SKILL.md` (description: "Start recording the preview browser as a WebM video. Use /view.record-stop to stop recording and get the file path."). Script at `scripts/view-record-start.sh` — POST board command `{ "command": "view-record-start", "params": {} }` (fire-and-forget, no waitForResult), output "Recording started" to stdout
+- [x] T069 [P] [US6] Create `/view.record-stop` skill in `.claude-skills/skills/view-record-stop/`: `SKILL.md` (description: "Stop the current preview browser recording and save as WebM video. Returns the file path of the saved video."). Script at `scripts/view-record-stop.sh` — POST board command with waitForResult, poll for result, output the `path` field to stdout
+- [x] T070 [P] [US6] Create `/view.set-resolution` skill in `.claude-skills/skills/view-set-resolution/`: `SKILL.md` (description: "Set the preview browser viewport to a custom resolution. Arguments: width height (in pixels, e.g., 768 1024)."). Script at `scripts/view-set-resolution.sh` — accept `$1` (width) and `$2` (height) as arguments, POST board command `{ "command": "view-set-resolution", "params": { "width": $1, "height": $2 } }` (fire-and-forget), output "Resolution set to ${1}x${2}" to stdout. Note: this replaces the old `set-preview-resolution` naming but uses the same `set_preview_resolution` board command action that the frontend already handles
+- [x] T071 [P] [US6] Create `/view.navigate` skill in `.claude-skills/skills/view-navigate/`: `SKILL.md` (description: "Navigate the preview browser to a URL. Arguments: url (e.g., http://localhost:3000/login)."). Script at `scripts/view-navigate.sh` — accept `$1` (url) as argument, POST board command with waitForResult `{ "command": "view-navigate", "params": { "url": "$1" } }`, poll for result, output "Navigated to $1" on success or error message on failure
+- [x] T072 [P] [US6] Create `/view.click` skill in `.claude-skills/skills/view-click/`: `SKILL.md` (description: "Click an element in the preview browser by its accessible role and name. Arguments: role name (e.g., button \"Sign In\"). Use /view.read-page first to see available elements."). Script at `scripts/view-click.sh` — accept `$1` (role) and `$2` (name) as arguments, POST board command with waitForResult `{ "command": "view-click", "params": { "role": "$1", "name": "$2" } }`, poll for result, output success or error with available elements list
+- [x] T073 [P] [US6] Create `/view.type` skill in `.claude-skills/skills/view-type/`: `SKILL.md` (description: "Type text into an element in the preview browser. Arguments: role name text (e.g., textbox \"Email\" \"user@test.com\"). Use /view.read-page first to see available input elements."). Script at `scripts/view-type.sh` — accept `$1` (role), `$2` (name), `$3` (text) as arguments, POST board command with waitForResult `{ "command": "view-type", "params": { "role": "$1", "name": "$2", "text": "$3" } }`, poll for result, output success or error
+- [x] T074 [P] [US6] Create `/view.read-page` skill in `.claude-skills/skills/view-read-page/`: `SKILL.md` (description: "Read the current preview browser page content as an accessibility tree showing interactive elements with their roles, names, labels, and states. Returns a compact text representation."). Script at `scripts/view-read-page.sh` — POST board command with waitForResult `{ "command": "view-read-page", "params": {} }`, poll for result, output the `tree` field from result JSON to stdout
+
+**Checkpoint**: Agent can autonomously navigate, interact with, and observe the preview browser via `/view.*` skills
+
+---
+
+## Phase 9: Polish & Cross-Cutting Concerns
 
 **Purpose**: Improvements that affect multiple user stories
 
@@ -175,7 +223,12 @@
 - [x] T052 [P] Verify structured logging covers all new API routes and error paths in `backend/src/api/routes/preview.ts` and `backend/src/api/routes/uploads.ts` — use existing `createSessionLogger` pattern
 - [x] T053 Stale comment detection: when preview refreshes (file_changed event), re-query element selectors via bridge `c3:checkElements` command. For each comment whose selector no longer matches, update status to `'stale'` via API. Implement in `frontend/src/components/PreviewOverlay.tsx` using the bridge hook and file change events
 - [x] T054 Code cleanup: remove unused imports, verify TypeScript strict mode compliance (`npx tsc --noEmit` in both workspaces), run `npm run lint` and fix any issues
-- [x] T055 Push branch, wait for CI green, create PR targeting main via `gh pr create` with summary of all 5 user stories (Principle V)
+- [x] T075 Update `video_recordings` table schema in `backend/src/models/db.ts`: rename `events_path` column to `video_path`, rename `event_count` column to `file_size` (INTEGER for bytes), add `status` column (TEXT DEFAULT 'pending'). Use `ALTER TABLE` statements with fallback for existing databases. Update corresponding repository methods in `backend/src/models/repository.ts` to use new column names
+- [x] T076 Rename `set-preview-resolution` skill to `view-set-resolution` namespace: update the skill directory name, SKILL.md, and script name. Keep backwards compatibility by having the frontend handle both `set_preview_resolution` and `view-set-resolution` board command names in `frontend/src/components/SessionCard.tsx`
+- [x] T077 Update bridge auto-stop recording timer from 60 seconds to 5 minutes (300000ms) in `backend/src/api/inspect-bridge.js` — spec says 5-minute maximum per clip (FR-022)
+- [x] T078 Add structured logging for board command result operations in `backend/src/hub-entry.ts`: log pending command creation (requestId, action, sessionId), result delivery, polling attempts, timeouts, and cleanup of stale commands
+- [x] T079 Run full test suite: `npm test` from root. Ensure all new US6 tests plus existing US1-US5 tests pass. Fix any regressions
+- [x] T080 Push branch, wait for CI green, create PR targeting main via `gh pr create` with summary of all 6 user stories (Principle V)
 
 ---
 
@@ -183,82 +236,120 @@
 
 ### Phase Dependencies
 
-- **Setup (Phase 1)**: No dependencies — can start immediately
-- **Foundational (Phase 2)**: Depends on Setup (T001-T003) — BLOCKS all user stories
-- **US1 (Phase 3)**: Depends on Foundational — MVP story
-- **US2 (Phase 4)**: Depends on Foundational — independent of US1
-- **US3 (Phase 5)**: Depends on Foundational — independent of US1, US2
-- **US4 (Phase 6)**: Depends on Foundational + bridge script from US1 (T016 adds html2canvas loading)
-- **US5 (Phase 7)**: Depends on Foundational — independent (loads rrweb independently in bridge)
-- **Polish (Phase 8)**: Depends on all desired user stories being complete
+- **Setup (Phase 1)**: No dependencies — can start immediately ✅ COMPLETE
+- **Foundational (Phase 2)**: Depends on Setup (T001-T003) — BLOCKS all user stories ✅ COMPLETE
+- **US1 (Phase 3)**: Depends on Foundational — MVP story ✅ COMPLETE
+- **US2 (Phase 4)**: Depends on Foundational — independent of US1 ✅ COMPLETE
+- **US3 (Phase 5)**: Depends on Foundational — independent of US1, US2 ✅ COMPLETE
+- **US4 (Phase 6)**: Depends on Foundational + bridge script from US1 (T016 adds html2canvas loading) ✅ COMPLETE
+- **US5 (Phase 7)**: Depends on Foundational ✅ COMPLETE
+- **US6 (Phase 8)**: Depends on T056 (board-command-result endpoint) + T057 (SessionCard handler). Bridge script extensions (T062-T065) depend on existing bridge v4. Skills (T067-T074) depend on T056 for polling
+- **Polish (Phase 9)**: Depends on all user stories being complete
 
-### User Story Dependencies
+### User Story 6 Internal Dependencies
 
-- **US1 (P1)**: Can start after Phase 2. No dependencies on other stories
-- **US2 (P2)**: Can start after Phase 2. No dependencies on other stories
-- **US3 (P3)**: Can start after Phase 2. No dependencies on other stories
-- **US4 (P4)**: Benefits from US1's html2canvas bridge addition (T016), but can implement its own loading. Recommend after US1
-- **US5 (P5)**: Can start after Phase 2. No dependencies on other stories
+```
+T056 (board-command-result endpoint) ─────────────────────┐
+T057 (SessionCard view-* handler) ────────────────────────┤
+                                                          │
+T062 (accessibility tree) ──┐                             │
+T063 (click by role+name) ──┤ can run in parallel         │
+T064 (type by role+name) ───┤ (different functions in     │
+T065 (navigate command) ────┘  same file, independent)    │
+                                                          │
+T066 (usePreviewBridge extensions) ──── depends on T062-T065
+                                                          │
+T067-T074 (skill scripts) ───── can run in [P]arallel ────┘
+                                 depend on T056 (polling endpoint)
+```
 
-### Within Each User Story
+### Within User Story 6
 
-- Tests are written first and should FAIL before implementation
-- Repository CRUD before routes
-- Routes before service delivery logic
-- Bridge script additions before frontend hook extensions
-- Backend before frontend integration
-- Core implementation before UI polish
+1. T056 + T057 FIRST (foundational infrastructure for all skills)
+2. T058-T061 tests in PARALLEL (different files)
+3. T062-T065 bridge extensions in PARALLEL (independent functions)
+4. T066 hook extensions (depends on T062-T065 for message types)
+5. T067-T074 skill scripts in PARALLEL (independent directories, depend on T056)
+6. T075-T080 polish tasks
 
-### Parallel Opportunities
+### Parallel Opportunities (Phase 8)
 
-- T001 and T002 (dependency install) can run in parallel
-- All test tasks within a story (marked [P]) can run in parallel
-- US1, US2, US3, and US5 can be worked on in parallel after Phase 2
-- T005 and T006 (bridge skeleton + hook skeleton) can run in parallel
-- T050, T052, T054 (verification tasks) can run in parallel
+```bash
+# Tests — all in parallel:
+T058: board-command-result test
+T059: accessibility tree test
+T060: element targeting test
+T061: view-skills integration test
+
+# Bridge extensions — all in parallel:
+T062: accessibility tree
+T063: click by role+name
+T064: type by role+name
+T065: navigate command
+
+# All 8 skill scripts — in parallel:
+T067: view-screenshot
+T068: view-record-start
+T069: view-record-stop
+T070: view-set-resolution
+T071: view-navigate
+T072: view-click
+T073: view-type
+T074: view-read-page
+```
 
 ---
 
-## Parallel Example: User Story 1
+## Parallel Example: User Story 6
 
 ```bash
-# Launch all tests in parallel:
-Task: "T010 — Unit test for preview_comments repo in backend/tests/unit/preview-comments.test.ts"
-Task: "T011 — Integration test for preview comments API in backend/tests/integration/api-preview.test.ts"
-Task: "T012 — Component test for PreviewOverlay in frontend/tests/components/PreviewOverlay.test.tsx"
+# Step 1: Foundational (sequential — T057 depends on T056)
+Task: "T056 — Board command result endpoint in backend/src/hub-entry.ts"
+Task: "T057 — SessionCard view-* command handler in frontend/src/components/SessionCard.tsx"
 
-# Then sequential implementation:
-T013 → T014 → T015 → T016 → T017 → T018 → T019 → T020
+# Step 2: Launch all tests in parallel
+Task: "T058 — Board command result endpoint test"
+Task: "T059 — Accessibility tree extraction test"
+Task: "T060 — Element targeting test"
+Task: "T061 — View skills integration test"
+
+# Step 3: Launch all bridge extensions in parallel
+Task: "T062 — Accessibility tree in bridge"
+Task: "T063 — Click by role+name in bridge"
+Task: "T064 — Type by role+name in bridge"
+Task: "T065 — Navigate command in bridge"
+
+# Step 4: Hook extensions (depends on bridge extensions)
+Task: "T066 — usePreviewBridge hook extensions"
+
+# Step 5: Launch all skill scripts in parallel
+Task: "T067-T074 — All 8 /view.* skill scripts"
 ```
 
 ---
 
 ## Implementation Strategy
 
-### MVP First (User Story 1 Only)
+### MVP First (User Stories 1-5 — DONE)
 
-1. Complete Phase 1: Setup (T001–T003)
-2. Complete Phase 2: Foundational (T004–T009)
-3. Complete Phase 3: User Story 1 (T010–T020)
-4. **STOP and VALIDATE**: Test inspect mode + commenting end-to-end
-5. Deploy/demo if ready
+1. ~~Complete Phase 1: Setup (T001–T003)~~ ✅
+2. ~~Complete Phase 2: Foundational (T004–T009)~~ ✅
+3. ~~Complete Phase 3-7: User Stories 1-5 (T010–T049)~~ ✅
+4. ~~Polish (T050-T054)~~ ✅
 
-### Incremental Delivery
+### US6 Incremental Delivery
 
-1. Setup + Foundational → Foundation ready
-2. Add US1 (Element Commenting) → Test independently → MVP!
-3. Add US2 (Image Upload) → Test independently → Enhanced feedback
-4. Add US3 (Custom Resolution) → Test independently → Agent capability
-5. Add US4 (Screenshots) → Test independently → Visual capture
-6. Add US5 (Video Recording) → Test independently → Full suite
-7. Polish → CI green → PR → Merge
+5. Complete T056-T057: Board command result infrastructure → Foundation for all skills
+6. Complete T062-T065: Bridge script extensions → Agent can interact with pages
+7. Complete T066: Hook extensions → Frontend can relay bridge results
+8. Complete T067-T074: Skill scripts → Agent has full `/view.*` skill set
+9. Complete T075-T080: Polish + PR → Ship
 
-### Parallel Team Strategy
+### Risk Mitigation
 
-With multiple developers after Phase 2:
-- Developer A: US1 (Element Commenting) — highest value
-- Developer B: US2 (Image Upload) — independent, high value
-- Developer C: US3 (Custom Resolution) + US5 (Video Recording) — lighter stories
+- T056 (board command result endpoint) is the single-point dependency — if it fails, all skills are blocked. Implement and test thoroughly first.
+- Bridge navigation (T065) is trickiest because `window.location.href` reloads the bridge — test the iframe `onload` reconnection pattern carefully.
+- Accessibility tree (T062) is the largest new code — test with diverse HTML fixtures.
 
 ---
 
@@ -266,10 +357,10 @@ With multiple developers after Phase 2:
 
 - [P] tasks = different files, no dependencies
 - [Story] label maps task to specific user story for traceability
-- Each user story is independently completable and testable
-- Bridge script (`inspect-bridge.js`) grows incrementally across US1, US4, US5
-- Repository (`repository.ts`) gains methods across US1, US2, US5
-- Preview routes (`preview.ts`) gains endpoints across US1, US4, US5
-- PreviewOverlay (`PreviewOverlay.tsx`) gains UI elements across US1, US4, US5
+- T001-T055 are complete from US1-US5 implementation
+- T056-T080 are new tasks for US6 (Agent Browser Control) + polish
+- Bridge script (`inspect-bridge.js`) gains 4 new command handlers in US6
+- Each `/view.*` skill is a self-contained directory with SKILL.md + shell script
+- Board command result pattern is the key new infrastructure (in-memory Map, not DB)
 - Commit after each task or logical group
-- Stop at any checkpoint to validate story independently
+- Stop at any checkpoint to validate independently
