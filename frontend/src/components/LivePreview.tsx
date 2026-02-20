@@ -106,6 +106,29 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
     }
   }, [refreshKey, iframeUrl]);
 
+  // When the iframe navigates (internal link clicks, redirects), update the address bar
+  const handleIframeLoad = useCallback(() => {
+    setLoading(false);
+    try {
+      const iframeLoc = iframeRef.current?.contentWindow?.location;
+      if (!iframeLoc) return;
+      const path = iframeLoc.pathname;
+      // Extract the real path from proxy URL: /api/sessions/{id}/proxy/{port}/path...
+      const proxyMatch = path.match(/\/api\/sessions\/[^/]+\/proxy\/(\d+)(\/.*)?$/);
+      if (proxyMatch) {
+        const proxyPort = proxyMatch[1];
+        const pagePath = proxyMatch[2] || '/';
+        const search = iframeLoc.search || '';
+        const hash = iframeLoc.hash || '';
+        const realUrl = `http://localhost:${proxyPort}${pagePath}${search}${hash}`;
+        setDisplayUrl(realUrl);
+        setAddressInput(realUrl);
+      }
+    } catch (_e) {
+      // Cross-origin — can't read iframe location, ignore
+    }
+  }, []);
+
   const handleReload = useCallback(() => {
     if (iframeRef.current && iframeUrl) {
       setLoading(true);
@@ -323,7 +346,7 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
                     src={iframeUrl}
                     className="border-0 bg-white flex-shrink-0"
                     style={{ width: 360, height: 640 }}
-                    onLoad={() => setLoading(false)}
+                    onLoad={handleIframeLoad}
                     onError={() => { setError(true); setLoading(false); }}
                     sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
                   />
@@ -348,7 +371,7 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
                     src={iframeUrl}
                     className="border border-gray-600 bg-white"
                     style={{ width: customViewportWidth, height: customViewportHeight }}
-                    onLoad={() => setLoading(false)}
+                    onLoad={handleIframeLoad}
                     onError={() => { setError(true); setLoading(false); }}
                     sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
                   />
@@ -362,7 +385,7 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
                 ref={iframeRef}
                 src={iframeUrl}
                 className="w-full h-full border-0"
-                onLoad={() => setLoading(false)}
+                onLoad={handleIframeLoad}
                 onError={() => { setError(true); setLoading(false); }}
                 sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
               />
