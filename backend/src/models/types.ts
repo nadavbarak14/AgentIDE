@@ -13,6 +13,7 @@ export interface Session {
   needsInput: boolean;
   lock: boolean;
   continuationCount: number;
+  worktree: boolean;
   terminalScrollback: string | null;
   createdAt: string;
   startedAt: string | null;
@@ -24,6 +25,7 @@ export interface CreateSessionInput {
   workingDirectory: string;
   title: string;
   targetWorker?: string | null;
+  worktree?: boolean;
 }
 
 export interface UpdateSessionInput {

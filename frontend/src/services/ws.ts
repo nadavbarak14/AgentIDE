@@ -14,6 +14,7 @@ export interface WsClientOptions {
   onMessage: (msg: WsServerMessage) => void;
   onClose: () => void;
   onOpen: () => void;
+  onReconnect?: () => void;
 }
 
 export class SessionWebSocket {
@@ -21,6 +22,7 @@ export class SessionWebSocket {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectDelay = 1000;
   private closed = false;
+  private hasConnected = false;
 
   constructor(private options: WsClientOptions) {}
 
@@ -33,6 +35,10 @@ export class SessionWebSocket {
 
     this.ws.onopen = () => {
       this.reconnectDelay = 1000;
+      if (this.hasConnected) {
+        this.options.onReconnect?.();
+      }
+      this.hasConnected = true;
       this.options.onOpen();
     };
 

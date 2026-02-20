@@ -132,10 +132,17 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
   app.use(cookieParser());
 
   // Security headers
-  app.use((_req, res, next) => {
+  app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-Frame-Options', 'DENY');
-    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:; font-src 'self'");
+
+    // Preview proxy routes must be embeddable in our iframe — the proxy handler
+    // already strips upstream X-Frame-Options/CSP, so don't re-add them here.
+    const isProxyRoute = req.path.includes('/proxy-url/') || req.path.includes('/proxy/');
+    if (!isProxyRoute) {
+      res.setHeader('X-Frame-Options', 'DENY');
+      res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:; font-src 'self'; frame-src 'self' http://localhost:* http://127.0.0.1:*");
+    }
+
     next();
   });
 

@@ -66,9 +66,7 @@ export function useTerminal(options: UseTerminalOptions = {}) {
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
 
-    // Handle container resize — hide terminal during resize to prevent visible re-flow glitch.
-    // xterm.js adds .xterm class to the container itself, so we hide the container's children
-    // (the xterm-screen canvas) during resize, then reveal after fit completes.
+    // Debounced resize handler — re-fit terminal when container size changes.
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
     let lastWidth = container.offsetWidth;
     let lastHeight = container.offsetHeight;
@@ -76,22 +74,14 @@ export function useTerminal(options: UseTerminalOptions = {}) {
     const resizeObserver = new ResizeObserver(() => {
       const w = container.offsetWidth;
       const h = container.offsetHeight;
-      // Ignore sub-pixel / no-op changes
       if (Math.abs(w - lastWidth) < 2 && Math.abs(h - lastHeight) < 2) return;
-
-      // Hide terminal children immediately so the re-flow is invisible.
-      // The container background stays visible (solid dark), preventing a flash.
-      const screen = container.querySelector('.xterm-screen') as HTMLElement | null;
-      if (screen) screen.style.visibility = 'hidden';
+      lastWidth = w;
+      lastHeight = h;
 
       if (resizeTimer) clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => {
-        lastWidth = container.offsetWidth;
-        lastHeight = container.offsetHeight;
         fitAddon.fit();
-        // Reveal after fit
-        if (screen) screen.style.visibility = 'visible';
-      }, 100);
+      }, 50);
     });
     resizeObserver.observe(container);
 
@@ -107,13 +97,13 @@ export function useTerminal(options: UseTerminalOptions = {}) {
   const write = useCallback((data: string | ArrayBuffer | Uint8Array) => {
     const terminal = terminalRef.current;
     if (!terminal) return;
+    // Use write callback to scroll after data is parsed — xterm.js write() is async
+    const scrollCb = () => terminal.scrollToBottom();
     if (typeof data === 'string') {
-      terminal.write(data);
+      terminal.write(data, scrollCb);
     } else {
-      terminal.write(new Uint8Array(data));
+      terminal.write(new Uint8Array(data), scrollCb);
     }
-    // Auto-scroll to bottom on new data
-    terminal.scrollToBottom();
   }, []);
 
   const fit = useCallback(() => {
@@ -122,6 +112,13 @@ export function useTerminal(options: UseTerminalOptions = {}) {
 
   const clear = useCallback(() => {
     terminalRef.current?.clear();
+  }, []);
+
+  const reset = useCallback(() => {
+    const terminal = terminalRef.current;
+    if (!terminal) return;
+    terminal.reset();
+    fitAddonRef.current?.fit();
   }, []);
 
   const focus = useCallback(() => {
@@ -140,6 +137,7 @@ export function useTerminal(options: UseTerminalOptions = {}) {
     write,
     fit,
     clear,
+    reset,
     focus,
     setFontSize,
     terminal: terminalRef,

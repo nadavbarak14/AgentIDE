@@ -63,16 +63,26 @@ export class SessionManager extends EventEmitter {
       this.startFreshIds.delete(sessionId);
 
       if (session.continuationCount > 0 && session.claudeSessionId) {
-        // Continue a previous session with claude -c (resumes most recent session in working directory)
-        log.info({ claudeSessionId: session.claudeSessionId }, 'continuing session with claude -c');
+        // Resume the specific conversation by ID (not just the most recent in the directory)
+        log.info({ claudeSessionId: session.claudeSessionId }, 'resuming specific conversation with claude --resume');
+        ptyProc = this.ptySpawner.spawnResume(
+          sessionId,
+          session.workingDirectory,
+          session.claudeSessionId,
+        );
+      } else if (session.continuationCount > 0) {
+        // No claudeSessionId stored (legacy or failed capture) — fall back to -c
+        log.info('continuing session with claude -c (no claudeSessionId available)');
         ptyProc = this.ptySpawner.spawnContinue(
           sessionId,
           session.workingDirectory,
         );
-      } else if (isStartFresh) {
-        // Start fresh — no --continue flag
-        log.info('spawning new claude process (start fresh)');
-        ptyProc = this.ptySpawner.spawn(sessionId, session.workingDirectory);
+      } else if (isStartFresh || session.worktree) {
+        // Start fresh or worktree — no --continue flag
+        // Worktree creates a new isolated branch, so --continue is not compatible
+        const args = session.worktree ? ['--worktree'] : [];
+        log.info({ worktree: session.worktree, startFresh: isStartFresh }, 'spawning new claude process');
+        ptyProc = this.ptySpawner.spawn(sessionId, session.workingDirectory, args);
       } else {
         // Default: use --continue to resume most recent Claude session in this directory
         log.info({ dir: session.workingDirectory }, 'spawning claude with --continue');

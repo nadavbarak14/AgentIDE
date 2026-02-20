@@ -24,6 +24,7 @@ export class PtySpawner extends EventEmitter {
   private lastOutputTime = new Map<string, number>();
   private scrollbackDir: string;
   private scrollbackWriters = new Map<string, ReturnType<typeof setTimeout>>();
+  private scrollbackPending = new Map<string, string>();
   private idleNotified = new Map<string, boolean>();
   private terminalParsers = new Map<string, TerminalParser>();
   private idlePoller: ReturnType<typeof setInterval> | null = null;
@@ -198,6 +199,12 @@ export class PtySpawner extends EventEmitter {
     return this.spawn(sessionId, workingDirectory, ['-c']);
   }
 
+  spawnResume(sessionId: string, workingDirectory: string, claudeSessionId: string): PtyProcess {
+    const log = createSessionLogger(sessionId);
+    log.info({ claudeSessionId }, 'spawning claude --resume (specific conversation) process');
+    return this.spawn(sessionId, workingDirectory, ['--resume', claudeSessionId]);
+  }
+
   getProcess(sessionId: string): pty.IPty | undefined {
     return this.processes.get(sessionId);
   }
@@ -278,34 +285,56 @@ export class PtySpawner extends EventEmitter {
   }
 
   private cleanup(sessionId: string): void {
+    // Flush any pending scrollback before cleaning up
+    this.flushScrollback(sessionId);
+
     this.processes.delete(sessionId);
     this.outputBuffers.delete(sessionId);
     this.lastOutputTime.delete(sessionId);
     this.idleNotified.delete(sessionId);
     this.terminalParsers.delete(sessionId);
-
-    const scrollbackTimer = this.scrollbackWriters.get(sessionId);
-    if (scrollbackTimer) {
-      clearTimeout(scrollbackTimer);
-      this.scrollbackWriters.delete(sessionId);
-    }
   }
 
   private scheduleScrollbackWrite(sessionId: string, data: string): void {
-    // Throttle scrollback writes to every 5 seconds
+    // Accumulate ALL data chunks in the pending buffer
+    const pending = this.scrollbackPending.get(sessionId) || '';
+    this.scrollbackPending.set(sessionId, pending + data);
+
+    // Throttle disk writes to every 2 seconds — but never drop data
     if (this.scrollbackWriters.has(sessionId)) return;
 
     const timer = setTimeout(() => {
       this.scrollbackWriters.delete(sessionId);
+      const buffered = this.scrollbackPending.get(sessionId) || '';
+      this.scrollbackPending.delete(sessionId);
+      if (!buffered) return;
       const filePath = this.getScrollbackPath(sessionId);
       try {
-        fs.appendFileSync(filePath, data);
+        fs.appendFileSync(filePath, buffered);
       } catch {
         // Ignore write errors
       }
-    }, 5000);
+    }, 2000);
 
     this.scrollbackWriters.set(sessionId, timer);
+  }
+
+  /** Flush any pending scrollback data to disk immediately. */
+  private flushScrollback(sessionId: string): void {
+    const buffered = this.scrollbackPending.get(sessionId) || '';
+    this.scrollbackPending.delete(sessionId);
+    const timer = this.scrollbackWriters.get(sessionId);
+    if (timer) {
+      clearTimeout(timer);
+      this.scrollbackWriters.delete(sessionId);
+    }
+    if (!buffered) return;
+    const filePath = this.getScrollbackPath(sessionId);
+    try {
+      fs.appendFileSync(filePath, buffered);
+    } catch {
+      // Ignore write errors
+    }
   }
 
   destroy(): void {

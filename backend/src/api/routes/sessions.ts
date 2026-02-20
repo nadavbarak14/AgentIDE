@@ -23,7 +23,7 @@ export function createSessionsRouter(repo: Repository, sessionManager: SessionMa
 
   // POST /api/sessions — create a new session (or auto-continue if existing session in same dir)
   router.post('/', validateBody(['workingDirectory', 'title']), (req, res) => {
-    const { workingDirectory, title, targetWorker, startFresh } = req.body;
+    const { workingDirectory, title, targetWorker, startFresh, worktree } = req.body;
     if (typeof workingDirectory !== 'string' || typeof title !== 'string') {
       res.status(400).json({ error: 'workingDirectory and title must be strings' });
       return;
@@ -71,6 +71,7 @@ export function createSessionsRouter(repo: Repository, sessionManager: SessionMa
       workingDirectory: resolvedDir,
       title,
       targetWorker: targetWorker || null,
+      worktree: !!worktree,
     }, !!startFresh);
     logger.info({ sessionId: session.id, status: session.status }, 'new session created');
     res.status(201).json(session);
