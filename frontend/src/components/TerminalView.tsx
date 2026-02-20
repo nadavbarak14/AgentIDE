@@ -71,6 +71,7 @@ export function TerminalView({ sessionId, active, fontSize = 14, onWsMessage }: 
     setFontSize(fontSize);
   }, [fontSize, setFontSize]);
 
+
   return (
     <div
       ref={containerRef}

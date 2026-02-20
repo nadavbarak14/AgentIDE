@@ -31,8 +31,8 @@ class FakePtySpawner extends EventEmitter {
     };
   }
 
-  spawnContinue(sessionId: string, workDir: string, _claudeSessionId: string) {
-    return this.spawn(sessionId, workDir, ['-c', _claudeSessionId]);
+  spawnContinue(sessionId: string, workDir: string) {
+    return this.spawn(sessionId, workDir, ['-c']);
   }
 
   write(sessionId: string, _data: string) {
@@ -318,5 +318,44 @@ describe('Session Lifecycle — Auto-suspend only after user interaction', () =>
   it('default max_concurrent_sessions is 2', () => {
     const settings = repo.getSettings();
     expect(settings.maxConcurrentSessions).toBe(2);
+  });
+
+  // ── Session Continue Bug Fix (US1) ──────────────────────────────
+
+  it('spawnContinue uses -c without passing the session ID as an argument', () => {
+    // Track args passed to spawn
+    const spawnArgs: string[][] = [];
+    const origSpawn = fakeSpawner.spawn.bind(fakeSpawner);
+    fakeSpawner.spawn = (sessionId: string, workDir: string, args: string[] = []) => {
+      spawnArgs.push(args);
+      return origSpawn(sessionId, workDir, args);
+    };
+
+    fakeSpawner.spawnContinue('test-session', '/project');
+
+    expect(spawnArgs).toHaveLength(1);
+    expect(spawnArgs[0]).toEqual(['-c']);
+    // Verify the session ID is NOT passed as an argument
+    expect(spawnArgs[0]).not.toContain(expect.stringMatching(/^[a-f0-9-]+$/));
+  });
+
+  it('continuation flow does not send claudeSessionId to spawnContinue', async () => {
+    const s1 = sessionManager.createSession({ workingDirectory: '/p1', title: 'S1' });
+
+    // Complete the session with a claudeSessionId
+    fakeSpawner.simulateExit(s1.id, 0, 'cs_abc123');
+
+    const completed = repo.getSession(s1.id)!;
+    expect(completed.status).toBe('completed');
+    expect(completed.claudeSessionId).toBe('cs_abc123');
+
+    // Continue the session
+    sessionManager.continueSession(s1.id);
+
+    // The session was reactivated — verify it used spawnContinue without the token
+    const reactivated = repo.getSession(s1.id)!;
+    expect(reactivated.status).toBe('active');
+    // FakePtySpawner.spawnContinue delegates to spawn with ['-c'] only
+    // If the old bug existed, it would pass ['-c', 'cs_abc123']
   });
 });

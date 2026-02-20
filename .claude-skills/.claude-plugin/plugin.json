@@ -1,0 +1,5 @@
+{
+  "name": "c3-view-control",
+  "version": "1.0.0",
+  "description": "Skills for controlling the C3 IDE dashboard panels — open files, show preview, toggle git diff"
+}

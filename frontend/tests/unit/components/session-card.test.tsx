@@ -1,36 +1,55 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { SessionCard } from '../../../src/components/SessionCard';
 import { createMockSession } from '../../test-utils';
 
+const createMockPanel = (overrides: Record<string, unknown> = {}) => ({
+  leftPanel: 'none',
+  rightPanel: 'none',
+  leftWidthPercent: 25,
+  rightWidthPercent: 35,
+  bottomPanel: 'none',
+  bottomHeightPercent: 40,
+  terminalPosition: 'center' as const,
+  terminalVisible: true,
+  previewViewport: 'desktop' as const,
+  fontSize: 14,
+  activePanel: 'none',
+  fileTabs: [],
+  activeTabIndex: 0,
+  tabScrollPositions: {},
+  gitScrollPosition: 0,
+  previewUrl: '',
+  panelWidthPercent: 40,
+  setLeftWidth: vi.fn(),
+  setRightWidth: vi.fn(),
+  setLeftPanel: vi.fn(),
+  setRightPanel: vi.fn(),
+  setBottomPanel: vi.fn(),
+  setBottomHeight: vi.fn(),
+  setTerminalPosition: vi.fn(),
+  setTerminalVisible: vi.fn(),
+  setPreviewViewport: vi.fn(),
+  setFontSize: vi.fn(),
+  openPanel: vi.fn(),
+  closePanel: vi.fn(),
+  addFileTab: vi.fn(),
+  removeFileTab: vi.fn(),
+  setActiveTab: vi.fn(),
+  updateScrollPosition: vi.fn(),
+  setGitScrollPosition: vi.fn(),
+  setPreviewUrl: vi.fn(),
+  setPanelWidth: vi.fn(),
+  getState: vi.fn(),
+  scheduleSave: vi.fn(),
+  ...overrides,
+});
+
+const mockPanelOverrides: Record<string, unknown> = {};
+
 // Mock the usePanel hook — it makes API calls and manages complex state
 vi.mock('../../../src/hooks/usePanel', () => ({
-  usePanel: () => ({
-    leftPanel: 'none',
-    rightPanel: 'none',
-    leftWidthPercent: 25,
-    rightWidthPercent: 35,
-    activePanel: 'none',
-    fileTabs: [],
-    activeTabIndex: 0,
-    tabScrollPositions: {},
-    gitScrollPosition: 0,
-    previewUrl: '',
-    panelWidthPercent: 40,
-    setLeftWidth: vi.fn(),
-    setRightWidth: vi.fn(),
-    openPanel: vi.fn(),
-    closePanel: vi.fn(),
-    addFileTab: vi.fn(),
-    removeFileTab: vi.fn(),
-    setActiveTab: vi.fn(),
-    updateScrollPosition: vi.fn(),
-    setGitScrollPosition: vi.fn(),
-    setPreviewUrl: vi.fn(),
-    setPanelWidth: vi.fn(),
-    getState: vi.fn(),
-    scheduleSave: vi.fn(),
-  }),
+  usePanel: () => createMockPanel(mockPanelOverrides),
 }));
 
 // Mock heavy child components that depend on browser APIs (xterm, monaco, etc.)
@@ -133,5 +152,41 @@ describe('SessionCard', () => {
   it('does not show Delete button for active sessions', () => {
     render(<SessionCard session={createMockSession({ status: 'active' })} />);
     expect(screen.queryByTitle('Delete')).not.toBeInTheDocument();
+  });
+
+  it('shows current session indicator when isCurrent is true', () => {
+    const { container } = render(
+      <SessionCard session={createMockSession({ status: 'active' })} isCurrent={true} />,
+    );
+    const card = container.firstChild as HTMLElement;
+    expect(card.className).toContain('border-blue-500');
+  });
+
+  it('does not show current session indicator when isCurrent is false', () => {
+    const { container } = render(
+      <SessionCard session={createMockSession({ status: 'active' })} isCurrent={false} />,
+    );
+    const card = container.firstChild as HTMLElement;
+    expect(card.className).not.toContain('border-blue-500');
+  });
+
+  it('shows all toolbar buttons for active sessions', () => {
+    render(<SessionCard session={createMockSession({ status: 'active' })} />);
+    expect(screen.getByTitle(/File Explorer/)).toBeInTheDocument();
+    expect(screen.getByTitle(/Git Changes/)).toBeInTheDocument();
+    expect(screen.getByTitle(/Web Preview/)).toBeInTheDocument();
+    expect(screen.getByTitle(/GitHub Issues/)).toBeInTheDocument();
+  });
+
+  it('calls onSetCurrent when card is clicked', () => {
+    const onSetCurrent = vi.fn();
+    render(
+      <SessionCard
+        session={createMockSession({ status: 'active', id: 'sess-1' })}
+        onSetCurrent={onSetCurrent}
+      />,
+    );
+    fireEvent.click(screen.getByText('active').closest('div')!.parentElement!);
+    expect(onSetCurrent).toHaveBeenCalledWith('sess-1');
   });
 });

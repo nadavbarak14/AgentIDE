@@ -77,8 +77,8 @@ function handleCommand(cmd: WorkerCommand, ptySpawner: PtySpawner): void {
       }
       break;
     case 'continue':
-      if (cmd.sessionId && cmd.directory && cmd.claudeSessionId) {
-        ptySpawner.spawnContinue(cmd.sessionId, cmd.directory, cmd.claudeSessionId);
+      if (cmd.sessionId && cmd.directory) {
+        ptySpawner.spawnContinue(cmd.sessionId, cmd.directory);
       }
       break;
     case 'input':

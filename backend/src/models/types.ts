@@ -94,7 +94,7 @@ export interface UpdateSettingsInput {
 export type ActivePanel = 'none' | 'files' | 'git' | 'preview';
 export type LeftPanel = 'none' | 'files';
 export type RightPanel = 'none' | 'git' | 'preview';
-export type PanelContent = 'none' | 'files' | 'git' | 'preview' | 'claude' | 'search';
+export type PanelContent = 'none' | 'files' | 'git' | 'preview' | 'claude' | 'search' | 'issues';
 export type TerminalPosition = 'center' | 'bottom';
 export type ViewportMode = 'desktop' | 'mobile';
 
@@ -280,4 +280,59 @@ export interface AuthStatusResponse {
   email: string | null;
   plan: string | null;
   licenseExpiresAt: string | null;
+}
+
+// GitHub Issues (fetched from gh CLI, not persisted)
+export interface GitHubLabel {
+  name: string;
+  color: string;
+  description: string;
+}
+
+export interface GitHubAssignee {
+  login: string;
+  name: string;
+}
+
+export interface GitHubAuthor {
+  login: string;
+  name: string;
+}
+
+export interface GitHubComment {
+  author: GitHubAuthor;
+  body: string;
+  createdAt: string;
+}
+
+export interface GitHubIssue {
+  number: number;
+  title: string;
+  state: 'OPEN' | 'CLOSED';
+  labels: GitHubLabel[];
+  assignees: GitHubAssignee[];
+  author: GitHubAuthor;
+  createdAt: string;
+  updatedAt: string;
+  url: string;
+}
+
+export interface GitHubIssueDetail extends GitHubIssue {
+  body: string;
+  comments: GitHubComment[];
+}
+
+export interface GitHubIssueList {
+  issues: GitHubIssue[];
+  totalCount: number;
+  error?: string;
+}
+
+export interface GitHubStatus {
+  ghInstalled: boolean;
+  ghAuthenticated: boolean;
+  repoDetected: boolean;
+  repoOwner: string | null;
+  repoName: string | null;
+  error: string | null;
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { files as filesApi } from '../services/api';
 
 interface FileTreeProps {
@@ -17,18 +17,27 @@ interface TreeNode {
   expanded: boolean;
 }
 
-const FILE_ICONS: Record<string, string> = {
-  ts: '🟦', tsx: '🟦', js: '🟨', jsx: '🟨',
-  json: '📋', md: '📝', css: '🎨', scss: '🎨',
-  html: '🌐', svg: '🖼', png: '🖼', jpg: '🖼',
-  py: '🐍', rs: '🦀', go: '🔷', rb: '💎',
-  sh: '🐚', yml: '⚙', yaml: '⚙', toml: '⚙',
-  lock: '🔒', gitignore: '🚫',
-};
-
-function getFileIcon(name: string): string {
-  const ext = name.split('.').pop()?.toLowerCase() || '';
-  return FILE_ICONS[ext] || '📄';
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    // Fallback for non-HTTPS contexts
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    try {
+      document.execCommand('copy');
+      return true;
+    } catch {
+      return false;
+    } finally {
+      document.body.removeChild(textarea);
+    }
+  }
 }
 
 export function FileTree({ sessionId, onFileSelect, refreshKey = 0 }: FileTreeProps) {
@@ -190,12 +199,25 @@ interface TreeNodeItemProps {
 }
 
 function TreeNodeItem({ node, depth, onClick, searchFilter }: TreeNodeItemProps) {
+  const [copied, setCopied] = useState(false);
+  const copiedTimer = useRef<ReturnType<typeof setTimeout>>();
+
+  const handleCopyPath = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const ok = await copyToClipboard(node.path);
+    if (ok) {
+      setCopied(true);
+      if (copiedTimer.current) clearTimeout(copiedTimer.current);
+      copiedTimer.current = setTimeout(() => setCopied(false), 1500);
+    }
+  };
+
   return (
     <>
-      <button
-        onClick={() => onClick(node)}
-        className="w-full text-left px-2 py-0.5 hover:bg-gray-700/50 flex items-center gap-1"
+      <div
+        className="group w-full text-left px-2 py-0.5 hover:bg-gray-700/50 flex items-center gap-1 cursor-pointer"
         style={{ paddingLeft: `${8 + depth * 16}px` }}
+        onClick={() => onClick(node)}
       >
         {node.type === 'directory' && (
           <span className="text-gray-500 text-xs w-3">
@@ -203,14 +225,26 @@ function TreeNodeItem({ node, depth, onClick, searchFilter }: TreeNodeItemProps)
           </span>
         )}
         {node.type === 'file' && <span className="w-3" />}
-        <span className="text-xs">{node.type === 'directory' ? '📁' : getFileIcon(node.name)}</span>
         <span className={node.type === 'directory' ? 'text-blue-400' : 'text-gray-300'}>
           {node.name}
         </span>
-        {node.size !== undefined && node.type === 'file' && (
-          <span className="text-xs text-gray-600 ml-auto">{formatSize(node.size)}</span>
+        {node.type === 'file' && (
+          <button
+            onClick={handleCopyPath}
+            className={`ml-auto text-xs px-1 rounded transition-colors flex-shrink-0 ${
+              copied
+                ? 'text-green-400'
+                : 'text-gray-600 opacity-0 group-hover:opacity-100 hover:text-gray-300'
+            }`}
+            title={copied ? 'Copied!' : 'Copy path'}
+          >
+            {copied ? '✓' : 'cp'}
+          </button>
         )}
-      </button>
+        {node.size !== undefined && node.type === 'file' && !copied && (
+          <span className="text-xs text-gray-600 ml-auto group-hover:hidden">{formatSize(node.size)}</span>
+        )}
+      </div>
       {node.expanded && node.children && node.children
         .filter((child) => {
           if (!searchFilter) return true;
