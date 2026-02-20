@@ -1,20 +1,22 @@
 <!--
   Sync Impact Report
   ===================
-  Version change: 1.1.0 → 1.1.1
+  Version change: 1.1.1 → 1.1.2
   Modified principles:
-    - V. CI/CD Pipeline & Autonomous Merge: added rebase-only merge
-      strategy, main branch protection, PR-only workflow
+    - V. CI/CD Pipeline & Autonomous Merge: strengthened language to
+      explicitly forbid local merges to main; added step-by-step merge
+      procedure; clarified that `git merge` / `git checkout main` for
+      merge purposes is never permitted
   Modified sections:
-    - Development Workflow: added rebase-only merge requirement
-    - Added Repository section with GitHub URL
+    - Development Workflow: replaced general merge guidance with
+      explicit numbered merge procedure
   Added sections: None
   Removed sections: None
   Templates requiring updates:
     - .specify/templates/plan-template.md ✅ no update needed
     - .specify/templates/spec-template.md ✅ no update needed
-    - .specify/templates/tasks-template.md ✅ updated
-      (merge task specifies rebase strategy)
+    - .specify/templates/tasks-template.md ✅ already says
+      "Push branch, wait for CI green, rebase-merge to main"
   Follow-up TODOs: None
 -->
 # ClaudeQueue Constitution
@@ -116,18 +118,26 @@ reliability and usability.
 ### V. CI/CD Pipeline & Autonomous Merge
 
 All code changes MUST go through a CI pipeline before merging.
-The agent MUST push, wait for CI, and merge autonomously.
+The ONLY path to `main` is a pull request that has passed CI.
 
 - The `main` branch MUST be protected; direct pushes are forbidden
 - All changes to `main` MUST go through pull requests — no
   exceptions
+- **Local merges to `main` are FORBIDDEN**: never run
+  `git checkout main && git merge <branch>` or any local merge
+  command targeting `main`; the merge MUST happen on the remote
+  via the pull request mechanism
 - Only rebase merges are permitted (no merge commits, no squash);
   this keeps a linear, readable commit history
 - Every branch MUST have a CI pipeline that runs the full test
   suite (unit + system tests) on push
 - Pull requests MUST NOT be merged until CI passes green
-- The development agent MUST push changes to the remote, wait
-  for CI results, and merge the branch autonomously upon success
+- The development agent MUST follow this exact merge procedure:
+  1. Push the feature branch to remote
+  2. Create a pull request via `gh pr create`
+  3. Wait for ALL CI checks to pass green
+  4. Merge the PR via `gh pr merge --rebase`
+  5. Never merge while any check is pending or failing
 - CI failures MUST be investigated and fixed before re-attempting
   merge; never bypass or skip CI checks
 - The CI pipeline MUST run linting, type checking, and security
@@ -140,7 +150,9 @@ working code reaches the main branch. Autonomous merge after green
 CI removes manual bottlenecks while maintaining quality. If tests
 are real (Principle I), a green CI run means the code truly works.
 A protected main branch with rebase-only merges guarantees a clean,
-linear history that is easy to bisect and reason about.
+linear history that is easy to bisect and reason about. Requiring
+remote PR merges (never local) ensures CI always validates changes
+before they land on main.
 
 ### VI. Frontend Plugin Quality
 
@@ -240,11 +252,24 @@ between a 5-minute fix and a 5-hour investigation.
 - Code reviews MUST verify adherence to all constitution principles
 - Each completed user story MUST be independently testable and
   demonstrable
-- After implementation, the agent MUST push the branch, wait for
-  CI to pass, and merge autonomously via rebase
-- All merges MUST target the `main` branch via pull request
-- Merges MUST use rebase strategy only (no merge commits, no
-  squash)
+
+### Merge Procedure (Principle V)
+
+After implementation is complete, the agent MUST follow these
+steps exactly — no shortcuts, no local merges:
+
+1. **Push**: `git push -u origin <branch-name>`
+2. **Create PR**: `gh pr create --title "..." --body "..."`
+3. **Wait for CI**: `gh pr checks <number> --watch` until all
+   checks pass green
+4. **Merge**: `gh pr merge <number> --rebase` only after all
+   checks are green
+5. **If CI fails**: fix the issue, push again, wait for CI again;
+   never force-merge or bypass checks
+
+**FORBIDDEN**: `git checkout main && git merge`, `git merge` into
+main locally, `gh pr merge --admin` (unless explicitly requested
+by user), or any method that bypasses CI validation.
 
 ## Governance
 
@@ -259,4 +284,4 @@ between a 5-minute fix and a 5-hour investigation.
 - Complexity beyond what principles allow MUST be justified in
   writing
 
-**Version**: 1.1.1 | **Ratified**: 2026-02-16 | **Last Amended**: 2026-02-17
+**Version**: 1.1.2 | **Ratified**: 2026-02-16 | **Last Amended**: 2026-02-20

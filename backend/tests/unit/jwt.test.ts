@@ -34,7 +34,12 @@ describe('JWT sign/verify', () => {
 
   it('rejects a tampered token', async () => {
     const token = await signToken(payload, secret);
-    const tampered = token.slice(0, -1) + (token.endsWith('a') ? 'b' : 'a');
+    // Tamper with the payload section (middle part) to reliably invalidate
+    const parts = token.split('.');
+    const payloadBytes = Buffer.from(parts[1], 'base64url');
+    payloadBytes[0] ^= 0xff; // flip all bits of first byte
+    parts[1] = payloadBytes.toString('base64url');
+    const tampered = parts.join('.');
     const decoded = await verifyToken(tampered, secret);
     expect(decoded).toBeNull();
   });
