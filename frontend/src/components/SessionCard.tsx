@@ -105,6 +105,13 @@ export function SessionCard({
           ensurePanelOpen(msg.params.panel as 'files' | 'git' | 'preview' | 'issues');
         } else if (msg.command === 'show_diff') {
           ensurePanelOpen('git');
+        } else if (msg.command === 'set_preview_resolution') {
+          const w = parseInt(msg.params.width, 10);
+          const h = parseInt(msg.params.height, 10);
+          if (w > 0 && w <= 4096 && h > 0 && h <= 4096) {
+            panel.setCustomViewport(w, h);
+            ensurePanelOpen('preview');
+          }
         }
       } catch {
         // Never disrupt the terminal for command handling errors
@@ -468,8 +475,12 @@ export function SessionCard({
             port={detectedPort?.port || 0}
             localPort={detectedPort?.localPort || 0}
             onClose={slot === 'left' ? closeLeftPanel : closeRightPanel}
+            refreshKey={fileChangeVersion}
             viewportMode={panel.previewViewport}
             onViewportChange={(mode) => panel.setPreviewViewport(mode)}
+            customViewportWidth={panel.customViewportWidth}
+            customViewportHeight={panel.customViewportHeight}
+            onCustomViewport={(w, h) => panel.setCustomViewport(w, h)}
           />
         );
       case 'issues':

@@ -18,6 +18,9 @@ import { createDirectoriesRouter } from './api/routes/directories.js';
 import { createHooksRouter } from './api/routes/hooks.js';
 import { createAuthRouter } from './api/routes/auth.js';
 import { createGitHubRouter } from './api/routes/github.js';
+import { createPreviewRouter } from './api/routes/preview.js';
+import { createUploadsRouter } from './api/routes/uploads.js';
+import { PreviewService } from './services/preview-service.js';
 import { setupWebSocket, broadcastToSession } from './api/websocket.js';
 import { FileWatcher } from './worker/file-watcher.js';
 import { requestLogger, errorHandler, createAuthMiddleware } from './api/middleware.js';
@@ -87,6 +90,7 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
   const queueManager = new QueueManager(repo);
   const sessionManager = new SessionManager(repo, ptySpawner, queueManager);
   const workerManager = new WorkerManager(repo);
+  const previewService = new PreviewService(repo, sessionManager);
 
   // File watcher — watches session working directories for changes
   const fileWatcher = new FileWatcher();
@@ -157,6 +161,16 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
   app.use('/api/workers', createWorkersRouter(repo, workerManager));
   app.use('/api/directories', createDirectoriesRouter());
   app.use('/api/sessions', createGitHubRouter(repo));
+  app.use('/api/sessions', createPreviewRouter(repo, previewService));
+  app.use('/api/sessions', createUploadsRouter(repo, previewService));
+
+  // Serve inspect bridge script for preview iframe injection
+  app.get('/api/inspect-bridge.js', (_req, res) => {
+    const bridgePath = path.join(import.meta.dirname, 'api/inspect-bridge.js');
+    res.setHeader('Content-Type', 'application/javascript');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.sendFile(bridgePath);
+  });
 
   // Board command endpoint — skills POST here via curl to control the IDE view
   app.post('/api/sessions/:id/board-command', (req, res) => {

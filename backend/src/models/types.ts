@@ -96,7 +96,7 @@ export type LeftPanel = 'none' | 'files';
 export type RightPanel = 'none' | 'git' | 'preview';
 export type PanelContent = 'none' | 'files' | 'git' | 'preview' | 'claude' | 'search' | 'issues';
 export type TerminalPosition = 'center' | 'bottom';
-export type ViewportMode = 'desktop' | 'mobile';
+export type ViewportMode = 'desktop' | 'mobile' | 'custom';
 
 export interface ScrollPosition {
   line: number;
@@ -148,7 +148,7 @@ export interface SearchResult {
 }
 
 // Board Commands (Claude skills for dashboard control)
-export type BoardCommandType = 'open_file' | 'show_panel' | 'show_diff';
+export type BoardCommandType = 'open_file' | 'show_panel' | 'show_diff' | 'set_preview_resolution';
 
 export interface BoardCommand {
   type: BoardCommandType;
@@ -326,6 +326,69 @@ export interface GitHubIssueList {
   issues: GitHubIssue[];
   totalCount: number;
   error?: string;
+}
+
+// ─── Preview Visual Feedback ───
+
+export type PreviewCommentStatus = 'pending' | 'sent' | 'stale';
+
+export interface PreviewComment {
+  id: string;
+  sessionId: string;
+  commentText: string;
+  elementSelector: string | null;
+  elementTag: string | null;
+  elementRectJson: string | null;
+  screenshotPath: string | null;
+  pageUrl: string | null;
+  pinX: number;
+  pinY: number;
+  viewportWidth: number | null;
+  viewportHeight: number | null;
+  status: PreviewCommentStatus;
+  createdAt: string;
+  sentAt: string | null;
+}
+
+export interface CreatePreviewCommentInput {
+  commentText: string;
+  elementSelector?: string;
+  elementTag?: string;
+  elementRect?: { x: number; y: number; width: number; height: number };
+  screenshotDataUrl?: string;
+  pageUrl?: string;
+  pinX: number;
+  pinY: number;
+  viewportWidth?: number;
+  viewportHeight?: number;
+}
+
+export interface UploadedImage {
+  id: string;
+  sessionId: string;
+  originalFilename: string;
+  storedPath: string;
+  mimeType: string;
+  fileSize: number;
+  width: number | null;
+  height: number | null;
+  compressed: boolean;
+  status: 'pending' | 'sent';
+  createdAt: string;
+  sentAt: string | null;
+}
+
+export interface VideoRecording {
+  id: string;
+  sessionId: string;
+  eventsPath: string;
+  thumbnailPath: string | null;
+  durationMs: number | null;
+  eventCount: number | null;
+  pageUrl: string | null;
+  viewportWidth: number | null;
+  viewportHeight: number | null;
+  createdAt: string;
 }
 
 export interface GitHubStatus {
