@@ -25,6 +25,10 @@ Auto-generated from all feature plans. Last updated: 2026-02-17
 - SQLite (better-sqlite3) with WAL mode — no schema changes (005-testing-ci)
 - TypeScript 5.7, Node.js 20 LTS + React 18, @monaco-editor/react 4.6, xterm.js 5, Express 4, better-sqlite3, Tailwind CSS 3, Vite 6, diff2html 3.4, chokidar 4, ws 8 (006-ide-workspace)
 - SQLite (better-sqlite3) with WAL mode — existing `panel_states` table (JSON blob), no schema migration needed (006-ide-workspace)
+- TypeScript 5.7, Node.js 20 LTS + Express 4, jose (JWT), commander (CLI), cookie-parser, express-rate-limit, selfsigned (TLS) (007-auth-licensing-cli)
+- SQLite (better-sqlite3) — existing `c3.db`, one new table: `auth_config` (007-auth-licensing-cli)
+- TypeScript 5.7, Node.js 20 LTS + Express 4, `jose` (JWT), `commander` (CLI), `express-rate-limit`, `selfsigned` (TLS), `ssh2` (workers), `ws` (WebSocket), `better-sqlite3` (009-product-security-licensing)
+- SQLite via better-sqlite3 — `auth_config` table (singleton) stores JWT secret and cached license metadata (009-product-security-licensing)
 
 - TypeScript 5.x, Node.js 20 LTS + React 18, Tailwind CSS 3, xterm.js 5, Monaco Editor, Express, node-pty, ssh2, chokidar, diff2html, ws (001-c3-dashboard)
 
@@ -44,9 +48,9 @@ npm test && npm run lint
 TypeScript 5.x, Node.js 20 LTS: Follow standard conventions
 
 ## Recent Changes
+- 009-product-security-licensing: Added TypeScript 5.7, Node.js 20 LTS + Express 4, `jose` (JWT), `commander` (CLI), `express-rate-limit`, `selfsigned` (TLS), `ssh2` (workers), `ws` (WebSocket), `better-sqlite3`
+- 007-auth-licensing-cli: Added TypeScript 5.7, Node.js 20 LTS + Express 4, jose (JWT), commander (CLI), cookie-parser, express-rate-limit, selfsigned (TLS)
 - 006-ide-workspace: Added TypeScript 5.7, Node.js 20 LTS + React 18, @monaco-editor/react 4.6, xterm.js 5, Express 4, better-sqlite3, Tailwind CSS 3, Vite 6, diff2html 3.4, chokidar 4, ws 8
-- 005-testing-ci: Added TypeScript 5.7, Node.js 20 LTS + Vitest 2.1.0, React 18, Express 4, better-sqlite3, supertest, @testing-library/react, @testing-library/jest-dom, ws 8
-- 004-ux-polish: Added TypeScript 5.7, Node.js 20 LTS + React 18, Tailwind CSS 3, @monaco-editor/react 4.6 (Monaco view zones), diff2html 3.4, Express 4, better-sqlite3
 
 
 <!-- MANUAL ADDITIONS START -->

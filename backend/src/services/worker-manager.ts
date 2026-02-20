@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import fs from 'node:fs';
 import type { Repository } from '../models/repository.js';
 import type { Worker } from '../models/types.js';
 import { TunnelManager, type TunnelConfig } from '../hub/tunnel.js';
@@ -15,6 +16,40 @@ export class WorkerManager extends EventEmitter {
     this.setupTunnelListeners();
   }
 
+  /**
+   * Validate that an SSH private key file exists, is readable, and is not passphrase-protected.
+   * Throws descriptive errors for each failure mode.
+   */
+  validateSshKeyFile(keyPath: string): void {
+    // Check file exists
+    if (!fs.existsSync(keyPath)) {
+      throw new Error(`SSH key file not found: ${keyPath}`);
+    }
+
+    // Check file is readable
+    try {
+      fs.accessSync(keyPath, fs.constants.R_OK);
+    } catch {
+      throw new Error(`SSH key file is not readable (check permissions): ${keyPath}`);
+    }
+
+    // Read and check for passphrase-protected keys
+    const content = fs.readFileSync(keyPath, 'utf-8');
+
+    // Older PEM format: "Proc-Type: 4,ENCRYPTED" in header
+    if (content.includes('ENCRYPTED')) {
+      throw new Error(
+        'SSH key is passphrase-protected. AgentIDE requires a key without a passphrase. ' +
+        'Generate one with: ssh-keygen -t ed25519 -f ~/.ssh/agentide_key -N ""'
+      );
+    }
+
+    // Verify it looks like a PEM private key
+    if (!content.includes('PRIVATE KEY')) {
+      throw new Error(`File does not appear to be a private key: ${keyPath}`);
+    }
+  }
+
   async connectWorker(worker: Worker): Promise<void> {
     if (worker.type === 'local') {
       this.repo.updateWorkerStatus(worker.id, 'connected');
@@ -25,6 +60,9 @@ export class WorkerManager extends EventEmitter {
     if (!worker.sshHost || !worker.sshUser || !worker.sshKeyPath) {
       throw new Error('Missing SSH configuration');
     }
+
+    // Validate key file before attempting connection
+    this.validateSshKeyFile(worker.sshKeyPath);
 
     const config: TunnelConfig = {
       host: worker.sshHost,

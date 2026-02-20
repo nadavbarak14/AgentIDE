@@ -6,6 +6,9 @@
     "backend",
     "frontend"
   ],
+  "bin": {
+    "agentide": "./backend/dist/cli.js"
+  },
   "scripts": {
     "dev:backend": "npm run dev --workspace=backend",
     "dev:frontend": "npm run dev --workspace=frontend",

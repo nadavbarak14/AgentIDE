@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import http from 'node:http';
 import https from 'node:https';
+import dns from 'node:dns/promises';
+import net from 'node:net';
 import path from 'node:path';
 import fs from 'node:fs';
 import type { Repository } from '../../models/repository.js';
@@ -8,6 +10,39 @@ import { validateUuid, sanitizePath } from '../middleware.js';
 import { listDirectory, readFile, writeFile, searchFiles } from '../../worker/file-reader.js';
 import { getDiff } from '../../worker/git-operations.js';
 import { logger } from '../../services/logger.js';
+
+/**
+ * Check if an IP address is private/internal (SSRF protection).
+ */
+function isPrivateIp(ip: string): boolean {
+  if (net.isIPv4(ip)) {
+    const parts = ip.split('.').map(Number);
+    // 127.0.0.0/8 (loopback)
+    if (parts[0] === 127) return true;
+    // 10.0.0.0/8
+    if (parts[0] === 10) return true;
+    // 172.16.0.0/12
+    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+    // 192.168.0.0/16
+    if (parts[0] === 192 && parts[1] === 168) return true;
+    // 169.254.0.0/16 (link-local / cloud metadata)
+    if (parts[0] === 169 && parts[1] === 254) return true;
+    // 0.0.0.0
+    if (parts[0] === 0) return true;
+  }
+  if (net.isIPv6(ip)) {
+    const lower = ip.toLowerCase();
+    // ::1 (loopback)
+    if (lower === '::1') return true;
+    // fd00::/8 (unique local)
+    if (lower.startsWith('fd')) return true;
+    // fe80::/10 (link-local)
+    if (lower.startsWith('fe80')) return true;
+    // ::ffff:127.x.x.x (IPv4-mapped loopback)
+    if (lower.startsWith('::ffff:127.')) return true;
+  }
+  return false;
+}
 
 const MIME_TYPES: Record<string, string> = {
   '.html': 'text/html', '.htm': 'text/html',
@@ -181,7 +216,12 @@ export function createFilesRouter(repo: Repository): Router {
       return;
     }
 
-    const fullPath = path.join(session.workingDirectory, sanitized);
+    const fullPath = path.resolve(session.workingDirectory, sanitized);
+    // Defense-in-depth: verify resolved path stays within working directory
+    if (!fullPath.startsWith(path.resolve(session.workingDirectory))) {
+      res.status(400).send('Invalid path');
+      return;
+    }
 
     // If path is a directory, try index.html
     try {
@@ -289,7 +329,7 @@ export function createFilesRouter(repo: Repository): Router {
   });
 
   // GET /api/sessions/:id/proxy-url/:encodedUrl — proxy external URLs (strip X-Frame-Options/CSP)
-  router.all('/:id/proxy-url/:encodedUrl', validateUuid('id'), (req, res) => {
+  router.all('/:id/proxy-url/:encodedUrl', validateUuid('id'), async (req, res) => {
     const sessionId = req.params.id as string;
     const session = repo.getSession(sessionId);
     if (!session) {
@@ -308,6 +348,29 @@ export function createFilesRouter(repo: Repository): Router {
     if (targetUrl.protocol !== 'http:' && targetUrl.protocol !== 'https:') {
       res.status(400).json({ error: 'Only http/https URLs are supported' });
       return;
+    }
+
+    // SSRF protection: resolve hostname and block private/internal IPs
+    try {
+      const hostname = targetUrl.hostname;
+      // Check if hostname is already an IP
+      if (net.isIP(hostname)) {
+        if (isPrivateIp(hostname)) {
+          res.status(403).json({ error: 'Proxying to private/internal addresses is not allowed' });
+          return;
+        }
+      } else {
+        // Resolve DNS and check all returned IPs
+        const addresses = await dns.resolve4(hostname).catch(() => [] as string[]);
+        const addresses6 = await dns.resolve6(hostname).catch(() => [] as string[]);
+        const allAddresses = [...addresses, ...addresses6];
+        if (allAddresses.some(isPrivateIp)) {
+          res.status(403).json({ error: 'Proxying to private/internal addresses is not allowed' });
+          return;
+        }
+      }
+    } catch {
+      // DNS resolution failure — let the actual request handle the error
     }
 
     const isHttps = targetUrl.protocol === 'https:';

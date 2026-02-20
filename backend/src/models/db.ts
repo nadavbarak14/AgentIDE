@@ -100,10 +100,26 @@ CREATE TABLE IF NOT EXISTS comments (
 
 CREATE INDEX IF NOT EXISTS idx_comments_session ON comments(session_id);
 CREATE INDEX IF NOT EXISTS idx_comments_status ON comments(status);
+
+CREATE TABLE IF NOT EXISTS auth_config (
+  id INTEGER PRIMARY KEY CHECK(id = 1),
+  jwt_secret TEXT NOT NULL,
+  license_key_hash TEXT,
+  license_email TEXT,
+  license_plan TEXT,
+  license_max_sessions INTEGER,
+  license_expires_at TEXT,
+  license_issued_at TEXT,
+  auth_required INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 `;
 
 const SEED = `
 INSERT OR IGNORE INTO settings (id) VALUES (1);
+INSERT OR IGNORE INTO auth_config (id, jwt_secret, auth_required)
+  VALUES (1, hex(randomblob(32)), 0);
 `;
 
 /** Run forward-only migrations for existing databases */
