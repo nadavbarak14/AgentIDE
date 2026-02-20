@@ -11,6 +11,19 @@ import { listDirectory, readFile, writeFile, searchFiles } from '../../worker/fi
 import { getDiff } from '../../worker/git-operations.js';
 import { logger } from '../../services/logger.js';
 
+const BRIDGE_SCRIPT_TAG = '<script src="/api/inspect-bridge.js"></script>';
+
+/** Inject the inspect-bridge script before </head> in an HTML document */
+function injectBridgeScript(html: string): string {
+  if (html.includes('</head>')) {
+    return html.replace('</head>', BRIDGE_SCRIPT_TAG + '</head>');
+  }
+  if (html.includes('</body>')) {
+    return html.replace('</body>', BRIDGE_SCRIPT_TAG + '</body>');
+  }
+  return html + BRIDGE_SCRIPT_TAG;
+}
+
 /**
  * Check if an IP address is private/internal (SSRF protection).
  */
@@ -224,27 +237,40 @@ export function createFilesRouter(repo: Repository): Router {
     }
 
     // If path is a directory, try index.html
+    let servePath = fullPath;
     try {
       const stat = fs.statSync(fullPath);
       if (stat.isDirectory()) {
         const indexPath = path.join(fullPath, 'index.html');
         if (fs.existsSync(indexPath)) {
-          const ext = '.html';
-          res.setHeader('Content-Type', MIME_TYPES[ext] || 'application/octet-stream');
-          res.sendFile(indexPath);
+          servePath = indexPath;
+        } else {
+          res.status(404).send('No index.html found in directory');
           return;
         }
-        res.status(404).send('No index.html found in directory');
-        return;
       }
     } catch {
       res.status(404).send('File not found');
       return;
     }
 
-    const ext = path.extname(fullPath).toLowerCase();
-    res.setHeader('Content-Type', MIME_TYPES[ext] || 'application/octet-stream');
-    res.sendFile(fullPath);
+    const ext = path.extname(servePath).toLowerCase();
+    const mimeType = MIME_TYPES[ext] || 'application/octet-stream';
+    res.setHeader('Content-Type', mimeType);
+
+    // Inject bridge script into HTML files
+    if (ext === '.html' || ext === '.htm') {
+      try {
+        const html = fs.readFileSync(servePath, 'utf-8');
+        const modified = injectBridgeScript(html);
+        res.setHeader('Content-Length', Buffer.byteLength(modified));
+        res.send(modified);
+      } catch {
+        res.status(500).send('Failed to read file');
+      }
+    } else {
+      res.sendFile(servePath);
+    }
   });
 
   // GET /api/sessions/:id/diff — get git diff for session working directory
@@ -306,8 +332,23 @@ export function createFilesRouter(repo: Repository): Router {
         delete responseHeaders['content-security-policy']; // Allow proxy context
         delete responseHeaders['set-cookie']; // Don't let proxied server set cookies on dashboard domain
 
-        res.writeHead(proxyRes.statusCode || 200, responseHeaders);
-        proxyRes.pipe(res);
+        const contentType = (proxyRes.headers['content-type'] || '').toLowerCase();
+        if (contentType.includes('text/html')) {
+          // Buffer HTML responses to inject bridge script
+          const chunks: Buffer[] = [];
+          proxyRes.on('data', (chunk: Buffer) => chunks.push(chunk));
+          proxyRes.on('end', () => {
+            const body = Buffer.concat(chunks).toString('utf-8');
+            const modified = injectBridgeScript(body);
+            delete responseHeaders['content-length'];
+            responseHeaders['content-length'] = String(Buffer.byteLength(modified));
+            res.writeHead(proxyRes.statusCode || 200, responseHeaders);
+            res.end(modified);
+          });
+        } else {
+          res.writeHead(proxyRes.statusCode || 200, responseHeaders);
+          proxyRes.pipe(res);
+        }
       },
     );
 
@@ -396,8 +437,23 @@ export function createFilesRouter(repo: Repository): Router {
         // Don't leak external cookies back to the dashboard
         delete responseHeaders['set-cookie'];
 
-        res.writeHead(proxyRes.statusCode || 200, responseHeaders);
-        proxyRes.pipe(res);
+        const contentType = (proxyRes.headers['content-type'] || '').toLowerCase();
+        if (contentType.includes('text/html')) {
+          // Buffer HTML responses to inject bridge script
+          const chunks: Buffer[] = [];
+          proxyRes.on('data', (chunk: Buffer) => chunks.push(chunk));
+          proxyRes.on('end', () => {
+            const body = Buffer.concat(chunks).toString('utf-8');
+            const modified = injectBridgeScript(body);
+            delete responseHeaders['content-length'];
+            responseHeaders['content-length'] = String(Buffer.byteLength(modified));
+            res.writeHead(proxyRes.statusCode || 200, responseHeaders);
+            res.end(modified);
+          });
+        } else {
+          res.writeHead(proxyRes.statusCode || 200, responseHeaders);
+          proxyRes.pipe(res);
+        }
       },
     );
 

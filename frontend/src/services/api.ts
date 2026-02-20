@@ -448,6 +448,152 @@ export const github = {
     request<GitHubIssueDetail>(`/sessions/${sessionId}/github/issues/${number}`),
 };
 
+// ─── Preview Comments ───
+
+export interface PreviewCommentData {
+  id: string;
+  sessionId: string;
+  commentText: string;
+  elementSelector: string | null;
+  elementTag: string | null;
+  elementRectJson: string | null;
+  screenshotPath: string | null;
+  pageUrl: string | null;
+  pinX: number;
+  pinY: number;
+  viewportWidth: number | null;
+  viewportHeight: number | null;
+  status: 'pending' | 'sent' | 'stale';
+  createdAt: string;
+  sentAt: string | null;
+}
+
+export interface CreatePreviewCommentInput {
+  commentText: string;
+  elementSelector?: string;
+  elementTag?: string;
+  elementRect?: { x: number; y: number; width: number; height: number };
+  screenshotDataUrl?: string;
+  pageUrl?: string;
+  pinX: number;
+  pinY: number;
+  viewportWidth?: number;
+  viewportHeight?: number;
+}
+
+export const previewComments = {
+  list: (sessionId: string, status?: 'pending' | 'sent' | 'stale') =>
+    request<PreviewCommentData[]>(
+      `/sessions/${sessionId}/preview-comments${status ? `?status=${status}` : ''}`,
+    ),
+
+  create: (sessionId: string, data: CreatePreviewCommentInput) =>
+    request<PreviewCommentData>(`/sessions/${sessionId}/preview-comments`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  deliver: (sessionId: string) =>
+    request<{ delivered: number; message: string }>(
+      `/sessions/${sessionId}/preview-comments/deliver`,
+      { method: 'POST' },
+    ),
+
+  deliverOne: (sessionId: string, commentId: string) =>
+    request<{ delivered: boolean; commentId: string }>(
+      `/sessions/${sessionId}/preview-comments/${commentId}/deliver`,
+      { method: 'POST' },
+    ),
+
+  update: (sessionId: string, commentId: string, status: 'pending' | 'sent' | 'stale') =>
+    request<PreviewCommentData>(
+      `/sessions/${sessionId}/preview-comments/${commentId}`,
+      { method: 'PATCH', body: JSON.stringify({ status }) },
+    ),
+
+  delete: (sessionId: string, commentId: string) =>
+    request<void>(
+      `/sessions/${sessionId}/preview-comments/${commentId}`,
+      { method: 'DELETE' },
+    ),
+};
+
+// ─── Screenshots ───
+
+export const screenshots = {
+  save: (sessionId: string, data: { dataUrl: string; pageUrl?: string; viewportWidth?: number; viewportHeight?: number }) =>
+    request<{ id: string; storedPath: string; pageUrl: string; createdAt: string }>(
+      `/sessions/${sessionId}/screenshots`,
+      { method: 'POST', body: JSON.stringify(data) },
+    ),
+
+  deliver: (sessionId: string, screenshotId: string, data: { screenshotPath: string; message?: string }) =>
+    request<{ delivered: boolean; screenshotId: string }>(
+      `/sessions/${sessionId}/screenshots/${screenshotId}/deliver`,
+      { method: 'POST', body: JSON.stringify(data) },
+    ),
+};
+
+// ─── Uploaded Images ───
+
+export const uploadedImages = {
+  upload: async (sessionId: string, file: File) => {
+    const formData = new FormData();
+    formData.append('image', file);
+    const res = await fetch(`${BASE_URL}/sessions/${sessionId}/upload-image`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      body: formData,
+    });
+    if (!res.ok) {
+      if (res.status === 401) window.dispatchEvent(new CustomEvent('auth:unauthorized'));
+      const body = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(body.error || `HTTP ${res.status}`);
+    }
+    return res.json();
+  },
+
+  list: (sessionId: string, status?: 'pending' | 'sent') =>
+    request<Array<{ id: string; originalFilename: string; mimeType: string; fileSize: number; width: number | null; height: number | null; status: string; createdAt: string }>>(
+      `/sessions/${sessionId}/uploaded-images${status ? `?status=${status}` : ''}`,
+    ),
+
+  deliver: (sessionId: string, imageId: string, message?: string) =>
+    request<{ delivered: boolean; imageId: string; deliveredPath: string }>(
+      `/sessions/${sessionId}/uploaded-images/${imageId}/deliver`,
+      { method: 'POST', body: JSON.stringify({ message }) },
+    ),
+
+  getFileUrl: (sessionId: string, imageId: string) =>
+    `${BASE_URL}/sessions/${sessionId}/uploaded-images/${imageId}/file`,
+};
+
+// ─── Recordings ───
+
+export const recordings = {
+  save: (sessionId: string, data: { events: unknown[]; durationMs: number; pageUrl?: string; viewportWidth?: number; viewportHeight?: number; thumbnailDataUrl?: string }) =>
+    request<{ id: string; sessionId: string; eventsPath: string; thumbnailPath: string | null; durationMs: number; eventCount: number; createdAt: string }>(
+      `/sessions/${sessionId}/recordings`,
+      { method: 'POST', body: JSON.stringify(data) },
+    ),
+
+  list: (sessionId: string) =>
+    request<Array<{ id: string; durationMs: number | null; eventCount: number | null; pageUrl: string | null; thumbnailPath: string | null; createdAt: string }>>(
+      `/sessions/${sessionId}/recordings`,
+    ),
+
+  get: (sessionId: string, recordingId: string) =>
+    request<{ id: string; events: unknown[]; durationMs: number; viewportWidth: number; viewportHeight: number }>(
+      `/sessions/${sessionId}/recordings/${recordingId}`,
+    ),
+
+  deliver: (sessionId: string, recordingId: string) =>
+    request<{ delivered: boolean; recordingId: string }>(
+      `/sessions/${sessionId}/recordings/${recordingId}/deliver`,
+      { method: 'POST' },
+    ),
+};
+
 // ─── Settings ───
 
 export const settings = {
