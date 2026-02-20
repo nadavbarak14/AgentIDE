@@ -6,7 +6,7 @@ export type LeftPanel = 'none' | 'files';
 export type RightPanel = 'none' | 'git' | 'preview';
 export type PanelContent = 'none' | 'files' | 'git' | 'preview' | 'claude' | 'search' | 'issues' | 'shell';
 export type TerminalPosition = 'center' | 'bottom';
-export type ViewportMode = 'desktop' | 'mobile';
+export type ViewportMode = 'desktop' | 'mobile' | 'custom';
 
 interface ScrollPosition {
   line: number;
@@ -25,6 +25,8 @@ export interface PanelStateValues {
   terminalPosition: TerminalPosition;
   terminalVisible: boolean;
   previewViewport: ViewportMode;
+  customViewportWidth: number | null;
+  customViewportHeight: number | null;
   fontSize: number;
   // Backward-compatible legacy field (derived from left/right)
   activePanel: ActivePanel;
@@ -47,6 +49,8 @@ const DEFAULT_STATE: PanelStateValues = {
   terminalPosition: 'center',
   terminalVisible: true,
   previewViewport: 'desktop',
+  customViewportWidth: null,
+  customViewportHeight: null,
   fontSize: 14,
   activePanel: 'none',
   fileTabs: [],
@@ -83,6 +87,8 @@ export function usePanel(sessionId: string | null) {
   const [terminalPosition, setTerminalPosition] = useState<TerminalPosition>('center');
   const [terminalVisible, setTerminalVisible] = useState(true);
   const [previewViewport, setPreviewViewport] = useState<ViewportMode>('desktop');
+  const [customViewportWidth, setCustomViewportWidth] = useState<number | null>(null);
+  const [customViewportHeight, setCustomViewportHeight] = useState<number | null>(null);
   const [fontSize, setFontSize] = useState(14);
   const [fileTabs, setFileTabs] = useState<string[]>([]);
   const [activeTabIndex, setActiveTabIndex] = useState(0);
@@ -114,6 +120,8 @@ export function usePanel(sessionId: string | null) {
     terminalPosition,
     terminalVisible,
     previewViewport,
+    customViewportWidth,
+    customViewportHeight,
     fontSize,
     activePanel: deriveActivePanel(leftPanel as LeftPanel, rightPanel as RightPanel),
     fileTabs,
@@ -122,7 +130,7 @@ export function usePanel(sessionId: string | null) {
     gitScrollPosition,
     previewUrl,
     panelWidthPercent: rightWidthPercent, // legacy compat
-  }), [leftPanel, rightPanel, leftWidthPercent, rightWidthPercent, bottomPanel, bottomHeightPercent, terminalPosition, terminalVisible, previewViewport, fileTabs, activeTabIndex, tabScrollPositions, gitScrollPosition, previewUrl]);
+  }), [leftPanel, rightPanel, leftWidthPercent, rightWidthPercent, bottomPanel, bottomHeightPercent, terminalPosition, terminalVisible, previewViewport, customViewportWidth, customViewportHeight, fileTabs, activeTabIndex, tabScrollPositions, gitScrollPosition, previewUrl]);
 
   const restoreState = useCallback((state: PanelStateValues) => {
     // Normalize legacy 'search' panel to 'files' (search is now inside files sidebar)
@@ -148,6 +156,8 @@ export function usePanel(sessionId: string | null) {
     setTerminalPosition(state.terminalPosition ?? 'center');
     setTerminalVisible(state.terminalVisible ?? true);
     setPreviewViewport(state.previewViewport ?? 'desktop');
+    setCustomViewportWidth(state.customViewportWidth ?? null);
+    setCustomViewportHeight(state.customViewportHeight ?? null);
     setFontSize(state.fontSize ?? 14);
     setFileTabs(state.fileTabs);
     setActiveTabIndex(state.activeTabIndex);
@@ -267,6 +277,8 @@ export function usePanel(sessionId: string | null) {
       terminalPosition,
       terminalVisible,
       previewViewport,
+      customViewportWidth,
+      customViewportHeight,
       fontSize,
       activePanel: deriveActivePanel(leftPanel as LeftPanel, rightPanel as RightPanel),
       fileTabs,
@@ -277,7 +289,7 @@ export function usePanel(sessionId: string | null) {
       panelWidthPercent: rightWidthPercent,
     };
     scheduleSave(currentSessionRef.current, state);
-  }, [leftPanel, rightPanel, leftWidthPercent, rightWidthPercent, bottomPanel, bottomHeightPercent, terminalPosition, terminalVisible, previewViewport, fontSize, fileTabs, activeTabIndex, tabScrollPositions, gitScrollPosition, previewUrl, scheduleSave]);
+  }, [leftPanel, rightPanel, leftWidthPercent, rightWidthPercent, bottomPanel, bottomHeightPercent, terminalPosition, terminalVisible, previewViewport, customViewportWidth, customViewportHeight, fontSize, fileTabs, activeTabIndex, tabScrollPositions, gitScrollPosition, previewUrl, scheduleSave]);
 
   // Reset generation counter when session changes so we skip the load-triggered renders
   useEffect(() => {
@@ -288,6 +300,12 @@ export function usePanel(sessionId: string | null) {
   const activePanel = deriveActivePanel(leftPanel as LeftPanel, rightPanel as RightPanel);
   // Legacy panelWidthPercent — use rightWidthPercent for compat
   const panelWidthPercent = rightWidthPercent;
+
+  const setCustomViewport = useCallback((width: number, height: number) => {
+    setPreviewViewport('custom');
+    setCustomViewportWidth(width);
+    setCustomViewportHeight(height);
+  }, []);
 
   return {
     // v4 dual-panel state
@@ -305,11 +323,14 @@ export function usePanel(sessionId: string | null) {
     terminalPosition,
     terminalVisible,
     previewViewport,
+    customViewportWidth,
+    customViewportHeight,
     setBottomPanel,
     setBottomHeight: setBottomHeightPercent,
     setTerminalPosition,
     setTerminalVisible,
     setPreviewViewport,
+    setCustomViewport,
     fontSize,
     setFontSize,
     // Backward-compatible legacy fields

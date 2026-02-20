@@ -117,6 +117,63 @@ CREATE INDEX IF NOT EXISTS idx_projects_worker ON projects(worker_id);
 CREATE INDEX IF NOT EXISTS idx_projects_last_used ON projects(last_used_at DESC);
 CREATE INDEX IF NOT EXISTS idx_projects_bookmarked ON projects(bookmarked, position);
 
+CREATE TABLE IF NOT EXISTS preview_comments (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  comment_text TEXT NOT NULL,
+  element_selector TEXT,
+  element_tag TEXT,
+  element_rect_json TEXT,
+  screenshot_path TEXT,
+  page_url TEXT,
+  pin_x REAL NOT NULL,
+  pin_y REAL NOT NULL,
+  viewport_width INTEGER,
+  viewport_height INTEGER,
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK(status IN ('pending', 'sent', 'stale')),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  sent_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_preview_comments_session_status
+  ON preview_comments(session_id, status);
+
+CREATE TABLE IF NOT EXISTS uploaded_images (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  original_filename TEXT NOT NULL,
+  stored_path TEXT NOT NULL,
+  mime_type TEXT NOT NULL,
+  file_size INTEGER NOT NULL,
+  width INTEGER,
+  height INTEGER,
+  compressed INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK(status IN ('pending', 'sent')),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  sent_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_uploaded_images_session
+  ON uploaded_images(session_id);
+
+CREATE TABLE IF NOT EXISTS video_recordings (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  events_path TEXT NOT NULL,
+  thumbnail_path TEXT,
+  duration_ms INTEGER,
+  event_count INTEGER,
+  page_url TEXT,
+  viewport_width INTEGER,
+  viewport_height INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_video_recordings_session
+  ON video_recordings(session_id);
+
 CREATE TABLE IF NOT EXISTS auth_config (
   id INTEGER PRIMARY KEY CHECK(id = 1),
   jwt_secret TEXT NOT NULL,

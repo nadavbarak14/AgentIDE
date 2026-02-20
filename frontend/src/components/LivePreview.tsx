@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { usePreviewBridge } from '../hooks/usePreviewBridge';
+import { PreviewOverlay } from './PreviewOverlay';
 
-type ViewportMode = 'desktop' | 'mobile';
+type ViewportMode = 'desktop' | 'mobile' | 'custom';
 
 interface LivePreviewProps {
   sessionId: string;
@@ -11,6 +13,9 @@ interface LivePreviewProps {
   refreshKey?: number;
   viewportMode?: ViewportMode;
   onViewportChange?: (mode: ViewportMode) => void;
+  customViewportWidth?: number | null;
+  customViewportHeight?: number | null;
+  onCustomViewport?: (width: number, height: number) => void;
 }
 
 /** Convert a user-facing URL to a proxy URL that the backend can reach */
@@ -38,11 +43,30 @@ function toProxyUrl(sessionId: string, displayUrl: string): string {
   return displayUrl;
 }
 
-export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose, refreshKey = 0, viewportMode = 'desktop', onViewportChange }: LivePreviewProps) {
+export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose, refreshKey = 0, viewportMode = 'desktop', onViewportChange, customViewportWidth, customViewportHeight, onCustomViewport }: LivePreviewProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [stopped, setStopped] = useState(false);
+  const [customW, setCustomW] = useState(String(customViewportWidth || 1024));
+  const [customH, setCustomH] = useState(String(customViewportHeight || 768));
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [contentSize, setContentSize] = useState({ width: 0, height: 0 });
+
+  // Preview bridge for inspect mode, screenshots, and recordings
+  const bridge = usePreviewBridge(iframeRef);
+
+  // Track content area size for overlay positioning
+  useEffect(() => {
+    if (!contentRef.current) return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setContentSize({ width: entry.contentRect.width, height: entry.contentRect.height });
+      }
+    });
+    observer.observe(contentRef.current);
+    return () => observer.disconnect();
+  }, []);
 
   // displayUrl is what the user sees. Empty string = no content loaded yet.
   const detectedUrl = (localPort || port) > 0 ? `http://localhost:${localPort || port}` : '';
@@ -108,6 +132,14 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
     navigateTo('project://index.html');
   }, [navigateTo]);
 
+  const handleApplyCustom = useCallback(() => {
+    const w = parseInt(customW, 10);
+    const h = parseInt(customH, 10);
+    if (w > 0 && w <= 4096 && h > 0 && h <= 4096) {
+      onCustomViewport?.(w, h);
+    }
+  }, [customW, customH, onCustomViewport]);
+
   const noContent = !displayUrl;
 
   return (
@@ -161,7 +193,42 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
           >
             📱
           </button>
+          <button
+            onClick={() => viewportMode === 'custom' ? onViewportChange?.('desktop') : handleApplyCustom()}
+            className={`px-1.5 py-0.5 text-xs ${
+              viewportMode === 'custom'
+                ? 'bg-blue-600 text-white'
+                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+            }`}
+            title="Custom viewport"
+          >
+            ⊞
+          </button>
         </div>
+        {/* Custom resolution inputs */}
+        {viewportMode === 'custom' && (
+          <div className="flex items-center gap-0.5">
+            <input
+              type="number"
+              value={customW}
+              onChange={(e) => setCustomW(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleApplyCustom()}
+              className="w-12 text-xs bg-gray-700 border border-gray-600 rounded px-1 py-0.5 text-gray-300 text-center"
+              min={100}
+              max={4096}
+            />
+            <span className="text-gray-500 text-xs">x</span>
+            <input
+              type="number"
+              value={customH}
+              onChange={(e) => setCustomH(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleApplyCustom()}
+              className="w-12 text-xs bg-gray-700 border border-gray-600 rounded px-1 py-0.5 text-gray-300 text-center"
+              min={100}
+              max={4096}
+            />
+          </div>
+        )}
         {/* Port selector */}
         {detectedPorts && detectedPorts.length > 1 && (
           <select
@@ -190,7 +257,7 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
       </div>
 
       {/* Content */}
-      <div className="flex-1 relative overflow-hidden">
+      <div ref={contentRef} className="flex-1 relative overflow-hidden">
         {stopped ? (
           <div className="absolute inset-0 flex items-center justify-center bg-gray-900 text-gray-500">
             <div className="text-center">
@@ -214,6 +281,15 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
           </div>
         ) : (
           <>
+            {/* Preview overlay for inspect mode and comment pins */}
+            {!noContent && !stopped && contentSize.width > 0 && (
+              <PreviewOverlay
+                sessionId={sessionId}
+                bridge={bridge}
+                containerWidth={contentSize.width}
+                containerHeight={contentSize.height}
+              />
+            )}
             {loading && !error && (
               <div className="absolute inset-0 flex items-center justify-center bg-gray-900 text-gray-500 z-10">
                 Loading preview...
@@ -254,6 +330,30 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
                   {/* Home indicator */}
                   <div className="h-5 bg-gray-900 flex items-center justify-center flex-shrink-0">
                     <div className="w-24 h-1 bg-gray-600 rounded-full" />
+                  </div>
+                </div>
+              </div>
+            ) : viewportMode === 'custom' && customViewportWidth && customViewportHeight ? (
+              <div className="flex justify-center items-start h-full bg-gray-950 p-2 overflow-auto">
+                <div className="relative flex-shrink-0" style={{
+                  width: customViewportWidth,
+                  height: customViewportHeight,
+                  transform: contentSize.width > 0 && customViewportWidth > contentSize.width
+                    ? `scale(${Math.min(contentSize.width / customViewportWidth, (contentSize.height - 24) / customViewportHeight)})`
+                    : undefined,
+                  transformOrigin: 'top center',
+                }}>
+                  <iframe
+                    ref={iframeRef}
+                    src={iframeUrl}
+                    className="border border-gray-600 bg-white"
+                    style={{ width: customViewportWidth, height: customViewportHeight }}
+                    onLoad={() => setLoading(false)}
+                    onError={() => { setError(true); setLoading(false); }}
+                    sandbox="allow-scripts allow-forms allow-popups"
+                  />
+                  <div className="text-center text-xs text-gray-500 mt-1">
+                    {customViewportWidth} x {customViewportHeight}
                   </div>
                 </div>
               </div>

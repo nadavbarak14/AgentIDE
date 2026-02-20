@@ -26,6 +26,11 @@ import type {
   Project,
   CreateProjectInput,
   UpdateProjectInput,
+  PreviewComment,
+  CreatePreviewCommentInput,
+  PreviewCommentStatus,
+  UploadedImage,
+  VideoRecording,
 } from './types.js';
 
 // Helper: convert SQLite row to Session
@@ -136,6 +141,58 @@ function rowToAuthConfig(row: Record<string, unknown>): AuthConfig {
     authRequired: Boolean(row.auth_required),
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
+  };
+}
+
+function rowToPreviewComment(row: Record<string, unknown>): PreviewComment {
+  return {
+    id: row.id as string,
+    sessionId: row.session_id as string,
+    commentText: row.comment_text as string,
+    elementSelector: row.element_selector as string | null,
+    elementTag: row.element_tag as string | null,
+    elementRectJson: row.element_rect_json as string | null,
+    screenshotPath: row.screenshot_path as string | null,
+    pageUrl: row.page_url as string | null,
+    pinX: row.pin_x as number,
+    pinY: row.pin_y as number,
+    viewportWidth: row.viewport_width as number | null,
+    viewportHeight: row.viewport_height as number | null,
+    status: row.status as PreviewCommentStatus,
+    createdAt: row.created_at as string,
+    sentAt: row.sent_at as string | null,
+  };
+}
+
+function rowToUploadedImage(row: Record<string, unknown>): UploadedImage {
+  return {
+    id: row.id as string,
+    sessionId: row.session_id as string,
+    originalFilename: row.original_filename as string,
+    storedPath: row.stored_path as string,
+    mimeType: row.mime_type as string,
+    fileSize: row.file_size as number,
+    width: row.width as number | null,
+    height: row.height as number | null,
+    compressed: Boolean(row.compressed),
+    status: row.status as 'pending' | 'sent',
+    createdAt: row.created_at as string,
+    sentAt: row.sent_at as string | null,
+  };
+}
+
+function rowToVideoRecording(row: Record<string, unknown>): VideoRecording {
+  return {
+    id: row.id as string,
+    sessionId: row.session_id as string,
+    eventsPath: row.events_path as string,
+    thumbnailPath: row.thumbnail_path as string | null,
+    durationMs: row.duration_ms as number | null,
+    eventCount: row.event_count as number | null,
+    pageUrl: row.page_url as string | null,
+    viewportWidth: row.viewport_width as number | null,
+    viewportHeight: row.viewport_height as number | null,
+    createdAt: row.created_at as string,
   };
 }
 
@@ -786,5 +843,137 @@ export class Repository {
          )`,
       )
       .run(maxRecent);
+  }
+
+  // ─── Preview Comments ───
+
+  createPreviewComment(sessionId: string, input: CreatePreviewCommentInput): PreviewComment {
+    const id = uuid();
+    const elementRectJson = input.elementRect ? JSON.stringify(input.elementRect) : null;
+    this.db.prepare(
+      `INSERT INTO preview_comments (id, session_id, comment_text, element_selector, element_tag, element_rect_json, screenshot_path, page_url, pin_x, pin_y, viewport_width, viewport_height)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(id, sessionId, input.commentText, input.elementSelector || null, input.elementTag || null, elementRectJson, null, input.pageUrl || null, input.pinX, input.pinY, input.viewportWidth || null, input.viewportHeight || null);
+    return this.getPreviewComment(id)!;
+  }
+
+  getPreviewComment(id: string): PreviewComment | null {
+    const row = this.db.prepare('SELECT * FROM preview_comments WHERE id = ?').get(id) as
+      | Record<string, unknown>
+      | undefined;
+    return row ? rowToPreviewComment(row) : null;
+  }
+
+  getPreviewComments(sessionId: string): PreviewComment[] {
+    const rows = this.db
+      .prepare('SELECT * FROM preview_comments WHERE session_id = ? ORDER BY created_at ASC')
+      .all(sessionId) as Record<string, unknown>[];
+    return rows.map(rowToPreviewComment);
+  }
+
+  getPreviewCommentsByStatus(sessionId: string, status: PreviewCommentStatus): PreviewComment[] {
+    const rows = this.db
+      .prepare('SELECT * FROM preview_comments WHERE session_id = ? AND status = ? ORDER BY created_at ASC')
+      .all(sessionId, status) as Record<string, unknown>[];
+    return rows.map(rowToPreviewComment);
+  }
+
+  updatePreviewCommentStatus(id: string, status: PreviewCommentStatus): PreviewComment | null {
+    this.db.prepare('UPDATE preview_comments SET status = ? WHERE id = ?').run(status, id);
+    return this.getPreviewComment(id);
+  }
+
+  updatePreviewCommentScreenshotPath(id: string, screenshotPath: string): void {
+    this.db
+      .prepare('UPDATE preview_comments SET screenshot_path = ? WHERE id = ?')
+      .run(screenshotPath, id);
+  }
+
+  markPreviewCommentSent(id: string): void {
+    this.db
+      .prepare("UPDATE preview_comments SET status = 'sent', sent_at = datetime('now') WHERE id = ?")
+      .run(id);
+  }
+
+  deletePreviewComment(id: string): boolean {
+    const result = this.db.prepare('DELETE FROM preview_comments WHERE id = ?').run(id);
+    return result.changes > 0;
+  }
+
+  deletePreviewCommentsBySession(sessionId: string): number {
+    const result = this.db.prepare('DELETE FROM preview_comments WHERE session_id = ?').run(sessionId);
+    return result.changes;
+  }
+
+  // ─── Uploaded Images ───
+
+  createUploadedImage(input: { sessionId: string; originalFilename: string; storedPath: string; mimeType: string; fileSize: number; width?: number; height?: number; compressed?: boolean }): UploadedImage {
+    const id = uuid();
+    this.db.prepare(
+      `INSERT INTO uploaded_images (id, session_id, original_filename, stored_path, mime_type, file_size, width, height, compressed)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(id, input.sessionId, input.originalFilename, input.storedPath, input.mimeType, input.fileSize, input.width || null, input.height || null, input.compressed ? 1 : 0);
+    return this.getUploadedImage(id)!;
+  }
+
+  getUploadedImage(id: string): UploadedImage | null {
+    const row = this.db.prepare('SELECT * FROM uploaded_images WHERE id = ?').get(id) as
+      | Record<string, unknown>
+      | undefined;
+    return row ? rowToUploadedImage(row) : null;
+  }
+
+  getUploadedImages(sessionId: string, status?: 'pending' | 'sent'): UploadedImage[] {
+    if (status) {
+      const rows = this.db
+        .prepare('SELECT * FROM uploaded_images WHERE session_id = ? AND status = ? ORDER BY created_at ASC')
+        .all(sessionId, status) as Record<string, unknown>[];
+      return rows.map(rowToUploadedImage);
+    }
+    const rows = this.db
+      .prepare('SELECT * FROM uploaded_images WHERE session_id = ? ORDER BY created_at ASC')
+      .all(sessionId) as Record<string, unknown>[];
+    return rows.map(rowToUploadedImage);
+  }
+
+  markUploadedImageSent(id: string): void {
+    this.db
+      .prepare("UPDATE uploaded_images SET status = 'sent', sent_at = datetime('now') WHERE id = ?")
+      .run(id);
+  }
+
+  deleteUploadedImage(id: string): boolean {
+    const result = this.db.prepare('DELETE FROM uploaded_images WHERE id = ?').run(id);
+    return result.changes > 0;
+  }
+
+  // ─── Video Recordings ───
+
+  createVideoRecording(input: { sessionId: string; eventsPath: string; thumbnailPath?: string; durationMs?: number; eventCount?: number; pageUrl?: string; viewportWidth?: number; viewportHeight?: number }): VideoRecording {
+    const id = uuid();
+    this.db.prepare(
+      `INSERT INTO video_recordings (id, session_id, events_path, thumbnail_path, duration_ms, event_count, page_url, viewport_width, viewport_height)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(id, input.sessionId, input.eventsPath, input.thumbnailPath || null, input.durationMs || null, input.eventCount || null, input.pageUrl || null, input.viewportWidth || null, input.viewportHeight || null);
+    return this.getVideoRecording(id)!;
+  }
+
+  getVideoRecording(id: string): VideoRecording | null {
+    const row = this.db.prepare('SELECT * FROM video_recordings WHERE id = ?').get(id) as
+      | Record<string, unknown>
+      | undefined;
+    return row ? rowToVideoRecording(row) : null;
+  }
+
+  getVideoRecordings(sessionId: string): VideoRecording[] {
+    const rows = this.db
+      .prepare('SELECT * FROM video_recordings WHERE session_id = ? ORDER BY created_at DESC')
+      .all(sessionId) as Record<string, unknown>[];
+    return rows.map(rowToVideoRecording);
+  }
+
+  deleteVideoRecording(id: string): boolean {
+    const result = this.db.prepare('DELETE FROM video_recordings WHERE id = ?').run(id);
+    return result.changes > 0;
   }
 }
