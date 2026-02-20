@@ -283,7 +283,7 @@ export class PreviewService {
       : 'unknown';
     const pageUrlStr = recording.pageUrl || 'unknown';
 
-    const message = `[Video Recording] Duration: ${durationStr}, Events: ${eventCountStr}, Page: ${pageUrlStr}, Path: ${recording.eventsPath}. Review the recording for visual feedback.\n`;
+    const message = `[Video Recording] Duration: ${durationStr}, Events: ${eventCountStr}, Page: ${pageUrlStr}, Path: ${recording.videoPath}. Review the recording for visual feedback.\n`;
 
     logger.info(
       { sessionId, recordingId, durationMs: recording.durationMs },

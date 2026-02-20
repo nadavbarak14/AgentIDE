@@ -11,6 +11,7 @@ import { usePanel } from '../hooks/usePanel';
 import { sessions as sessionsApi, type Session, type Worker } from '../services/api';
 import type { WsServerMessage } from '../services/ws';
 import { WorkerBadge } from './WorkerBadge';
+import type { UsePreviewBridgeReturn } from '../hooks/usePreviewBridge';
 
 interface SessionCardProps {
   session: Session;
@@ -59,6 +60,9 @@ export function SessionCard({
   const [detectedPort, setDetectedPort] = useState<{ port: number; localPort: number } | null>(null);
   // Connection status for remote sessions
   const [connectionLost, setConnectionLost] = useState(false);
+
+  // Bridge ref for view-* board command relay
+  const previewBridgeRef = useRef<UsePreviewBridgeReturn | null>(null);
 
   const handleWsMessage = useCallback((msg: WsServerMessage) => {
     // Handle connection_lost / connection_restored for remote sessions
@@ -118,19 +122,130 @@ export function SessionCard({
           ensurePanelOpen(msg.params.panel as 'files' | 'git' | 'preview' | 'issues');
         } else if (msg.command === 'show_diff') {
           ensurePanelOpen('git');
-        } else if (msg.command === 'set_preview_resolution') {
+        } else if (msg.command === 'set_preview_resolution' || msg.command === 'view-set-resolution') {
           const w = parseInt(msg.params.width, 10);
           const h = parseInt(msg.params.height, 10);
           if (w > 0 && w <= 4096 && h > 0 && h <= 4096) {
             panel.setCustomViewport(w, h);
             ensurePanelOpen('preview');
           }
+        } else if (msg.command && String(msg.command).startsWith('view-')) {
+          // view-* board commands — relay to bridge and return results
+          const requestId = msg.requestId;
+          const bridge = previewBridgeRef.current;
+
+          const sendResult = async (result: Record<string, unknown>) => {
+            if (!requestId) return;
+            try {
+              await fetch(`/api/sessions/${session.id}/board-command-result`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ requestId, result }),
+              });
+            } catch { /* best effort */ }
+          };
+
+          const sendError = async (error: string) => {
+            if (!requestId) return;
+            try {
+              await fetch(`/api/sessions/${session.id}/board-command-result`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ requestId, result: { error } }),
+              });
+            } catch { /* best effort */ }
+          };
+
+          if (!bridge) {
+            sendError('Preview is not open');
+          } else {
+            (async () => {
+              try {
+                switch (msg.command) {
+                  case 'view-screenshot': {
+                    ensurePanelOpen('preview');
+                    const r = await bridge.captureScreenshotWithResult();
+                    // Save screenshot server-side and return the path
+                    if (r.dataUrl) {
+                      const saveRes = await fetch(`/api/sessions/${session.id}/upload-screenshot`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ dataUrl: r.dataUrl }),
+                      });
+                      const saved = await saveRes.json();
+                      sendResult({ path: saved.path || saved.storedPath });
+                    } else {
+                      sendError('Screenshot capture failed');
+                    }
+                    break;
+                  }
+                  case 'view-record-start':
+                    ensurePanelOpen('preview');
+                    bridge.startRecording();
+                    // Fire-and-forget — no result needed
+                    break;
+                  case 'view-record-stop': {
+                    const r = await bridge.stopRecordingWithResult();
+                    if (r.videoDataUrl) {
+                      const saveRes = await fetch(`/api/sessions/${session.id}/recordings`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ videoDataUrl: r.videoDataUrl, durationMs: r.durationMs }),
+                      });
+                      const saved = await saveRes.json();
+                      sendResult({ path: saved.videoPath || saved.eventsPath });
+                    } else {
+                      sendError('Recording stop failed');
+                    }
+                    break;
+                  }
+                  case 'view-navigate': {
+                    ensurePanelOpen('preview');
+                    if (msg.params.url) {
+                      const r = await bridge.navigateTo(msg.params.url);
+                      sendResult(r);
+                    } else {
+                      sendError('Missing url parameter');
+                    }
+                    break;
+                  }
+                  case 'view-click': {
+                    if (msg.params.role) {
+                      const r = await bridge.clickElement(msg.params.role, msg.params.name || '');
+                      sendResult(r);
+                    } else {
+                      sendError('Missing role parameter');
+                    }
+                    break;
+                  }
+                  case 'view-type': {
+                    if (msg.params.role && msg.params.text !== undefined) {
+                      const r = await bridge.typeElement(msg.params.role, msg.params.name || '', msg.params.text);
+                      sendResult(r);
+                    } else {
+                      sendError('Missing role or text parameter');
+                    }
+                    break;
+                  }
+                  case 'view-read-page': {
+                    const r = await bridge.readPage();
+                    sendResult(r);
+                    break;
+                  }
+                  default:
+                    sendError('Unknown view command: ' + msg.command);
+                }
+              } catch (err) {
+                sendError(err instanceof Error ? err.message : 'Bridge command failed');
+              }
+            })();
+          }
         }
       } catch {
         // Never disrupt the terminal for command handling errors
       }
     }
-  }, [panel]);
+  }, [panel, session.id]);
 
   useEffect(() => {
     return () => {
@@ -514,6 +629,7 @@ export function SessionCard({
             customViewportWidth={panel.customViewportWidth}
             customViewportHeight={panel.customViewportHeight}
             onCustomViewport={(w, h) => panel.setCustomViewport(w, h)}
+            bridgeRef={previewBridgeRef}
           />
         );
       case 'issues':

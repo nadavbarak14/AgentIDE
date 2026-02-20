@@ -436,13 +436,16 @@ export interface UploadedImage {
 export interface VideoRecording {
   id: string;
   sessionId: string;
-  eventsPath: string;
+  videoPath: string;
+  eventsPath: string | null;
   thumbnailPath: string | null;
   durationMs: number | null;
+  fileSize: number | null;
   eventCount: number | null;
   pageUrl: string | null;
   viewportWidth: number | null;
   viewportHeight: number | null;
+  status: 'pending' | 'completed';
   createdAt: string;
 }
 

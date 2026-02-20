@@ -185,13 +185,16 @@ function rowToVideoRecording(row: Record<string, unknown>): VideoRecording {
   return {
     id: row.id as string,
     sessionId: row.session_id as string,
-    eventsPath: row.events_path as string,
+    videoPath: row.video_path as string,
+    eventsPath: row.events_path as string | null,
     thumbnailPath: row.thumbnail_path as string | null,
     durationMs: row.duration_ms as number | null,
+    fileSize: row.file_size as number | null,
     eventCount: row.event_count as number | null,
     pageUrl: row.page_url as string | null,
     viewportWidth: row.viewport_width as number | null,
     viewportHeight: row.viewport_height as number | null,
+    status: (row.status as 'pending' | 'completed') || 'pending',
     createdAt: row.created_at as string,
   };
 }
@@ -949,12 +952,12 @@ export class Repository {
 
   // ─── Video Recordings ───
 
-  createVideoRecording(input: { sessionId: string; eventsPath: string; thumbnailPath?: string; durationMs?: number; eventCount?: number; pageUrl?: string; viewportWidth?: number; viewportHeight?: number }): VideoRecording {
+  createVideoRecording(input: { sessionId: string; videoPath: string; thumbnailPath?: string; durationMs?: number; fileSize?: number; eventCount?: number; pageUrl?: string; viewportWidth?: number; viewportHeight?: number; status?: 'pending' | 'completed' }): VideoRecording {
     const id = uuid();
     this.db.prepare(
-      `INSERT INTO video_recordings (id, session_id, events_path, thumbnail_path, duration_ms, event_count, page_url, viewport_width, viewport_height)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(id, input.sessionId, input.eventsPath, input.thumbnailPath || null, input.durationMs || null, input.eventCount || null, input.pageUrl || null, input.viewportWidth || null, input.viewportHeight || null);
+      `INSERT INTO video_recordings (id, session_id, video_path, thumbnail_path, duration_ms, file_size, event_count, page_url, viewport_width, viewport_height, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(id, input.sessionId, input.videoPath, input.thumbnailPath || null, input.durationMs || null, input.fileSize || null, input.eventCount || null, input.pageUrl || null, input.viewportWidth || null, input.viewportHeight || null, input.status || 'pending');
     return this.getVideoRecording(id)!;
   }
 

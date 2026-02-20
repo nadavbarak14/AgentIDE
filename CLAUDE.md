@@ -36,6 +36,8 @@ Auto-generated from all feature plans. Last updated: 2026-02-17
 - SQLite (better-sqlite3) with WAL mode — existing `c3.db` database, one migration (add `worktree` column) (011-resume-worktree)
 - TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, Vite 6, Tailwind CSS 3, xterm.js 5, better-sqlite3, ws 8, chokidar 4 (existing) + html2canvas, rrweb, rrweb-player, multer (new) (011-browser-preview)
 - SQLite (better-sqlite3) with WAL mode — 3 new tables: `preview_comments`, `uploaded_images`, `video_recordings` (011-browser-preview)
+- TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, Tailwind CSS 3, Vite 6, html2canvas-pro@1.5.8, better-sqlite3, ws 8 (011-browser-preview)
+- SQLite (better-sqlite3) with WAL mode — existing `c3.db` database; 3 new tables (`preview_comments`, `uploaded_images`, `video_recordings`) (011-browser-preview)
 - TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, better-sqlite3, ssh2, node-pty, xterm.js 5, ws 8, Tailwind CSS 3, Vite 6 (012-session-connect-ux)
 - SQLite (better-sqlite3) with WAL mode — existing `c3.db` database, one new table (`projects`), one migration (`settings` changes) (012-session-connect-ux)
 - TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, ssh2, better-sqlite3, Tailwind CSS 3 (012-session-connect-ux)
@@ -62,9 +64,9 @@ TypeScript 5.x, Node.js 20 LTS: Follow standard conventions
 - 012-session-connect-ux: Added TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, ssh2, better-sqlite3, Tailwind CSS 3
 - 012-session-connect-ux: Added TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, better-sqlite3, ssh2, node-pty, xterm.js 5, ws 8, Tailwind CSS 3, Vite 6
 - 011-resume-worktree: Added TypeScript 5.7, Node.js 20 LTS + Express 4, React 18, better-sqlite3, node-pty, ws 8, Tailwind CSS 3, Vite 6
+- 011-browser-preview: Added TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, Tailwind CSS 3, Vite 6, html2canvas-pro@1.5.8, better-sqlite3, ws 8
 - 011-browser-preview: Added TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, Vite 6, Tailwind CSS 3, xterm.js 5, better-sqlite3, ws 8, chokidar 4 (existing) + html2canvas, rrweb, rrweb-player, multer (new)
 - 009-product-security-licensing: Added TypeScript 5.7, Node.js 20 LTS + Express 4, `jose` (JWT), `commander` (CLI), `express-rate-limit`, `selfsigned` (TLS), `ssh2` (workers), `ws` (WebSocket), `better-sqlite3`
-- 007-auth-licensing-cli: Added TypeScript 5.7, Node.js 20 LTS + Express 4, jose (JWT), commander (CLI), cookie-parser, express-rate-limit, selfsigned (TLS)
 
 
 <!-- MANUAL ADDITIONS START -->
