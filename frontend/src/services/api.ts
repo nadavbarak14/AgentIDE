@@ -33,6 +33,7 @@ export interface Session {
   needsInput: boolean;
   lock: boolean;
   continuationCount: number;
+  worktree: boolean;
   createdAt: string;
   startedAt: string | null;
   completedAt: string | null;
@@ -87,7 +88,7 @@ export const sessions = {
   list: (status?: SessionStatus) =>
     request<Session[]>(`/sessions${status ? `?status=${status}` : ''}`),
 
-  create: (data: { workingDirectory: string; title: string; targetWorker?: string | null; startFresh?: boolean }) =>
+  create: (data: { workingDirectory: string; title: string; targetWorker?: string | null; startFresh?: boolean; worktree?: boolean }) =>
     request<Session & { continued?: boolean }>('/sessions', { method: 'POST', body: JSON.stringify(data) }),
 
   update: (id: string, data: { position?: number; title?: string; lock?: boolean }) =>

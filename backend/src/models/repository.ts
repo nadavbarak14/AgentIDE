@@ -38,6 +38,7 @@ function rowToSession(row: Record<string, unknown>): Session {
     needsInput: Boolean(row.needs_input),
     lock: Boolean(row.lock),
     continuationCount: row.continuation_count as number,
+    worktree: Boolean(row.worktree),
     terminalScrollback: row.terminal_scrollback as string | null,
     createdAt: row.created_at as string,
     startedAt: row.started_at as string | null,
@@ -147,10 +148,10 @@ export class Repository {
 
     this.db
       .prepare(
-        `INSERT INTO sessions (id, worker_id, status, working_directory, title, position, created_at, updated_at)
-         VALUES (?, ?, 'queued', ?, ?, ?, ?, ?)`,
+        `INSERT INTO sessions (id, worker_id, status, working_directory, title, position, worktree, created_at, updated_at)
+         VALUES (?, ?, 'queued', ?, ?, ?, ?, ?, ?)`,
       )
-      .run(id, input.targetWorker || null, input.workingDirectory, input.title, position, now, now);
+      .run(id, input.targetWorker || null, input.workingDirectory, input.title, position, input.worktree ? 1 : 0, now, now);
 
     return this.getSession(id)!;
   }

@@ -101,10 +101,13 @@ export function setupWebSocket(
       );
     }
 
-    // Send scrollback if available
-    const scrollback = ptySpawner.loadScrollback(sessionId);
-    if (scrollback) {
-      ws.send(Buffer.from(scrollback), { binary: true });
+    // Trigger PTY resize so Claude Code redraws its TUI for the new client.
+    // We don't replay saved scrollback — the live redraw is always correct.
+    const proc = ptySpawner.getProcess(sessionId);
+    if (proc) {
+      const cols = 120;
+      const rows = 40;
+      ptySpawner.resize(sessionId, cols, rows);
     }
 
     // Handle incoming messages

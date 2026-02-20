@@ -6,9 +6,10 @@ interface UseWebSocketOptions {
   enabled?: boolean;
   onBinaryData?: (data: ArrayBuffer) => void;
   onMessage?: (msg: WsServerMessage) => void;
+  onReconnect?: () => void;
 }
 
-export function useWebSocket({ sessionId, enabled = true, onBinaryData, onMessage }: UseWebSocketOptions) {
+export function useWebSocket({ sessionId, enabled = true, onBinaryData, onMessage, onReconnect }: UseWebSocketOptions) {
   const wsRef = useRef<SessionWebSocket | null>(null);
   const [connected, setConnected] = useState(false);
 
@@ -21,6 +22,7 @@ export function useWebSocket({ sessionId, enabled = true, onBinaryData, onMessag
       onMessage: (msg) => onMessage?.(msg),
       onOpen: () => setConnected(true),
       onClose: () => setConnected(false),
+      onReconnect: () => onReconnect?.(),
     });
 
     ws.connect();

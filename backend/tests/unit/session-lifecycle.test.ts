@@ -35,6 +35,10 @@ class FakePtySpawner extends EventEmitter {
     return this.spawn(sessionId, workDir, ['-c']);
   }
 
+  spawnResume(sessionId: string, workDir: string, claudeSessionId: string) {
+    return this.spawn(sessionId, workDir, ['--resume', claudeSessionId]);
+  }
+
   write(sessionId: string, _data: string) {
     this.emit('input_sent', sessionId);
   }
@@ -339,7 +343,15 @@ describe('Session Lifecycle — Auto-suspend only after user interaction', () =>
     expect(spawnArgs[0]).not.toContain(expect.stringMatching(/^[a-f0-9-]+$/));
   });
 
-  it('continuation flow does not send claudeSessionId to spawnContinue', async () => {
+  it('continuation flow uses --resume with claudeSessionId when available', async () => {
+    // Track args passed to spawn
+    const spawnArgs: string[][] = [];
+    const origSpawn = fakeSpawner.spawn.bind(fakeSpawner);
+    fakeSpawner.spawn = (sessionId: string, workDir: string, args: string[] = []) => {
+      spawnArgs.push(args);
+      return origSpawn(sessionId, workDir, args);
+    };
+
     const s1 = sessionManager.createSession({ workingDirectory: '/p1', title: 'S1' });
 
     // Complete the session with a claudeSessionId
@@ -349,13 +361,16 @@ describe('Session Lifecycle — Auto-suspend only after user interaction', () =>
     expect(completed.status).toBe('completed');
     expect(completed.claudeSessionId).toBe('cs_abc123');
 
+    // Clear tracked args from initial spawn
+    spawnArgs.length = 0;
+
     // Continue the session
     sessionManager.continueSession(s1.id);
 
-    // The session was reactivated — verify it used spawnContinue without the token
+    // The session was reactivated with --resume <claudeSessionId>
     const reactivated = repo.getSession(s1.id)!;
     expect(reactivated.status).toBe('active');
-    // FakePtySpawner.spawnContinue delegates to spawn with ['-c'] only
-    // If the old bug existed, it would pass ['-c', 'cs_abc123']
+    expect(spawnArgs).toHaveLength(1);
+    expect(spawnArgs[0]).toEqual(['--resume', 'cs_abc123']);
   });
 });

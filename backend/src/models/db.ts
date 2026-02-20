@@ -142,6 +142,13 @@ function migrate(database: Database.Database): void {
   if (!commentColNames.has('side')) {
     database.exec("ALTER TABLE comments ADD COLUMN side TEXT DEFAULT 'new'");
   }
+
+  // Add worktree column to sessions table
+  const sessionCols = database.pragma('table_info(sessions)') as Array<{ name: string }>;
+  const sessionColNames = new Set(sessionCols.map((c) => c.name));
+  if (!sessionColNames.has('worktree')) {
+    database.exec('ALTER TABLE sessions ADD COLUMN worktree INTEGER NOT NULL DEFAULT 0');
+  }
 }
 
 export function getDb(dbPath?: string): Database.Database {

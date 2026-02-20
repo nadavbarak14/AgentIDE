@@ -7,7 +7,7 @@ interface SessionQueueProps {
   queuedSessions: Session[];
   completedSessions: Session[];
   failedSessions: Session[];
-  onCreateSession: (workingDirectory: string, title: string, targetWorker?: string | null, startFresh?: boolean) => Promise<unknown>;
+  onCreateSession: (workingDirectory: string, title: string, targetWorker?: string | null, startFresh?: boolean, worktree?: boolean) => Promise<unknown>;
   onDeleteSession: (id: string) => Promise<void>;
   onContinueSession: (id: string) => Promise<unknown>;
   onFocusSession: (id: string) => void;
@@ -28,6 +28,7 @@ export function SessionQueue({
   const [directory, setDirectory] = useState('');
   const [title, setTitle] = useState('');
   const [startFresh, setStartFresh] = useState(false);
+  const [worktree, setWorktree] = useState(false);
   const [creating, setCreating] = useState(false);
 
   const handleCreate = async (e: React.FormEvent) => {
@@ -35,10 +36,11 @@ export function SessionQueue({
     if (!directory.trim() || !title.trim()) return;
     setCreating(true);
     try {
-      await onCreateSession(directory.trim(), title.trim(), null, startFresh);
+      await onCreateSession(directory.trim(), title.trim(), null, startFresh, worktree);
       setDirectory('');
       setTitle('');
       setStartFresh(false);
+      setWorktree(false);
     } finally {
       setCreating(false);
     }
@@ -70,6 +72,15 @@ export function SessionQueue({
               className="rounded border-gray-600 bg-gray-900 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
             />
             Start fresh (ignore previous session)
+          </label>
+          <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={worktree}
+              onChange={(e) => setWorktree(e.target.checked)}
+              className="rounded border-gray-600 bg-gray-900 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
+            />
+            Use worktree (isolated git branch)
           </label>
           <button
             type="submit"
