@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import type { UsePreviewBridgeReturn } from '../hooks/usePreviewBridge';
-import type { PreviewCommentData, CreatePreviewCommentInput } from '../services/api';
-import { previewComments, screenshots, recordings } from '../services/api';
+import type { CreatePreviewCommentInput } from '../services/api';
+import { previewComments, screenshots } from '../services/api';
 import { AnnotationCanvas } from './AnnotationCanvas';
 import { RecordingPlayer } from './RecordingPlayer';
 
@@ -13,21 +13,15 @@ interface PreviewOverlayProps {
 }
 
 export function PreviewOverlay({ sessionId, bridge, containerWidth, containerHeight }: PreviewOverlayProps) {
-  const [comments, setComments] = useState<PreviewCommentData[]>([]);
   const [commentInput, setCommentInput] = useState('');
-  const [activePin, setActivePin] = useState<string | null>(null);
   const [showCommentForm, setShowCommentForm] = useState(false);
+  const [sending, setSending] = useState(false);
   // Screenshot state
   const [screenshotDataUrl, setScreenshotDataUrl] = useState<string | null>(null);
-    // Recording state
+  // Recording state
   const [showRecordingPlayer, setShowRecordingPlayer] = useState(false);
   const [recordingTimer, setRecordingTimer] = useState(0);
   const recordingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  // Load comments on mount
-  useEffect(() => {
-    previewComments.list(sessionId).then(setComments).catch(() => {});
-  }, [sessionId]);
 
   // Handle element selection from bridge
   useEffect(() => {
@@ -37,38 +31,9 @@ export function PreviewOverlay({ sessionId, bridge, containerWidth, containerHei
     }
   }, [bridge.selectedElement, bridge.inspectMode]);
 
-  // Stale comment detection: when bridge becomes ready (after reload), check selectors
-  const prevBridgeReady = useRef(false);
-  useEffect(() => {
-    if (bridge.isReady && !prevBridgeReady.current && comments.length > 0) {
-      const selectors = comments
-        .filter((c) => c.status !== 'stale')
-        .map((c) => c.elementSelector)
-        .filter(Boolean) as string[];
-      if (selectors.length > 0) {
-        bridge.checkElements(selectors);
-      }
-    }
-    prevBridgeReady.current = bridge.isReady;
-  }, [bridge.isReady, bridge, comments]);
-
-  // Handle elements check results — mark missing elements as stale
-  useEffect(() => {
-    if (!bridge.elementsCheckResult) return;
-    const results = bridge.elementsCheckResult;
-    setComments((prev) =>
-      prev.map((c) => {
-        if (c.elementSelector && results[c.elementSelector] === false && c.status !== 'stale') {
-          previewComments.update(sessionId, c.id, 'stale').catch(() => {});
-          return { ...c, status: 'stale' as const };
-        }
-        return c;
-      }),
-    );
-  }, [bridge.elementsCheckResult, sessionId]);
-
   const handleSubmitComment = useCallback(async () => {
-    if (!commentInput.trim() || !bridge.selectedElement) return;
+    if (!commentInput.trim() || !bridge.selectedElement || sending) return;
+    setSending(true);
 
     const el = bridge.selectedElement;
     const input: CreatePreviewCommentInput = {
@@ -76,48 +41,25 @@ export function PreviewOverlay({ sessionId, bridge, containerWidth, containerHei
       elementSelector: el.selector,
       elementTag: el.tag,
       elementRect: el.rect,
+      pageUrl: el.pageUrl,
       pinX: (el.rect.x + el.rect.width / 2) / containerWidth,
       pinY: (el.rect.y + el.rect.height / 2) / containerHeight,
       viewportWidth: containerWidth,
       viewportHeight: containerHeight,
     };
 
-    // Capture element screenshot if possible
-    bridge.captureElement(el.selector);
-
     try {
-      const comment = await previewComments.create(sessionId, input);
-      setComments((prev) => [...prev, comment]);
+      await previewComments.create(sessionId, input);
+      await previewComments.deliver(sessionId);
       setCommentInput('');
       setShowCommentForm(false);
       bridge.exitInspectMode();
     } catch (err) {
-      console.error('Failed to create preview comment:', err);
+      console.error('Failed to send comment:', err);
+    } finally {
+      setSending(false);
     }
-  }, [commentInput, bridge, sessionId, containerWidth, containerHeight]);
-
-  const handleDeleteComment = useCallback(async (commentId: string) => {
-    try {
-      await previewComments.delete(sessionId, commentId);
-      setComments((prev) => prev.filter((c) => c.id !== commentId));
-      setActivePin(null);
-    } catch (err) {
-      console.error('Failed to delete comment:', err);
-    }
-  }, [sessionId]);
-
-  const handleDeliverAll = useCallback(async () => {
-    try {
-      const result = await previewComments.deliver(sessionId);
-      if (result.delivered > 0) {
-        // Refresh list to get updated statuses
-        const updated = await previewComments.list(sessionId);
-        setComments(updated);
-      }
-    } catch (err) {
-      console.error('Failed to deliver comments:', err);
-    }
-  }, [sessionId]);
+  }, [commentInput, bridge, sessionId, containerWidth, containerHeight, sending]);
 
   // Screenshot: listen for bridge screenshot captured event
   useEffect(() => {
@@ -148,6 +90,7 @@ export function PreviewOverlay({ sessionId, bridge, containerWidth, containerHei
         clearInterval(recordingIntervalRef.current);
         recordingIntervalRef.current = null;
       }
+      // Player will show when videoDataUrl arrives from bridge
       setShowRecordingPlayer(true);
     } else {
       bridge.startRecording();
@@ -159,19 +102,19 @@ export function PreviewOverlay({ sessionId, bridge, containerWidth, containerHei
   }, [bridge]);
 
   const handleSendRecording = useCallback(async () => {
+    // For video recordings, save the video data URL as a screenshot (it's a data URL)
+    if (!bridge.videoDataUrl) return;
     try {
-      const events = bridge.recordedEvents?.current || [];
-      if (events.length === 0) return;
-      const result = await recordings.save(sessionId, {
-        events,
-        durationMs: recordingTimer * 1000,
+      const result = await screenshots.save(sessionId, { dataUrl: bridge.videoDataUrl });
+      await screenshots.deliver(sessionId, result.id, {
+        screenshotPath: result.storedPath,
+        message: 'Please review this screen recording video.',
       });
-      await recordings.deliver(sessionId, result.id);
       setShowRecordingPlayer(false);
     } catch (err) {
       console.error('Failed to save/deliver recording:', err);
     }
-  }, [sessionId, bridge, recordingTimer]);
+  }, [sessionId, bridge.videoDataUrl]);
 
   // Cleanup recording interval on unmount
   useEffect(() => {
@@ -179,8 +122,6 @@ export function PreviewOverlay({ sessionId, bridge, containerWidth, containerHei
       if (recordingIntervalRef.current) clearInterval(recordingIntervalRef.current);
     };
   }, []);
-
-  const pendingCount = comments.filter((c) => c.status === 'pending').length;
 
   return (
     <div className="absolute inset-0 pointer-events-none z-20">
@@ -207,7 +148,7 @@ export function PreviewOverlay({ sessionId, bridge, containerWidth, containerHei
           title="Capture screenshot"
           disabled={!bridge.isReady}
         >
-          📷
+          S
         </button>
 
         {/* Record button */}
@@ -221,84 +162,14 @@ export function PreviewOverlay({ sessionId, bridge, containerWidth, containerHei
           title={bridge.isRecording ? `Stop recording (${recordingTimer}s)` : 'Start recording'}
           disabled={!bridge.isReady}
         >
-          {bridge.isRecording ? '⏹' : '⏺'}
+          {bridge.isRecording ? 'X' : 'R'}
         </button>
 
         {/* Recording timer */}
         {bridge.isRecording && (
           <span className="text-xs text-red-400 font-mono">{recordingTimer}s</span>
         )}
-
-        {/* Deliver all pending */}
-        {pendingCount > 0 && (
-          <button
-            onClick={handleDeliverAll}
-            className="px-2 h-7 flex items-center gap-1 rounded text-xs bg-green-600/80 text-white hover:bg-green-600 border border-green-500"
-            title={`Send ${pendingCount} comment(s) to Claude`}
-          >
-            Send {pendingCount}
-          </button>
-        )}
       </div>
-
-      {/* Comment pins */}
-      {comments.map((comment, index) => (
-        <div
-          key={comment.id}
-          className="absolute pointer-events-auto"
-          style={{
-            left: `${comment.pinX * 100}%`,
-            top: `${comment.pinY * 100}%`,
-            transform: 'translate(-50%, -50%)',
-          }}
-        >
-          <button
-            onClick={() => setActivePin(activePin === comment.id ? null : comment.id)}
-            className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold border-2 shadow-lg ${
-              comment.status === 'sent'
-                ? 'bg-green-600 border-green-400 text-white'
-                : comment.status === 'stale'
-                  ? 'bg-yellow-600 border-yellow-400 text-white'
-                  : 'bg-blue-600 border-blue-400 text-white'
-            }`}
-            title={comment.commentText}
-          >
-            {index + 1}
-          </button>
-
-          {/* Popover */}
-          {activePin === comment.id && (
-            <div className="absolute top-8 left-1/2 -translate-x-1/2 w-64 bg-gray-800 border border-gray-600 rounded-lg shadow-xl p-3 z-30">
-              <div className="text-xs text-gray-400 mb-1">
-                {comment.elementSelector || 'Element'}
-              </div>
-              <div className="text-sm text-gray-200 mb-2">
-                {comment.commentText}
-              </div>
-              <div className="flex items-center gap-1">
-                <span className={`text-xs px-1.5 py-0.5 rounded ${
-                  comment.status === 'sent'
-                    ? 'bg-green-900/50 text-green-400'
-                    : comment.status === 'stale'
-                      ? 'bg-yellow-900/50 text-yellow-400'
-                      : 'bg-blue-900/50 text-blue-400'
-                }`}>
-                  {comment.status}
-                </span>
-                <div className="flex-1" />
-                {comment.status === 'pending' && (
-                  <button
-                    onClick={() => handleDeleteComment(comment.id)}
-                    className="text-xs text-red-400 hover:text-red-300"
-                  >
-                    Delete
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-      ))}
 
       {/* Screenshot annotation modal */}
       {screenshotDataUrl && (
@@ -312,7 +183,7 @@ export function PreviewOverlay({ sessionId, bridge, containerWidth, containerHei
       {/* Recording player modal */}
       {showRecordingPlayer && (
         <RecordingPlayer
-          events={bridge.recordedEvents?.current || []}
+          videoDataUrl={bridge.videoDataUrl}
           onClose={() => setShowRecordingPlayer(false)}
           onSendToSession={handleSendRecording}
         />
@@ -324,13 +195,18 @@ export function PreviewOverlay({ sessionId, bridge, containerWidth, containerHei
           className="absolute pointer-events-auto z-30"
           style={{
             left: `${Math.min(bridge.selectedElement.rect.x + bridge.selectedElement.rect.width, containerWidth - 280)}px`,
-            top: `${Math.min(bridge.selectedElement.rect.y, containerHeight - 120)}px`,
+            top: `${Math.min(bridge.selectedElement.rect.y, containerHeight - 180)}px`,
           }}
         >
           <div className="w-72 bg-gray-800 border border-gray-600 rounded-lg shadow-xl p-3">
-            <div className="text-xs text-gray-400 mb-1.5">
-              Comment on: <span className="text-blue-400">{bridge.selectedElement.selector}</span>
+            <div className="text-xs text-gray-400 mb-1">
+              <span className="text-blue-400">{bridge.selectedElement.selector}</span>
             </div>
+            {bridge.selectedElement.text && (
+              <div className="text-xs text-gray-500 mb-1.5 truncate max-w-full">
+                &ldquo;{bridge.selectedElement.text.substring(0, 60)}&rdquo;
+              </div>
+            )}
             <textarea
               value={commentInput}
               onChange={(e) => setCommentInput(e.target.value)}
@@ -360,10 +236,10 @@ export function PreviewOverlay({ sessionId, bridge, containerWidth, containerHei
               </button>
               <button
                 onClick={handleSubmitComment}
-                disabled={!commentInput.trim()}
+                disabled={!commentInput.trim() || sending}
                 className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Add Comment
+                {sending ? 'Sending...' : 'Send to Claude'}
               </button>
             </div>
           </div>

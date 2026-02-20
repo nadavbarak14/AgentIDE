@@ -189,7 +189,7 @@ export function AnnotationCanvas({ imageDataUrl, onSave, onCancel }: AnnotationC
   ];
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center pointer-events-auto">
       <div className="flex flex-col max-w-[90vw] max-h-[90vh]">
         {/* Toolbar */}
         <div className="bg-gray-800 border-b border-gray-700 px-3 py-2 flex items-center gap-3 rounded-t-lg">
