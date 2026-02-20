@@ -28,7 +28,7 @@ describe('License Validation', () => {
     });
 
     // Tamper with the payload (change a character)
-    const [_payload, signature] = key.split('.');
+    const [, signature] = key.split('.');
     const tamperedPayload = Buffer.from(
       JSON.stringify({ email: 'hacker@evil.com', plan: 'enterprise', maxSessions: 999, expiresAt: '2099-01-01T00:00:00.000Z', issuedAt: new Date().toISOString() }),
       'utf-8',
