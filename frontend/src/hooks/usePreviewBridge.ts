@@ -209,6 +209,7 @@ export function usePreviewBridge(
   }, [inspectMode, enterInspectMode, exitInspectMode]);
 
   const captureScreenshot = useCallback(() => {
+    setScreenshotDataUrl(null); // Clear previous so useEffect sees the new one
     postMessage({ type: 'c3:captureScreenshot' });
   }, [postMessage]);
 
