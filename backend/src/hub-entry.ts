@@ -175,21 +175,144 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
     res.sendFile(bridgePath);
   });
 
+  // ── Board command system ─────────────────────────────────────────────────
+  // In-memory map for pending board commands that expect a result (view-* skills)
+  const pendingCommands = new Map<string, {
+    resolve: (result: Record<string, unknown>) => void;
+    timeout: ReturnType<typeof setTimeout>;
+    sessionId: string;
+    action: string;
+    createdAt: number;
+  }>();
+
+  // Clean up stale pending commands every 30s
+  const staleCleanupInterval = setInterval(() => {
+    const now = Date.now();
+    for (const [reqId, cmd] of pendingCommands.entries()) {
+      if (now - cmd.createdAt > 60_000) {
+        logger.warn({ requestId: reqId, action: cmd.action, sessionId: cmd.sessionId }, 'Cleaning up stale pending board command');
+        cmd.resolve({ error: 'Timeout — command expired' });
+        clearTimeout(cmd.timeout);
+        pendingCommands.delete(reqId);
+      }
+    }
+  }, 30_000);
+  // Don't keep process alive just for cleanup
+  staleCleanupInterval.unref();
+
   // Board command endpoint — skills POST here via curl to control the IDE view
   app.post('/api/sessions/:id/board-command', (req, res) => {
     const sessionId = req.params.id;
-    const { command, params } = req.body;
+    const { command, params, requestId, waitForResult } = req.body;
     if (!command) {
       res.status(400).json({ error: 'Missing command' });
       return;
     }
+
+    // Broadcast to frontend via WebSocket
     broadcastToSession(sessionId, {
       type: 'board_command',
       sessionId,
       command,
       params: params || {},
+      requestId: requestId || undefined,
     });
+
+    // If the caller expects a result (view-* skills), register pending command
+    if (waitForResult && requestId) {
+      logger.info({ requestId, action: command, sessionId }, 'Board command awaiting result');
+      // Store pending — will be resolved when frontend POSTs result
+      const timeoutHandle = setTimeout(() => {
+        if (pendingCommands.has(requestId)) {
+          pendingCommands.delete(requestId);
+          logger.warn({ requestId, action: command }, 'Board command timed out (60s)');
+        }
+      }, 60_000);
+      timeoutHandle.unref();
+
+      pendingCommands.set(requestId, {
+        resolve: () => {}, // placeholder — result fetched via GET poll
+        timeout: timeoutHandle,
+        sessionId,
+        action: command,
+        createdAt: Date.now(),
+      });
+      res.status(202).json({ ok: true, requestId });
+    } else {
+      res.json({ ok: true });
+    }
+  });
+
+  // Frontend sends board command results here after bridge execution
+  app.post('/api/sessions/:id/board-command-result', (req, res) => {
+    const { requestId, result, error } = req.body;
+    if (!requestId) {
+      res.status(400).json({ error: 'Missing requestId' });
+      return;
+    }
+
+    const pending = pendingCommands.get(requestId);
+    if (!pending) {
+      // Result arrived but nobody waiting — could be already timed out
+      logger.debug({ requestId }, 'Board command result for unknown/expired requestId');
+      res.json({ ok: true });
+      return;
+    }
+
+    logger.info({ requestId, action: pending.action }, 'Board command result received');
+    clearTimeout(pending.timeout);
+
+    // Store the result in-place so the polling GET can find it
+    (pending as Record<string, unknown>).result = error ? { error } : (result || {});
+    (pending as Record<string, unknown>).resolvedAt = Date.now();
+
     res.json({ ok: true });
+  });
+
+  // Skill scripts poll here for board command results
+  app.get('/api/sessions/:id/board-command-result/:requestId', (req, res) => {
+    const { requestId } = req.params;
+    const pending = pendingCommands.get(requestId);
+
+    if (!pending) {
+      res.status(404).json({ error: 'Unknown requestId' });
+      return;
+    }
+
+    const stored = pending as Record<string, unknown>;
+    if (stored.result) {
+      // Result is ready — return it and clean up
+      logger.info({ requestId, action: pending.action }, 'Board command result delivered via poll');
+      const result = stored.result;
+      pendingCommands.delete(requestId);
+      res.json({ requestId, result });
+      return;
+    }
+
+    // Long-poll: wait up to 30s for the result
+    const pollTimeout = 30_000;
+    const startTime = Date.now();
+    const pollInterval = setInterval(() => {
+      const p = pendingCommands.get(requestId);
+      if (!p) {
+        clearInterval(pollInterval);
+        res.status(408).json({ requestId, error: 'Timeout waiting for result' });
+        return;
+      }
+      const s = p as Record<string, unknown>;
+      if (s.result) {
+        clearInterval(pollInterval);
+        logger.info({ requestId, action: (p as Record<string, unknown>).action }, 'Board command result delivered via long-poll');
+        const result = s.result;
+        pendingCommands.delete(requestId);
+        res.json({ requestId, result });
+        return;
+      }
+      if (Date.now() - startTime > pollTimeout) {
+        clearInterval(pollInterval);
+        res.status(202).json({ requestId, status: 'pending' });
+      }
+    }, 200);
   });
 
   // Serve static frontend in production

@@ -57,19 +57,20 @@ User-uploaded images attached to a Claude session.
 
 ### video_recordings
 
-Recorded preview browser interactions (rrweb event streams).
+Recorded preview browser interactions (WebM video files via MediaRecorder + canvas.captureStream()).
 
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | id | TEXT | PRIMARY KEY | UUID |
 | session_id | TEXT | NOT NULL, FK sessions(id) | Parent session |
-| events_path | TEXT | NOT NULL | Path to rrweb events JSON file |
-| thumbnail_path | TEXT | | Path to first-frame thumbnail |
+| video_path | TEXT | NOT NULL | Path to WebM video file |
+| thumbnail_path | TEXT | | Path to first-frame thumbnail PNG |
 | duration_ms | INTEGER | | Recording duration in milliseconds |
-| event_count | INTEGER | | Number of rrweb events recorded |
+| file_size | INTEGER | | Video file size in bytes |
 | page_url | TEXT | | URL of the page when recording started |
 | viewport_width | INTEGER | | Viewport width during recording |
 | viewport_height | INTEGER | | Viewport height during recording |
+| status | TEXT | DEFAULT 'pending' | 'pending' / 'sent' |
 | created_at | TEXT | DEFAULT CURRENT_TIMESTAMP | |
 
 **Indexes**:
@@ -97,16 +98,56 @@ New fields added to the existing PanelStateValues interface:
 
 These fields are only meaningful when `previewViewport === 'custom'`.
 
-### BoardCommandType (extended)
+### BoardCommand (extended)
 
-```
-Before: 'open_file' | 'show_panel' | 'show_diff'
-After:  'open_file' | 'show_panel' | 'show_diff' | 'set_preview_resolution'
+New command actions for `/view.*` skills:
+
+| Action | Payload | Returns | waitForResult |
+|--------|---------|---------|---------------|
+| `view-screenshot` | `{}` | `{ path: string }` | yes |
+| `view-record-start` | `{}` | — | no |
+| `view-record-stop` | `{}` | `{ path: string }` | yes |
+| `view-set-resolution` | `{ width: number, height: number }` | — | no |
+| `view-navigate` | `{ url: string }` | `{ ok: boolean, error?: string }` | yes |
+| `view-click` | `{ role: string, name: string }` | `{ ok: boolean, error?: string }` | yes |
+| `view-type` | `{ role: string, name: string, text: string }` | `{ ok: boolean, error?: string }` | yes |
+| `view-read-page` | `{}` | `{ tree: string }` | yes |
+
+### BoardCommandRequest (new type)
+
+For skills that need return values (synchronous response pattern):
+
+```typescript
+interface BoardCommandRequest {
+  action: string;
+  payload: Record<string, unknown>;
+  requestId?: string;       // UUID for response matching
+  waitForResult?: boolean;  // true = caller expects a response
+}
 ```
 
-New command `set_preview_resolution` params:
-- `width`: string (pixel value, e.g., "768")
-- `height`: string (pixel value, e.g., "1024")
+### BoardCommandResult (new type)
+
+```typescript
+interface BoardCommandResult {
+  requestId: string;
+  result: Record<string, unknown>;
+  error?: string;
+}
+```
+
+### PendingBoardCommand (in-memory, not persisted)
+
+```typescript
+interface PendingBoardCommand {
+  requestId: string;
+  sessionId: string;
+  action: string;
+  createdAt: number;       // Date.now()
+  resolve: (result: BoardCommandResult) => void;
+  timeout: NodeJS.Timeout;
+}
+```
 
 ---
 
@@ -116,10 +157,13 @@ New command `set_preview_resolution` params:
 sessions (existing)
   ├── preview_comments (1:N) — visual comments on preview elements
   ├── uploaded_images (1:N) — user-uploaded images
-  └── video_recordings (1:N) — recorded preview interactions
+  └── video_recordings (1:N) — recorded preview interactions (WebM)
 
 panel_states (existing, extended)
   └── customViewportWidth, customViewportHeight — custom resolution settings
+
+board_command_pending (in-memory Map<string, PendingBoardCommand>)
+  └── Transient — maps requestId to pending response resolvers
 ```
 
 ---
@@ -145,9 +189,9 @@ sent    → [deleted]  (cleaned up after delivery)
 ### Video Recording Lifecycle
 
 ```
-[created] → stored   (events saved to disk)
-stored    → [sent]   (keyframes extracted and sent to Claude)
-stored    → [downloaded] (exported as WebM by user)
+[created] → stored   (WebM file saved to disk)
+stored    → sent     (video path sent to Claude)
+stored    → [downloaded] (user downloads WebM)
 ```
 
 ---
@@ -166,7 +210,7 @@ stored    → [downloaded] (exported as WebM by user)
     │   ├── {uuid}-element.png  (cropped element captures)
     │   └── {uuid}-annotated.png (with annotations)
     └── recordings/
-        ├── {uuid}-events.json  (rrweb event stream)
+        ├── {uuid}.webm         (WebM video from MediaRecorder)
         └── {uuid}-thumb.png    (first frame thumbnail)
 ```
 

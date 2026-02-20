@@ -475,7 +475,7 @@ export const uploadedImages = {
 
 export const recordings = {
   save: (sessionId: string, data: { events: unknown[]; durationMs: number; pageUrl?: string; viewportWidth?: number; viewportHeight?: number; thumbnailDataUrl?: string }) =>
-    request<{ id: string; sessionId: string; eventsPath: string; thumbnailPath: string | null; durationMs: number; eventCount: number; createdAt: string }>(
+    request<{ id: string; sessionId: string; videoPath: string; eventsPath?: string | null; thumbnailPath: string | null; durationMs: number; eventCount: number; createdAt: string }>(
       `/sessions/${sessionId}/recordings`,
       { method: 'POST', body: JSON.stringify(data) },
     ),

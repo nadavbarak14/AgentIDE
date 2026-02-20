@@ -3,7 +3,7 @@
 (function () {
   'use strict';
 
-  console.log('[c3-inspect-bridge] v4 loaded');
+  console.log('[c3-inspect-bridge] v5 loaded');
 
   // --- State ---
   var overlay = null;
@@ -279,7 +279,7 @@
     return loadScript(HTML2CANVAS_PRO_URL);
   }
 
-  function captureScreenshot() {
+  function captureScreenshot(msgId) {
     ensureHtml2Canvas()
       .then(function () {
         return html2canvas(document.body, getCaptureOptions(window.innerWidth, window.innerHeight));
@@ -291,6 +291,7 @@
           dataUrl: dataUrl,
           width: window.innerWidth,
           height: window.innerHeight,
+          msgId: msgId || null,
         });
       })
       .catch(function (err) {
@@ -298,6 +299,7 @@
         postToParent({
           type: 'c3:bridge:screenshotFailed',
           error: 'Screenshot capture failed: ' + (err.message || 'unknown error'),
+          msgId: msgId || null,
         });
       });
   }
@@ -332,9 +334,9 @@
   // --- Video Recording (real WebM via MediaRecorder + canvas) ---
 
   var RECORDING_FPS = 3;
-  var MAX_RECORDING_MS = 60000; // 60 seconds max
+  var MAX_RECORDING_MS = 300000; // 5 minutes max (FR-022)
 
-  function startRecording() {
+  function startRecording(msgId) {
     stopRecording();
 
     ensureHtml2Canvas()
@@ -372,6 +374,7 @@
               durationMs: Date.now() - recordingStartTime,
               width: w,
               height: h,
+              msgId: msgId || null,
             });
           };
           reader.readAsDataURL(blob);
@@ -415,18 +418,19 @@
           stopRecording();
         }, MAX_RECORDING_MS);
 
-        postToParent({ type: 'c3:bridge:recordingStarted' });
+        postToParent({ type: 'c3:bridge:recordingStarted', msgId: msgId || null });
       })
       .catch(function (err) {
         console.error('[c3-inspect-bridge] recording start failed:', err);
         postToParent({
           type: 'c3:bridge:recordingFailed',
           error: err.message || 'Failed to start recording',
+          msgId: msgId || null,
         });
       });
   }
 
-  function stopRecording() {
+  function stopRecording(msgId) {
     if (recordingInterval) {
       clearInterval(recordingInterval);
       recordingInterval = null;
@@ -454,6 +458,319 @@
     });
   }
 
+  // --- Accessibility Tree & Element Targeting (US6) ---
+
+  /** Map HTML elements to their implicit ARIA roles */
+  function getImplicitRole(el) {
+    var tag = el.tagName.toLowerCase();
+    var type = (el.getAttribute('type') || '').toLowerCase();
+    var role = el.getAttribute('role');
+    if (role) return role;
+
+    switch (tag) {
+      case 'a': return el.hasAttribute('href') ? 'link' : null;
+      case 'button': return 'button';
+      case 'input':
+        switch (type) {
+          case 'button': case 'submit': case 'reset': case 'image': return 'button';
+          case 'checkbox': return 'checkbox';
+          case 'radio': return 'radio';
+          case 'range': return 'slider';
+          case 'search': return 'searchbox';
+          default: return 'textbox';
+        }
+      case 'select': return el.hasAttribute('multiple') ? 'listbox' : 'combobox';
+      case 'textarea': return 'textbox';
+      case 'img': return 'img';
+      case 'nav': return 'navigation';
+      case 'main': return 'main';
+      case 'header': return 'banner';
+      case 'footer': return 'contentinfo';
+      case 'aside': return 'complementary';
+      case 'form': return 'form';
+      case 'table': return 'table';
+      case 'ul': case 'ol': return 'list';
+      case 'li': return 'listitem';
+      case 'h1': case 'h2': case 'h3': case 'h4': case 'h5': case 'h6': return 'heading';
+      case 'section': return el.hasAttribute('aria-label') || el.hasAttribute('aria-labelledby') ? 'region' : null;
+      case 'dialog': return 'dialog';
+      case 'progress': return 'progressbar';
+      case 'details': return 'group';
+      case 'summary': return 'button';
+      default: return null;
+    }
+  }
+
+  /** Get the accessible name for an element */
+  function getAccessibleName(el) {
+    // 1. aria-label
+    var ariaLabel = el.getAttribute('aria-label');
+    if (ariaLabel) return ariaLabel.trim();
+
+    // 2. aria-labelledby
+    var labelledBy = el.getAttribute('aria-labelledby');
+    if (labelledBy) {
+      var parts = labelledBy.split(/\s+/);
+      var texts = [];
+      for (var i = 0; i < parts.length; i++) {
+        var ref = document.getElementById(parts[i]);
+        if (ref) texts.push((ref.textContent || '').trim());
+      }
+      if (texts.length > 0) return texts.join(' ');
+    }
+
+    // 3. <label for="">
+    if (el.id) {
+      var labels = document.querySelectorAll('label[for="' + el.id + '"]');
+      if (labels.length > 0) return (labels[0].textContent || '').trim();
+    }
+    // Also check wrapping label
+    var parentLabel = el.closest ? el.closest('label') : null;
+    if (parentLabel) {
+      // Get label text excluding the input's own text
+      var clone = parentLabel.cloneNode(true);
+      var inputsInClone = clone.querySelectorAll('input, select, textarea');
+      for (var k = 0; k < inputsInClone.length; k++) {
+        inputsInClone[k].parentNode.removeChild(inputsInClone[k]);
+      }
+      var labelText = (clone.textContent || '').trim();
+      if (labelText) return labelText;
+    }
+
+    // 4. Visible text content (for buttons, links, headings)
+    var tag = el.tagName.toLowerCase();
+    if (tag === 'button' || tag === 'a' || tag === 'summary' || /^h[1-6]$/.test(tag)) {
+      var text = (el.textContent || '').trim();
+      if (text) return text.substring(0, 100);
+    }
+
+    // 5. alt text for images
+    if (tag === 'img') {
+      var alt = el.getAttribute('alt');
+      if (alt) return alt.trim();
+    }
+
+    // 6. title attribute
+    var title = el.getAttribute('title');
+    if (title) return title.trim();
+
+    // 7. placeholder
+    var placeholder = el.getAttribute('placeholder');
+    if (placeholder) return placeholder.trim();
+
+    // 8. value for buttons
+    if (tag === 'input' && (el.type === 'submit' || el.type === 'button' || el.type === 'reset')) {
+      return (el.value || '').trim();
+    }
+
+    return '';
+  }
+
+  /** Check if element is hidden */
+  function isElementHidden(el) {
+    if (el.getAttribute('aria-hidden') === 'true') return true;
+    if (el.hasAttribute('hidden')) return true;
+    if (el.hasAttribute('data-c3-bridge') || el.hasAttribute('data-c3-overlay') || el.hasAttribute('data-c3-highlight')) return true;
+    try {
+      var cs = window.getComputedStyle(el);
+      if (cs.display === 'none' || cs.visibility === 'hidden') return true;
+    } catch (e) { /* ignore */ }
+    return false;
+  }
+
+  /** Build compact accessibility tree as indented text */
+  function buildAccessibilityTree(root) {
+    var lines = [];
+
+    function walk(node, depth) {
+      if (node.nodeType !== 1) return; // Element nodes only
+      if (isElementHidden(node)) return;
+
+      var role = getImplicitRole(node);
+      var name = getAccessibleName(node);
+      var tag = node.tagName.toLowerCase();
+
+      // Build line for this element if it has a role
+      if (role) {
+        var parts = [role];
+        if (name) parts.push('"' + name.replace(/"/g, '\\"') + '"');
+
+        // Add extra attributes based on role
+        if (role === 'heading') {
+          var level = tag.charAt(1);
+          parts.push('level=' + level);
+        }
+        if (role === 'link' && node.getAttribute('href')) {
+          var href = node.getAttribute('href');
+          if (href.length <= 60) parts.push('href="' + href + '"');
+        }
+        if (role === 'textbox' || role === 'searchbox' || role === 'combobox') {
+          var val = node.value !== undefined ? node.value : '';
+          parts.push('value="' + val.substring(0, 50).replace(/"/g, '\\"') + '"');
+          if (node.hasAttribute('required')) parts.push('required');
+          if (node.readOnly) parts.push('readonly');
+          if (node.disabled) parts.push('disabled');
+        }
+        if (role === 'checkbox' || role === 'radio') {
+          parts.push(node.checked ? 'checked' : 'unchecked');
+          if (node.disabled) parts.push('disabled');
+        }
+        if (role === 'button' && node.disabled) {
+          parts.push('disabled');
+        }
+        if (node.getAttribute('aria-expanded')) {
+          parts.push('expanded=' + node.getAttribute('aria-expanded'));
+        }
+        if (node.getAttribute('aria-selected') === 'true') {
+          parts.push('selected');
+        }
+        if (role === 'img' && !name) {
+          parts.push('(no alt text)');
+        }
+
+        var indent = '';
+        for (var i = 0; i < depth; i++) indent += '  ';
+        lines.push(indent + parts.join(' '));
+      }
+
+      // Walk children — increase depth only if we emitted a line
+      var children = node.children;
+      for (var c = 0; c < children.length; c++) {
+        walk(children[c], role ? depth + 1 : depth);
+      }
+    }
+
+    walk(root, 0);
+    return lines.join('\n');
+  }
+
+  // --- Element Interaction (click, type, navigate) ---
+
+  /** Find an element by ARIA role and accessible name */
+  function findElementByRoleAndName(role, name) {
+    var normalizedName = (name || '').trim().toLowerCase();
+    var all = document.querySelectorAll('*');
+    var candidates = []; // elements matching the role
+
+    for (var i = 0; i < all.length; i++) {
+      var el = all[i];
+      if (isElementHidden(el)) continue;
+      var elRole = getImplicitRole(el);
+      if (elRole !== role) continue;
+
+      var elName = getAccessibleName(el);
+      candidates.push({ el: el, name: elName });
+
+      if (elName.trim().toLowerCase() === normalizedName) {
+        return { found: true, element: el };
+      }
+    }
+
+    // Not found — return available elements of that role
+    var available = [];
+    for (var j = 0; j < candidates.length; j++) {
+      if (candidates[j].name) available.push(candidates[j].name);
+    }
+    return { found: false, available: available };
+  }
+
+  function clickElement(role, name, msgId) {
+    var result = findElementByRoleAndName(role, name);
+    if (result.found) {
+      var el = result.element;
+      el.scrollIntoView({ block: 'center', behavior: 'instant' });
+      // Dispatch realistic click event sequence
+      el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+      el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+      el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      postToParent({ type: 'c3:bridge:elementClicked', ok: true, msgId: msgId || null });
+    } else {
+      postToParent({
+        type: 'c3:bridge:elementClicked',
+        ok: false,
+        error: 'Element not found: ' + role + ' "' + name + '"',
+        available: result.available,
+        msgId: msgId || null,
+      });
+    }
+  }
+
+  function typeElement(role, name, text, msgId) {
+    var result = findElementByRoleAndName(role, name);
+    if (!result.found) {
+      postToParent({
+        type: 'c3:bridge:elementTyped',
+        ok: false,
+        error: 'Element not found: ' + role + ' "' + name + '"',
+        available: result.available,
+        msgId: msgId || null,
+      });
+      return;
+    }
+    var el = result.element;
+    var tag = el.tagName.toLowerCase();
+    var isInput = tag === 'input' || tag === 'textarea' || tag === 'select';
+    var isContentEditable = el.isContentEditable;
+
+    if (!isInput && !isContentEditable) {
+      postToParent({
+        type: 'c3:bridge:elementTyped',
+        ok: false,
+        error: 'Element is not an input. Role: ' + (getImplicitRole(el) || tag),
+        msgId: msgId || null,
+      });
+      return;
+    }
+
+    el.scrollIntoView({ block: 'center', behavior: 'instant' });
+    el.focus();
+
+    if (isContentEditable) {
+      el.textContent = text;
+    } else {
+      // Use native setter to work with React controlled components
+      var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
+      var nativeTextareaValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value');
+      var setter = tag === 'textarea' ? nativeTextareaValueSetter : nativeInputValueSetter;
+      if (setter && setter.set) {
+        setter.set.call(el, text);
+      } else {
+        el.value = text;
+      }
+    }
+
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+
+    postToParent({
+      type: 'c3:bridge:elementTyped',
+      ok: true,
+      msgId: msgId || null,
+    });
+  }
+
+  function navigateTo(url, msgId) {
+    postToParent({
+      type: 'c3:bridge:navigated',
+      ok: true,
+      url: url,
+      msgId: msgId || null,
+    });
+    // Small delay to let postMessage send before navigation destroys the page
+    setTimeout(function () {
+      window.location.href = url;
+    }, 50);
+  }
+
+  function readPage(msgId) {
+    var tree = buildAccessibilityTree(document.body);
+    postToParent({
+      type: 'c3:bridge:pageRead',
+      tree: tree,
+      msgId: msgId || null,
+    });
+  }
+
   // --- Message Listener ---
 
   window.addEventListener('message', function (event) {
@@ -470,19 +787,31 @@
         exitInspectMode();
         break;
       case 'c3:captureScreenshot':
-        captureScreenshot();
+        captureScreenshot(data.msgId);
         break;
       case 'c3:captureElement':
         if (data.selector) captureElement(data.selector);
         break;
       case 'c3:startRecording':
-        startRecording();
+        startRecording(data.msgId);
         break;
       case 'c3:stopRecording':
-        stopRecording();
+        stopRecording(data.msgId);
         break;
       case 'c3:checkElements':
         if (data.selectors && Array.isArray(data.selectors)) checkElements(data.selectors);
+        break;
+      case 'c3:readPage':
+        readPage(data.msgId);
+        break;
+      case 'c3:clickElement':
+        if (data.role) clickElement(data.role, data.name || '', data.msgId);
+        break;
+      case 'c3:typeElement':
+        if (data.role && data.text !== undefined) typeElement(data.role, data.name || '', data.text, data.msgId);
+        break;
+      case 'c3:navigateTo':
+        if (data.url) navigateTo(data.url, data.msgId);
         break;
       default:
         break;

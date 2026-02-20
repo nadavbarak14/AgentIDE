@@ -299,7 +299,7 @@ export function createPreviewRouter(repo: Repository, previewService: PreviewSer
 
       const recording = repo.createVideoRecording({
         sessionId,
-        eventsPath: result.eventsPath,
+        videoPath: result.eventsPath,
         thumbnailPath: result.thumbnailPath || undefined,
         durationMs: durationMs || undefined,
         eventCount: events.length,

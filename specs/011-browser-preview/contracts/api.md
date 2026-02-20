@@ -200,7 +200,7 @@ List uploaded images for a session.
 
 ### POST /api/sessions/:id/uploaded-images/:imageId/deliver
 
-Deliver an uploaded image to the Claude session via PTY stdin. Sends a message referencing the image file path so Claude can read it.
+Deliver an uploaded image to the Claude session via PTY stdin.
 
 **Request** (optional):
 ```json
@@ -230,9 +230,9 @@ Serve the uploaded image file (for inline display in frontend).
 
 ## Screenshots
 
-### POST /api/sessions/:id/screenshots
+### POST /api/sessions/:id/upload-screenshot
 
-Save a screenshot capture (viewport or annotated).
+Save a screenshot capture (viewport or annotated). Already implemented.
 
 **Request**:
 ```json
@@ -280,14 +280,14 @@ Send a screenshot to the Claude session.
 
 ## Video Recordings
 
-### POST /api/sessions/:id/recordings
+### POST /api/sessions/:id/upload-recording
 
-Save a completed recording (rrweb events).
+Save a completed WebM video recording.
 
 **Request**:
 ```json
 {
-  "events": [...],
+  "videoDataUrl": "data:video/webm;base64,...",
   "durationMs": 30000,
   "pageUrl": "http://localhost:3000",
   "viewportWidth": 1280,
@@ -301,10 +301,10 @@ Save a completed recording (rrweb events).
 {
   "id": "uuid",
   "sessionId": "uuid",
-  "eventsPath": "/work/.c3-uploads/recordings/uuid-events.json",
+  "videoPath": "/work/.c3-uploads/recordings/uuid.webm",
   "thumbnailPath": "/work/.c3-uploads/recordings/uuid-thumb.png",
   "durationMs": 30000,
-  "eventCount": 1250,
+  "fileSize": 524288,
   "pageUrl": "http://localhost:3000",
   "createdAt": "2026-02-20T10:00:00.000Z"
 }
@@ -322,7 +322,7 @@ List recordings for a session.
   {
     "id": "uuid",
     "durationMs": 30000,
-    "eventCount": 1250,
+    "fileSize": 524288,
     "pageUrl": "...",
     "thumbnailPath": "...",
     "createdAt": "..."
@@ -332,26 +332,17 @@ List recordings for a session.
 
 ---
 
-### GET /api/sessions/:id/recordings/:recordingId
+### GET /api/sessions/:id/recordings/:recordingId/video
 
-Get recording detail including events for playback.
+Serve the WebM video file for playback.
 
-**Response** (200):
-```json
-{
-  "id": "uuid",
-  "events": [...],
-  "durationMs": 30000,
-  "viewportWidth": 1280,
-  "viewportHeight": 720
-}
-```
+**Response** (200): Binary video data with `Content-Type: video/webm`. Supports `Range` header for seeking.
 
 ---
 
 ### POST /api/sessions/:id/recordings/:recordingId/deliver
 
-Send key frames from a recording to the Claude session.
+Send a recording to the Claude session (extracts key frames as screenshots).
 
 **Response** (200):
 ```json
@@ -368,16 +359,13 @@ Send key frames from a recording to the Claude session.
 
 ### POST /api/sessions/:id/board-command
 
-Existing endpoint. New command type added:
+Existing endpoint. Extended with `requestId` and `waitForResult` for synchronous response pattern.
 
-**Request** (new command):
+**Request** (fire-and-forget — existing pattern):
 ```json
 {
-  "command": "set_preview_resolution",
-  "params": {
-    "width": "768",
-    "height": "1024"
-  }
+  "command": "view-set-resolution",
+  "params": { "width": 768, "height": 1024 }
 }
 ```
 
@@ -386,7 +374,91 @@ Existing endpoint. New command type added:
 { "ok": true }
 ```
 
-Frontend handles this by updating panel state to `previewViewport: 'custom'` with `customViewportWidth: 768`, `customViewportHeight: 1024`.
+**Request** (with result — new pattern for `/view.*` skills):
+```json
+{
+  "command": "view-screenshot",
+  "params": {},
+  "requestId": "req-uuid-123",
+  "waitForResult": true
+}
+```
+
+**Response** (202 Accepted):
+```json
+{
+  "ok": true,
+  "requestId": "req-uuid-123"
+}
+```
+
+The caller then polls for the result (see below).
+
+---
+
+### POST /api/sessions/:id/board-command-result
+
+Frontend sends results back after executing a board command. Called by the frontend after the bridge script completes an action.
+
+**Request**:
+```json
+{
+  "requestId": "req-uuid-123",
+  "result": { "path": "/work/.c3-uploads/screenshots/uuid.png" }
+}
+```
+
+**Response** (200):
+```json
+{ "ok": true }
+```
+
+---
+
+### GET /api/sessions/:id/board-command-result/:requestId
+
+Poll for a board command result. Long-polls for up to 30 seconds.
+
+**Response** (200 — result ready):
+```json
+{
+  "requestId": "req-uuid-123",
+  "result": { "path": "/work/.c3-uploads/screenshots/uuid.png" }
+}
+```
+
+**Response** (202 — still pending):
+```json
+{
+  "requestId": "req-uuid-123",
+  "status": "pending"
+}
+```
+
+**Response** (408 — timeout):
+```json
+{
+  "requestId": "req-uuid-123",
+  "error": "Timeout waiting for result"
+}
+```
+
+---
+
+## `/view.*` Board Command Actions
+
+All `/view.*` skills send board commands with these action names:
+
+| Action | Payload | Expected Result |
+|--------|---------|-----------------|
+| `view-screenshot` | `{}` | `{ path: "/work/.c3-uploads/screenshots/uuid.png" }` |
+| `view-record-start` | `{}` | (fire-and-forget) |
+| `view-record-stop` | `{}` | `{ path: "/work/.c3-uploads/recordings/uuid.webm" }` |
+| `view-set-resolution` | `{ width: 768, height: 1024 }` | (fire-and-forget) |
+| `view-navigate` | `{ url: "http://localhost:3000/login" }` | `{ ok: true }` |
+| `view-click` | `{ role: "button", name: "Sign In" }` | `{ ok: true }` or `{ ok: false, error: "Element not found", available: ["Submit", "Cancel"] }` |
+| `view-type` | `{ role: "textbox", name: "Email", text: "user@test.com" }` | `{ ok: true }` or `{ ok: false, error: "Element not found" }` |
+| `view-read-page` | `{}` | `{ tree: "heading \"Welcome\" level=1\n  link \"Sign In\"..." }` |
 
 ---
 
@@ -394,12 +466,14 @@ Frontend handles this by updating panel state to `previewViewport: 'custom'` wit
 
 ### GET /api/inspect-bridge.js
 
-Serves the preview inspect bridge script. Cached by browser.
+Serves the preview inspect bridge script (v4). Cache-busted via `?v=4` query param.
 
 **Response** (200): JavaScript file with `Content-Type: application/javascript`.
 
 This script is injected into proxied HTML responses and provides:
 - Inspect mode (hover highlight, element selection)
-- Screenshot capture (html2canvas)
-- Video recording (rrweb-record)
+- Screenshot capture (html2canvas-pro)
+- Video recording (MediaRecorder + canvas.captureStream())
+- Accessibility tree extraction (DOM walk)
+- Element click/type actions (accessible role + name targeting)
 - postMessage communication with the parent frame

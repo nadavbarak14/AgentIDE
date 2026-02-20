@@ -34,6 +34,8 @@ Auto-generated from all feature plans. Last updated: 2026-02-17
 - TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, Vite 6, xterm.js 5, @monaco-editor/react 4.6, diff2html 3.4, better-sqlite3, ws 8, chokidar 4, Tailwind CSS 3 (007-ide-ux-skills)
 - TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, Vite 6, Tailwind CSS 3, xterm.js 5, better-sqlite3, ws 8, chokidar 4 (existing) + html2canvas, rrweb, rrweb-player, multer (new) (011-browser-preview)
 - SQLite (better-sqlite3) with WAL mode — 3 new tables: `preview_comments`, `uploaded_images`, `video_recordings` (011-browser-preview)
+- TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, Tailwind CSS 3, Vite 6, html2canvas-pro@1.5.8, better-sqlite3, ws 8 (011-browser-preview)
+- SQLite (better-sqlite3) with WAL mode — existing `c3.db` database; 3 new tables (`preview_comments`, `uploaded_images`, `video_recordings`) (011-browser-preview)
 
 - TypeScript 5.x, Node.js 20 LTS + React 18, Tailwind CSS 3, xterm.js 5, Monaco Editor, Express, node-pty, ssh2, chokidar, diff2html, ws (001-c3-dashboard)
 
@@ -53,9 +55,9 @@ npm test && npm run lint
 TypeScript 5.x, Node.js 20 LTS: Follow standard conventions
 
 ## Recent Changes
+- 011-browser-preview: Added TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, Tailwind CSS 3, Vite 6, html2canvas-pro@1.5.8, better-sqlite3, ws 8
 - 011-browser-preview: Added TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, Vite 6, Tailwind CSS 3, xterm.js 5, better-sqlite3, ws 8, chokidar 4 (existing) + html2canvas, rrweb, rrweb-player, multer (new)
 - 009-product-security-licensing: Added TypeScript 5.7, Node.js 20 LTS + Express 4, `jose` (JWT), `commander` (CLI), `express-rate-limit`, `selfsigned` (TLS), `ssh2` (workers), `ws` (WebSocket), `better-sqlite3`
-- 007-auth-licensing-cli: Added TypeScript 5.7, Node.js 20 LTS + Express 4, jose (JWT), commander (CLI), cookie-parser, express-rate-limit, selfsigned (TLS)
 
 
 <!-- MANUAL ADDITIONS START -->

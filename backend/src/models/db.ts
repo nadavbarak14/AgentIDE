@@ -145,13 +145,16 @@ CREATE INDEX IF NOT EXISTS idx_uploaded_images_session
 CREATE TABLE IF NOT EXISTS video_recordings (
   id TEXT PRIMARY KEY,
   session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-  events_path TEXT NOT NULL,
+  video_path TEXT NOT NULL,
+  events_path TEXT,
   thumbnail_path TEXT,
   duration_ms INTEGER,
+  file_size INTEGER,
   event_count INTEGER,
   page_url TEXT,
   viewport_width INTEGER,
   viewport_height INTEGER,
+  status TEXT NOT NULL DEFAULT 'pending',
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -198,6 +201,19 @@ function migrate(database: Database.Database): void {
   const commentColNames = new Set(commentCols.map((c) => c.name));
   if (!commentColNames.has('side')) {
     database.exec("ALTER TABLE comments ADD COLUMN side TEXT DEFAULT 'new'");
+  }
+
+  // Migrate video_recordings table for WebM format
+  const videoCols = database.pragma('table_info(video_recordings)') as Array<{ name: string }>;
+  const videoColNames = new Set(videoCols.map((c) => c.name));
+  if (!videoColNames.has('video_path')) {
+    database.exec(`
+      ALTER TABLE video_recordings ADD COLUMN video_path TEXT;
+      ALTER TABLE video_recordings ADD COLUMN file_size INTEGER;
+      ALTER TABLE video_recordings ADD COLUMN status TEXT DEFAULT 'pending';
+    `);
+    // Copy existing events_path values to video_path for backwards compatibility
+    database.exec(`UPDATE video_recordings SET video_path = events_path WHERE video_path IS NULL`);
   }
 }
 

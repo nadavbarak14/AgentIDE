@@ -12,7 +12,7 @@ import { listDirectory, readFile, writeFile, searchFiles } from '../../worker/fi
 import { getDiff } from '../../worker/git-operations.js';
 import { logger } from '../../services/logger.js';
 
-const BRIDGE_VERSION = '4';
+const BRIDGE_VERSION = '5';
 const BRIDGE_SCRIPT_TAG = `<script src="/api/inspect-bridge.js?v=${BRIDGE_VERSION}" data-c3-bridge></script>`;
 
 /** Decompress a buffer based on content-encoding */

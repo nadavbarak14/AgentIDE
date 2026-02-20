@@ -40,6 +40,13 @@ export interface UsePreviewBridgeReturn {
   startRecording: () => void;
   stopRecording: () => void;
   checkElements: (selectors: string[]) => void;
+  readPage: () => Promise<Record<string, unknown>>;
+  clickElement: (role: string, name: string) => Promise<Record<string, unknown>>;
+  typeElement: (role: string, name: string, text: string) => Promise<Record<string, unknown>>;
+  navigateTo: (url: string) => Promise<Record<string, unknown>>;
+  captureScreenshotWithResult: () => Promise<Record<string, unknown>>;
+  stopRecordingWithResult: () => Promise<Record<string, unknown>>;
+  sendCommandWithResult: (message: Record<string, unknown>, timeoutMs?: number) => Promise<Record<string, unknown>>;
 }
 
 // ── Hook ─────────────────────────────────────────────────────────────────────
@@ -60,6 +67,12 @@ export function usePreviewBridge(
   const recordedEvents = useRef<unknown[]>([]);
   const durationTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const callbacksRef = useRef(callbacks);
+
+  // Pending bridge command promises (for SessionCard → bridge → result relay)
+  const pendingRequests = useRef<Map<string, {
+    resolve: (result: Record<string, unknown>) => void;
+    reject: (error: Error) => void;
+  }>>(new Map());
 
   // Keep callbacks ref in sync without triggering re-renders / effect re-runs
   callbacksRef.current = callbacks;
@@ -144,6 +157,15 @@ export function usePreviewBridge(
             width: data.width,
             height: data.height,
           });
+          // Also resolve pending request if msgId present
+          if (data.msgId && pendingRequests.current.has(data.msgId)) {
+            pendingRequests.current.get(data.msgId)!.resolve({
+              dataUrl: data.dataUrl,
+              width: data.width,
+              height: data.height,
+            });
+            pendingRequests.current.delete(data.msgId);
+          }
           break;
 
         case 'c3:bridge:recordingStarted':
@@ -163,7 +185,57 @@ export function usePreviewBridge(
           if (data.videoDataUrl) {
             setVideoDataUrl(data.videoDataUrl);
           }
+          if (data.msgId && pendingRequests.current.has(data.msgId)) {
+            pendingRequests.current.get(data.msgId)!.resolve({
+              videoDataUrl: data.videoDataUrl,
+              durationMs: data.durationMs,
+            });
+            pendingRequests.current.delete(data.msgId);
+          }
           break;
+
+        case 'c3:bridge:pageRead': {
+          const msgId = data.msgId;
+          if (msgId && pendingRequests.current.has(msgId)) {
+            pendingRequests.current.get(msgId)!.resolve({ tree: data.tree });
+            pendingRequests.current.delete(msgId);
+          }
+          break;
+        }
+
+        case 'c3:bridge:elementClicked': {
+          const msgId = data.msgId;
+          if (msgId && pendingRequests.current.has(msgId)) {
+            pendingRequests.current.get(msgId)!.resolve({
+              ok: data.ok,
+              error: data.error,
+              available: data.available
+            });
+            pendingRequests.current.delete(msgId);
+          }
+          break;
+        }
+
+        case 'c3:bridge:elementTyped': {
+          const msgId = data.msgId;
+          if (msgId && pendingRequests.current.has(msgId)) {
+            pendingRequests.current.get(msgId)!.resolve({
+              ok: data.ok,
+              error: data.error
+            });
+            pendingRequests.current.delete(msgId);
+          }
+          break;
+        }
+
+        case 'c3:bridge:navigated': {
+          const msgId = data.msgId;
+          if (msgId && pendingRequests.current.has(msgId)) {
+            pendingRequests.current.get(msgId)!.resolve({ ok: data.ok });
+            pendingRequests.current.delete(msgId);
+          }
+          break;
+        }
 
         case 'c3:bridge:elementsChecked':
           setElementsCheckResult(data.results);
@@ -184,6 +256,11 @@ export function usePreviewBridge(
         clearInterval(durationTimerRef.current);
         durationTimerRef.current = null;
       }
+      // Reject all pending requests
+      for (const [, pending] of pendingRequests.current) {
+        pending.reject(new Error('Bridge unmounted'));
+      }
+      pendingRequests.current.clear();
     };
   }, []);
 
@@ -236,6 +313,77 @@ export function usePreviewBridge(
     [postMessage],
   );
 
+  /** Send a bridge command and await a Promise-based result (used by SessionCard relay) */
+  const sendCommandWithResult = useCallback(
+    (message: Record<string, unknown>, timeoutMs = 30000): Promise<Record<string, unknown>> => {
+      return new Promise((resolve, reject) => {
+        const msgId = crypto.randomUUID();
+        const timer = setTimeout(() => {
+          pendingRequests.current.delete(msgId);
+          reject(new Error('Bridge command timed out'));
+        }, timeoutMs);
+
+        pendingRequests.current.set(msgId, {
+          resolve: (result) => {
+            clearTimeout(timer);
+            resolve(result);
+          },
+          reject: (err) => {
+            clearTimeout(timer);
+            reject(err);
+          },
+        });
+
+        postMessage({ ...message, msgId });
+      });
+    },
+    [postMessage],
+  );
+
+  const readPage = useCallback(
+    (): Promise<Record<string, unknown>> => {
+      return sendCommandWithResult({ type: 'c3:readPage' });
+    },
+    [sendCommandWithResult],
+  );
+
+  const clickElement = useCallback(
+    (role: string, name: string): Promise<Record<string, unknown>> => {
+      return sendCommandWithResult({ type: 'c3:clickElement', role, name });
+    },
+    [sendCommandWithResult],
+  );
+
+  const typeElement = useCallback(
+    (role: string, name: string, text: string): Promise<Record<string, unknown>> => {
+      return sendCommandWithResult({ type: 'c3:typeElement', role, name, text });
+    },
+    [sendCommandWithResult],
+  );
+
+  const navigateTo = useCallback(
+    (url: string): Promise<Record<string, unknown>> => {
+      return sendCommandWithResult({ type: 'c3:navigateTo', url }, 15000);
+    },
+    [sendCommandWithResult],
+  );
+
+  /** Capture screenshot and return result as Promise (for board-command relay) */
+  const captureScreenshotWithResult = useCallback(
+    (): Promise<Record<string, unknown>> => {
+      return sendCommandWithResult({ type: 'c3:captureScreenshot' });
+    },
+    [sendCommandWithResult],
+  );
+
+  /** Stop recording and return result as Promise (for board-command relay) */
+  const stopRecordingWithResult = useCallback(
+    (): Promise<Record<string, unknown>> => {
+      return sendCommandWithResult({ type: 'c3:stopRecording' }, 60000);
+    },
+    [sendCommandWithResult],
+  );
+
   return {
     isReady,
     inspectMode,
@@ -254,6 +402,13 @@ export function usePreviewBridge(
     startRecording,
     stopRecording,
     checkElements,
+    readPage,
+    clickElement,
+    typeElement,
+    navigateTo,
+    captureScreenshotWithResult,
+    stopRecordingWithResult,
+    sendCommandWithResult,
   };
 }
 
