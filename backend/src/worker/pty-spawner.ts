@@ -106,7 +106,21 @@ export class PtySpawner extends EventEmitter {
     delete childEnv.CLAUDE_CODE_ENTRYPOINT;
 
     // Inject --settings flag for hooks (before any user args)
-    const fullArgs = ['--settings', this.hookSettingsPath, ...args];
+    const fullArgs = ['--settings', this.hookSettingsPath];
+    fullArgs.push(...args);
+
+    // Copy skills into session's working directory for local access
+    const bundledSkillsDir = path.resolve(import.meta.dirname, '../../../.claude-skills/skills');
+    const sessionSkillsDir = path.join(workingDirectory, '.claude', 'skills');
+    try {
+      if (fs.existsSync(bundledSkillsDir)) {
+        fs.mkdirSync(sessionSkillsDir, { recursive: true });
+        fs.cpSync(bundledSkillsDir, sessionSkillsDir, { recursive: true });
+        log.info({ sessionSkillsDir }, 'injected skills into session working directory');
+      }
+    } catch (err) {
+      log.warn({ err, sessionSkillsDir }, 'failed to inject skills into session');
+    }
 
     log.info({ fullArgs: fullArgs.join(' ') }, 'claude command args');
 
@@ -164,6 +178,8 @@ export class PtySpawner extends EventEmitter {
       this.emit('exit', sessionId, exitCode, null);
     });
 
+    // Skills are self-documenting via their CLAUDE.md — no intro message needed
+
     return {
       pid: proc.pid,
       sessionId,
@@ -176,10 +192,10 @@ export class PtySpawner extends EventEmitter {
     };
   }
 
-  spawnContinue(sessionId: string, workingDirectory: string, claudeSessionId: string): PtyProcess {
+  spawnContinue(sessionId: string, workingDirectory: string): PtyProcess {
     const log = createSessionLogger(sessionId);
-    log.info({ claudeSessionId }, 'spawning claude -c (continue) process');
-    return this.spawn(sessionId, workingDirectory, ['-c', claudeSessionId]);
+    log.info('spawning claude -c (continue) process');
+    return this.spawn(sessionId, workingDirectory, ['-c']);
   }
 
   getProcess(sessionId: string): pty.IPty | undefined {

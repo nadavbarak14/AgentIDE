@@ -5,18 +5,21 @@ import { FileViewer } from './FileViewer';
 import { DiffViewer } from './DiffViewer';
 import { LivePreview } from './LivePreview';
 import { ProjectSearch } from './ProjectSearch';
+import { GitHubIssues } from './GitHubIssues';
 import { usePanel } from '../hooks/usePanel';
-import type { Session } from '../services/api';
+import { sessions as sessionsApi, type Session } from '../services/api';
 import type { WsServerMessage } from '../services/ws';
 
 interface SessionCardProps {
   session: Session;
   focused?: boolean;
+  isCurrent?: boolean;
   isSingleView?: boolean;
   onContinue?: (id: string) => void;
   onKill?: (id: string) => void;
   onToggleLock?: (id: string, lock: boolean) => void;
   onDelete?: (id: string) => void;
+  onSetCurrent?: (id: string) => void;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -29,11 +32,13 @@ const STATUS_COLORS: Record<string, string> = {
 export function SessionCard({
   session,
   focused = false,
+  isCurrent = false,
   isSingleView: _isSingleView = false,
   onContinue,
   onKill,
   onToggleLock,
   onDelete,
+  onSetCurrent,
 }: SessionCardProps) {
   const panel = usePanel(session.id);
   const [resizingSide, setResizingSide] = useState<'left' | 'right' | null>(null);
@@ -61,14 +66,32 @@ export function SessionCard({
     if (msg.type === 'port_detected') {
       setDetectedPort({ port: msg.port, localPort: msg.localPort });
     }
-    // Handle board commands from Claude skills (OSC sequences)
+    // Handle board commands from Claude skills (HTTP POST → WebSocket)
     if (msg.type === 'board_command') {
       try {
+        // Smart open: ensure the target panel is visible (never toggle off)
+        const ensurePanelOpen = (panelType: 'files' | 'git' | 'preview' | 'issues') => {
+          // Already showing in either side → nothing to do
+          if (panel.leftPanel === panelType || panel.rightPanel === panelType) return;
+
+          const defaultSide = panelType === 'files' ? 'left' : 'right';
+          const leftOccupied = panel.leftPanel !== 'none';
+          const rightOccupied = panel.rightPanel !== 'none';
+
+          if (defaultSide === 'left') {
+            if (!leftOccupied) panel.setLeftPanel(panelType);
+            else if (!rightOccupied) panel.setRightPanel(panelType);
+            else panel.setLeftPanel(panelType); // replace default side
+          } else {
+            if (!rightOccupied) panel.setRightPanel(panelType);
+            else if (!leftOccupied) panel.setLeftPanel(panelType);
+            else panel.setRightPanel(panelType); // replace default side
+          }
+        };
+
         if (msg.command === 'open_file' && msg.params.path) {
           panel.addFileTab(msg.params.path);
-          if (panel.leftPanel === 'none') {
-            panel.setLeftPanel('files');
-          }
+          ensurePanelOpen('files');
           if (msg.params.line) {
             panel.updateScrollPosition(msg.params.path, {
               line: parseInt(msg.params.line, 10) || 1,
@@ -76,9 +99,12 @@ export function SessionCard({
             });
           }
         } else if (msg.command === 'show_panel' && msg.params.panel) {
-          panel.setRightPanel(msg.params.panel as 'git' | 'preview' | 'files');
+          if (msg.params.panel === 'preview' && msg.params.url) {
+            panel.setPreviewUrl(msg.params.url);
+          }
+          ensurePanelOpen(msg.params.panel as 'files' | 'git' | 'preview' | 'issues');
         } else if (msg.command === 'show_diff') {
-          panel.setRightPanel('git');
+          ensurePanelOpen('git');
         }
       } catch {
         // Never disrupt the terminal for command handling errors
@@ -214,22 +240,6 @@ export function SessionCard({
     }
   }, []);
 
-  // Global keyboard shortcut for Ctrl+Shift+F (search in files)
-  // Must be a window listener to intercept even when xterm has focus
-  useEffect(() => {
-    if (!showToolbar) return;
-    const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'F' || e.key === 'f')) {
-        e.preventDefault();
-        e.stopPropagation();
-        if (panel.leftPanel !== 'files') panel.setLeftPanel('files');
-        setSidebarView('search');
-      }
-    };
-    window.addEventListener('keydown', handler, true); // capture phase
-    return () => window.removeEventListener('keydown', handler, true);
-  }, [showToolbar, panel]);
-
   const handleFileSelect = useCallback((filePath: string) => {
     panel.addFileTab(filePath);
   }, [panel]);
@@ -278,8 +288,8 @@ export function SessionCard({
     return containerWidth >= neededWidth;
   }, [showLeftPanel, showRightPanel]);
 
-  const handleTogglePanel = useCallback((panelType: 'files' | 'git' | 'preview') => {
-    // Check if any panel already shows this content type
+  const handleTogglePanel = useCallback((panelType: 'files' | 'git' | 'preview' | 'issues') => {
+    // Check if any panel already shows this content type — toggle off
     const leftShows = panel.leftPanel === panelType;
     const rightShows = panel.rightPanel === panelType;
 
@@ -292,16 +302,74 @@ export function SessionCard({
       return;
     }
 
-    // Opening — decide default side and check viewport
+    // Smart placement: prefer default side, fall back to other side if occupied
     const defaultSide = panelType === 'files' ? 'left' : 'right';
-    if (!canOpenPanel(defaultSide)) return;
+    const leftOccupied = panel.leftPanel !== 'none';
+    const rightOccupied = panel.rightPanel !== 'none';
 
     if (defaultSide === 'left') {
-      panel.setLeftPanel(panelType);
+      if (!leftOccupied && canOpenPanel('left')) {
+        panel.setLeftPanel(panelType);
+      } else if (!rightOccupied && canOpenPanel('right')) {
+        panel.setRightPanel(panelType);
+      } else if (canOpenPanel('left')) {
+        // Both occupied — replace the default side
+        panel.setLeftPanel(panelType);
+      }
     } else {
-      panel.setRightPanel(panelType);
+      if (!rightOccupied && canOpenPanel('right')) {
+        panel.setRightPanel(panelType);
+      } else if (!leftOccupied && canOpenPanel('left')) {
+        panel.setLeftPanel(panelType);
+      } else if (canOpenPanel('right')) {
+        // Both occupied — replace the default side
+        panel.setRightPanel(panelType);
+      }
     }
   }, [panel, canOpenPanel]);
+
+  // Track chord armed state for showing key hints on tabs
+  const [chordArmed, setChordArmed] = useState(false);
+  useEffect(() => {
+    const handler = (e: Event) => {
+      setChordArmed((e as CustomEvent).detail?.armed ?? false);
+    };
+    window.addEventListener('c3:chord', handler);
+    return () => window.removeEventListener('c3:chord', handler);
+  }, []);
+
+  // Listen for global keyboard shortcut events dispatched from Dashboard
+  useEffect(() => {
+    if (!showToolbar) return;
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.sessionId !== session.id) return;
+      switch (detail.action) {
+        case 'toggle_files':
+          handleTogglePanel('files');
+          break;
+        case 'toggle_git':
+          handleTogglePanel('git');
+          break;
+        case 'toggle_preview':
+          handleTogglePanel('preview');
+          break;
+        case 'toggle_claude':
+          if (panel.terminalVisible && !showLeftPanel && !showRightPanel) break;
+          panel.setTerminalVisible(!panel.terminalVisible);
+          break;
+        case 'toggle_issues':
+          handleTogglePanel('issues');
+          break;
+        case 'search_files':
+          if (panel.leftPanel !== 'files') panel.setLeftPanel('files');
+          setSidebarView('search');
+          break;
+      }
+    };
+    window.addEventListener('c3:shortcut', handler);
+    return () => window.removeEventListener('c3:shortcut', handler);
+  }, [showToolbar, session.id, panel, handleTogglePanel, showLeftPanel, showRightPanel]);
 
   const closeLeftPanel = useCallback(() => {
     // Guard: don't close if it would leave no visible content
@@ -323,6 +391,7 @@ export function SessionCard({
     { value: 'files', label: 'Files' },
     { value: 'git', label: 'Git' },
     { value: 'preview', label: 'Preview' },
+    { value: 'issues', label: 'Issues' },
   ] as const;
 
   // Render the content for a panel based on its content type
@@ -403,6 +472,16 @@ export function SessionCard({
             onViewportChange={(mode) => panel.setPreviewViewport(mode)}
           />
         );
+      case 'issues':
+        return (
+          <GitHubIssues
+            sessionId={session.id}
+            onSendToClaude={(text) => {
+              sessionsApi.input(session.id, text + '\n').catch(() => {});
+            }}
+            onClose={slot === 'left' ? closeLeftPanel : closeRightPanel}
+          />
+        );
       default:
         return null;
     }
@@ -466,13 +545,21 @@ export function SessionCard({
 
   return (
     <div
+      data-session-id={session.id}
       onKeyDown={handleKeyDown}
+      onMouseDown={() => {
+        // Always set focus on any click within the card (mousedown fires before click propagation issues)
+        onSetCurrent?.(session.id);
+      }}
+      onClick={() => onSetCurrent?.(session.id)}
       className={`rounded-lg border ${
         session.needsInput
           ? 'border-amber-400 ring-2 ring-amber-400/50'
-          : focused
-            ? 'border-gray-600'
-            : 'border-gray-700'
+          : isCurrent
+            ? 'border-blue-500 ring-1 ring-blue-500/30'
+            : focused
+              ? 'border-gray-600'
+              : 'border-gray-700'
       } bg-gray-800 overflow-hidden flex flex-col`}
     >
       {/* Header + Toolbar (merged single row) */}
@@ -491,25 +578,27 @@ export function SessionCard({
           <div className="flex items-center gap-0.5 flex-1 justify-center min-w-0 flex-wrap">
             <button
               onClick={() => handleTogglePanel('files')}
-              className={`px-1.5 py-0.5 text-xs rounded transition-colors ${
+              className={`px-1.5 py-0.5 text-xs rounded transition-colors relative ${
                 panel.leftPanel === 'files' || panel.rightPanel === 'files'
                   ? 'bg-blue-500/20 text-blue-400'
                   : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
               }`}
-              title="File Explorer (Ctrl+Shift+F for search)"
+              title="File Explorer (Ctrl+., E)"
             >
               Files
+              {chordArmed && isCurrent && <span className="ml-1 px-1 py-px bg-blue-600 text-white text-[10px] rounded font-mono animate-pulse">E</span>}
             </button>
             <button
               onClick={() => handleTogglePanel('git')}
-              className={`px-1.5 py-0.5 text-xs rounded transition-colors ${
+              className={`px-1.5 py-0.5 text-xs rounded transition-colors relative ${
                 panel.leftPanel === 'git' || panel.rightPanel === 'git'
                   ? 'bg-blue-500/20 text-blue-400'
                   : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
               }`}
-              title="Git Changes"
+              title="Git Changes (Ctrl+., G)"
             >
               Git
+              {chordArmed && isCurrent && <span className="ml-1 px-1 py-px bg-blue-600 text-white text-[10px] rounded font-mono animate-pulse">G</span>}
             </button>
             <div className="w-px h-3.5 bg-gray-600 mx-0.5" />
             <button
@@ -525,6 +614,7 @@ export function SessionCard({
               title={panel.terminalVisible ? 'Hide Claude Code' : 'Show Claude Code'}
             >
               Claude
+              {chordArmed && isCurrent && <span className="ml-1 px-1 py-px bg-blue-600 text-white text-[10px] rounded font-mono animate-pulse">\</span>}
               {!panel.terminalVisible && session.needsInput && (
                 <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-amber-400 rounded-full animate-pulse" />
               )}
@@ -548,9 +638,22 @@ export function SessionCard({
                   ? 'bg-green-500/20 text-green-400'
                   : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
               }`}
-              title="Web Preview"
+              title="Web Preview (Ctrl+., V)"
             >
               Preview
+              {chordArmed && isCurrent && <span className="ml-1 px-1 py-px bg-blue-600 text-white text-[10px] rounded font-mono animate-pulse">V</span>}
+            </button>
+            <button
+              onClick={() => handleTogglePanel('issues')}
+              className={`px-1.5 py-0.5 text-xs rounded transition-colors ${
+                panel.leftPanel === 'issues' || panel.rightPanel === 'issues'
+                  ? 'bg-purple-500/20 text-purple-400'
+                  : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+              }`}
+              title="GitHub Issues (Ctrl+., I)"
+            >
+              Issues
+              {chordArmed && isCurrent && <span className="ml-1 px-1 py-px bg-blue-600 text-white text-[10px] rounded font-mono animate-pulse">I</span>}
             </button>
             <div className="w-px h-3.5 bg-gray-600 mx-0.5" />
             <button

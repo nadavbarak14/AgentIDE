@@ -63,12 +63,11 @@ export class SessionManager extends EventEmitter {
       this.startFreshIds.delete(sessionId);
 
       if (session.continuationCount > 0 && session.claudeSessionId) {
-        // Continue a previous session with claude -c <specific-id>
-        log.info({ claudeSessionId: session.claudeSessionId }, 'continuing session with claude -c <id>');
+        // Continue a previous session with claude -c (resumes most recent session in working directory)
+        log.info({ claudeSessionId: session.claudeSessionId }, 'continuing session with claude -c');
         ptyProc = this.ptySpawner.spawnContinue(
           sessionId,
           session.workingDirectory,
-          session.claudeSessionId,
         );
       } else if (isStartFresh) {
         // Start fresh — no --continue flag

@@ -2,8 +2,11 @@ import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { SessionGrid } from '../components/SessionGrid';
 import { SessionQueue } from '../components/SessionQueue';
 import { SettingsPanel } from '../components/SettingsPanel';
+import { ShortcutsHelp } from '../components/ShortcutsHelp';
+import { SessionSwitcher } from '../components/SessionSwitcher';
 import { useSessionQueue } from '../hooks/useSessionQueue';
 import { useSession } from '../hooks/useSession';
+import { useKeyboardShortcuts, type ShortcutAction } from '../hooks/useKeyboardShortcuts';
 import { settings as settingsApi, type Settings, type Session } from '../services/api';
 
 export function Dashboard() {
@@ -30,9 +33,20 @@ export function Dashboard() {
 
   const [appSettings, setAppSettings] = useState<Settings | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem('c3-sidebar-open') !== 'false');
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(() => localStorage.getItem('c3-current-session'));
 
   useEffect(() => {
     settingsApi.get().then(setAppSettings).catch(() => {});
+  }, []);
+
+  // Persist currentSessionId to localStorage
+  const handleSetCurrentSession = useCallback((id: string | null) => {
+    setCurrentSessionId(id);
+    if (id) {
+      localStorage.setItem('c3-current-session', id);
+    } else {
+      localStorage.removeItem('c3-current-session');
+    }
   }, []);
 
   const maxVisible = appSettings?.maxVisibleSessions ?? 4;
@@ -208,6 +222,152 @@ export function Dashboard() {
     [activeSessions, displayedIds],
   );
 
+  // ── Keyboard Shortcuts ──────────────────────────────────────────
+  const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
+  const [sessionSwitcherOpen, setSessionSwitcherOpen] = useState(false);
+  const [sessionSwitcherIndex, setSessionSwitcherIndex] = useState(0);
+
+  // Auto-set current session to first displayed if none set
+  useEffect(() => {
+    if (!currentSessionId && displayedIds.length > 0) {
+      handleSetCurrentSession(displayedIds[0]);
+    }
+  }, [currentSessionId, displayedIds, handleSetCurrentSession]);
+
+  // Keep a ref to displayedIds for the shortcut handler
+  const displayedIdsRef = useRef(displayedIds);
+  displayedIdsRef.current = displayedIds;
+  const currentSessionIdRef = useRef(currentSessionId);
+  currentSessionIdRef.current = currentSessionId;
+
+  const sessionSwitcherOpenRef = useRef(sessionSwitcherOpen);
+  sessionSwitcherOpenRef.current = sessionSwitcherOpen;
+
+  // Focus the terminal in a specific session — synchronous DOM focus + delayed retry.
+  // Called only from keyboard shortcuts — NOT from mouse clicks.
+  const focusTerminalInSession = useCallback((sessionId: string) => {
+    const doFocus = () => {
+      const textarea = document.querySelector(`[data-session-id="${sessionId}"] .xterm-helper-textarea`) as HTMLElement | null;
+      if (textarea && document.activeElement !== textarea) {
+        textarea.focus();
+      }
+    };
+    doFocus();
+    // Retry after React re-renders (disarm causes re-render that can steal focus)
+    setTimeout(doFocus, 200);
+  }, []);
+
+  const handleShortcutAction = useCallback((action: ShortcutAction) => {
+    const curId = currentSessionIdRef.current;
+    const displayed = displayedIdsRef.current;
+    const allSessions = sessionsRef.current;
+    const switcherOpen = sessionSwitcherOpenRef.current;
+
+    switch (action) {
+      // Arrow keys: move focus (or navigate switcher if open)
+      case 'focus_next': {
+        if (switcherOpen) {
+          // Navigate within switcher
+          setSessionSwitcherIndex((prev) => (prev + 1) % allSessions.length);
+          return;
+        }
+        if (displayed.length <= 1) return;
+        const curIdx = curId ? displayed.indexOf(curId) : -1;
+        const nextIdx = (curIdx + 1) % displayed.length;
+        const nextId = displayed[nextIdx];
+        handleSetCurrentSession(nextId);
+        focusTerminalInSession(nextId);
+        break;
+      }
+      case 'focus_prev': {
+        if (switcherOpen) {
+          setSessionSwitcherIndex((prev) => (prev - 1 + allSessions.length) % allSessions.length);
+          return;
+        }
+        if (displayed.length <= 1) return;
+        const curIdx = curId ? displayed.indexOf(curId) : 0;
+        const prevIdx = (curIdx - 1 + displayed.length) % displayed.length;
+        const prevId = displayed[prevIdx];
+        handleSetCurrentSession(prevId);
+        focusTerminalInSession(prevId);
+        break;
+      }
+      // Tab: open session switcher for all sessions (including overflow)
+      case 'switch_next': {
+        if (allSessions.length === 0) return;
+        setSessionSwitcherOpen((wasOpen) => {
+          if (!wasOpen) {
+            const curIdx = curId ? allSessions.findIndex((s) => s.id === curId) : -1;
+            setSessionSwitcherIndex((curIdx + 1) % allSessions.length);
+          } else {
+            setSessionSwitcherIndex((prev) => (prev + 1) % allSessions.length);
+          }
+          return true;
+        });
+        break;
+      }
+      case 'switch_prev': {
+        if (allSessions.length === 0) return;
+        setSessionSwitcherOpen((wasOpen) => {
+          if (!wasOpen) {
+            const curIdx = curId ? allSessions.findIndex((s) => s.id === curId) : 0;
+            setSessionSwitcherIndex((curIdx - 1 + allSessions.length) % allSessions.length);
+          } else {
+            setSessionSwitcherIndex((prev) => (prev - 1 + allSessions.length) % allSessions.length);
+          }
+          return true;
+        });
+        break;
+      }
+      case 'confirm_session': {
+        const idx = sessionSwitcherIndex;
+        if (allSessions[idx]) {
+          const id = allSessions[idx].id;
+          handleSetCurrentSession(id);
+          handleFocusSession(id);
+          focusTerminalInSession(id);
+        }
+        setSessionSwitcherOpen(false);
+        break;
+      }
+      case 'show_help':
+        setShortcutsHelpOpen((prev) => !prev);
+        break;
+      case 'toggle_files':
+      case 'toggle_git':
+      case 'toggle_preview':
+      case 'toggle_claude':
+      case 'toggle_issues':
+      case 'search_files':
+        if (curId) {
+          window.dispatchEvent(new CustomEvent('c3:shortcut', { detail: { action, sessionId: curId } }));
+        }
+        break;
+    }
+  }, [handleSetCurrentSession, handleFocusSession, focusTerminalInSession, sessionSwitcherIndex]);
+
+  const chordState = useKeyboardShortcuts({
+    enabled: true,
+    onAction: handleShortcutAction,
+  });
+
+  // Close session switcher when chord times out (don't auto-select — user must press Enter)
+  useEffect(() => {
+    if (!chordState.isArmed && sessionSwitcherOpen) {
+      setSessionSwitcherOpen(false);
+    }
+  }, [chordState.isArmed, sessionSwitcherOpen]);
+
+  const handleSessionSwitcherSelect = useCallback((id: string) => {
+    handleSetCurrentSession(id);
+    handleFocusSession(id);
+    setSessionSwitcherOpen(false);
+  }, [handleSetCurrentSession, handleFocusSession]);
+
+  const handleSessionSwitcherClose = useCallback(() => {
+    setSessionSwitcherOpen(false);
+  }, []);
+
   return (
     <div className="flex h-screen bg-gray-900 text-white">
       {/* Main Area */}
@@ -232,7 +392,7 @@ export function Dashboard() {
               className="px-2 py-1 text-xs text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors"
               title={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
             >
-              {sidebarOpen ? '»' : '«'}
+              {sidebarOpen ? '\u00BB' : '\u00AB'}
             </button>
             {appSettings && (
               <SettingsPanel
@@ -247,13 +407,35 @@ export function Dashboard() {
         <SessionGrid
           displayedSessions={displayedSessions}
           overflowSessions={overflowSessions}
+          currentSessionId={currentSessionId}
           onContinue={(id) => continueSession(id).catch(() => {})}
           onKill={(id) => killSession(id).catch(() => {})}
           onToggleLock={(id, lock) => toggleLock(id, lock).catch(() => {})}
           onDelete={(id) => deleteSession(id).catch(() => {})}
           onFocusSession={handleFocusSession}
+          onSetCurrent={handleSetCurrentSession}
         />
       </div>
+
+      {/* Chord Indicator */}
+      {chordState.isArmed && (
+        <div className="fixed top-2 right-2 z-40 bg-blue-600 text-white text-xs font-mono px-2 py-1 rounded shadow-lg animate-pulse">
+          Ctrl+. ...
+        </div>
+      )}
+
+      {/* Session Switcher Overlay */}
+      <SessionSwitcher
+        sessions={sessions}
+        currentSessionId={currentSessionId}
+        isOpen={sessionSwitcherOpen}
+        highlightedIndex={sessionSwitcherIndex}
+        onSelect={handleSessionSwitcherSelect}
+        onClose={handleSessionSwitcherClose}
+      />
+
+      {/* Shortcuts Help Overlay */}
+      <ShortcutsHelp open={shortcutsHelpOpen} onClose={() => setShortcutsHelpOpen(false)} />
 
       {/* Sidebar */}
       <div className={`transition-all duration-200 flex-shrink-0 ${sidebarOpen ? 'w-80' : 'w-0 overflow-hidden'}`}>

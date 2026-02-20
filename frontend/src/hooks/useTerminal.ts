@@ -43,6 +43,20 @@ export function useTerminal(options: UseTerminalOptions = {}) {
     const clipboardAddon = new ClipboardAddon();
     terminal.loadAddon(clipboardAddon);
 
+    // Let certain key combos pass through xterm to global handlers.
+    terminal.attachCustomKeyEventHandler((arg) => {
+      if (arg.type !== 'keydown') return true;
+      // Ctrl+. → global prefix chord handler
+      if (arg.key === '.' && arg.ctrlKey && !arg.shiftKey && !arg.altKey && !arg.metaKey) {
+        return false;
+      }
+      // Ctrl+Shift+F → project search
+      if (arg.key === 'F' && arg.ctrlKey && arg.shiftKey && !arg.altKey && !arg.metaKey) {
+        return false;
+      }
+      return true;
+    });
+
     terminal.open(container);
     fitAddon.fit();
 
@@ -98,6 +112,8 @@ export function useTerminal(options: UseTerminalOptions = {}) {
     } else {
       terminal.write(new Uint8Array(data));
     }
+    // Auto-scroll to bottom on new data
+    terminal.scrollToBottom();
   }, []);
 
   const fit = useCallback(() => {

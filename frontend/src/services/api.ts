@@ -268,6 +268,89 @@ export const directories = {
     }),
 };
 
+// ─── GitHub Issues ───
+
+export interface GitHubStatus {
+  ghInstalled: boolean;
+  ghAuthenticated: boolean;
+  repoDetected: boolean;
+  repoOwner: string | null;
+  repoName: string | null;
+  error: string | null;
+}
+
+export interface GitHubLabel {
+  name: string;
+  color: string;
+  description: string;
+}
+
+export interface GitHubAssignee {
+  login: string;
+  name: string;
+}
+
+export interface GitHubAuthor {
+  login: string;
+  name: string;
+}
+
+export interface GitHubComment {
+  author: GitHubAuthor;
+  body: string;
+  createdAt: string;
+}
+
+export interface GitHubIssue {
+  number: number;
+  title: string;
+  state: 'OPEN' | 'CLOSED';
+  labels: GitHubLabel[];
+  assignees: GitHubAssignee[];
+  author: GitHubAuthor;
+  createdAt: string;
+  updatedAt: string;
+  url: string;
+}
+
+export interface GitHubIssueDetail extends GitHubIssue {
+  body: string;
+  comments: GitHubComment[];
+}
+
+export interface GitHubIssueList {
+  issues: GitHubIssue[];
+  totalCount: number;
+  error?: string;
+}
+
+export const github = {
+  status: (sessionId: string) =>
+    request<GitHubStatus>(`/sessions/${sessionId}/github/status`),
+
+  issues: (sessionId: string, params?: {
+    assignee?: string;
+    state?: 'open' | 'closed' | 'all';
+    limit?: number;
+    labels?: string;
+    search?: string;
+  }) => {
+    const qs = new URLSearchParams();
+    if (params?.assignee) qs.set('assignee', params.assignee);
+    if (params?.state) qs.set('state', params.state);
+    if (params?.limit) qs.set('limit', String(params.limit));
+    if (params?.labels) qs.set('labels', params.labels);
+    if (params?.search) qs.set('search', params.search);
+    const query = qs.toString();
+    return request<GitHubIssueList>(
+      `/sessions/${sessionId}/github/issues${query ? `?${query}` : ''}`,
+    );
+  },
+
+  issueDetail: (sessionId: string, number: number) =>
+    request<GitHubIssueDetail>(`/sessions/${sessionId}/github/issues/${number}`),
+};
+
 // ─── Settings ───
 
 export const settings = {

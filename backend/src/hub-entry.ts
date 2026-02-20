@@ -17,6 +17,7 @@ import { createWorkersRouter } from './api/routes/workers.js';
 import { createDirectoriesRouter } from './api/routes/directories.js';
 import { createHooksRouter } from './api/routes/hooks.js';
 import { createAuthRouter } from './api/routes/auth.js';
+import { createGitHubRouter } from './api/routes/github.js';
 import { setupWebSocket, broadcastToSession } from './api/websocket.js';
 import { FileWatcher } from './worker/file-watcher.js';
 import { requestLogger, errorHandler, createAuthMiddleware } from './api/middleware.js';
@@ -155,6 +156,24 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
   app.use('/api/sessions', createSessionsRouter(repo, sessionManager));
   app.use('/api/workers', createWorkersRouter(repo, workerManager));
   app.use('/api/directories', createDirectoriesRouter());
+  app.use('/api/sessions', createGitHubRouter(repo));
+
+  // Board command endpoint — skills POST here via curl to control the IDE view
+  app.post('/api/sessions/:id/board-command', (req, res) => {
+    const sessionId = req.params.id;
+    const { command, params } = req.body;
+    if (!command) {
+      res.status(400).json({ error: 'Missing command' });
+      return;
+    }
+    broadcastToSession(sessionId, {
+      type: 'board_command',
+      sessionId,
+      command,
+      params: params || {},
+    });
+    res.json({ ok: true });
+  });
 
   // Serve static frontend in production
   const frontendDist = path.join(import.meta.dirname, '../../frontend/dist');

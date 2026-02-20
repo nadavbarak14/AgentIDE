@@ -5,21 +5,25 @@ import type { Session } from '../services/api';
 interface SessionGridProps {
   displayedSessions: Session[];
   overflowSessions: Session[];
+  currentSessionId?: string | null;
   onContinue: (id: string) => void;
   onKill: (id: string) => void;
   onToggleLock: (id: string, lock: boolean) => void;
   onDelete: (id: string) => void;
   onFocusSession: (id: string) => void;
+  onSetCurrent?: (id: string) => void;
 }
 
 export function SessionGrid({
   displayedSessions,
   overflowSessions,
+  currentSessionId,
   onContinue,
   onKill,
   onToggleLock,
   onDelete,
   onFocusSession,
+  onSetCurrent,
 }: SessionGridProps) {
   const [overflowCollapsed, setOverflowCollapsed] = useState(
     () => localStorage.getItem('c3-overflow-collapsed') !== 'false'
@@ -111,11 +115,13 @@ export function SessionGrid({
             key={session.id}
             session={session}
             focused={true}
+            isCurrent={currentSessionId === session.id}
             isSingleView={displayedSessions.length === 1}
             onContinue={onContinue}
             onKill={onKill}
             onToggleLock={onToggleLock}
             onDelete={onDelete}
+            onSetCurrent={onSetCurrent}
           />
         ))}
       </div>
