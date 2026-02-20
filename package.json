@@ -2,6 +2,7 @@
   "name": "c3-dashboard",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "workspaces": [
     "backend",
     "frontend"
@@ -9,10 +10,17 @@
   "bin": {
     "agentide": "./backend/dist/cli.js"
   },
+  "files": [
+    "backend/dist/",
+    "frontend/dist/",
+    "package.json",
+    "README.md"
+  ],
   "scripts": {
     "dev:backend": "npm run dev --workspace=backend",
     "dev:frontend": "npm run dev --workspace=frontend",
     "build": "npm run build --workspace=backend && npm run build --workspace=frontend",
+    "prepublishOnly": "npm run build",
     "start": "npm run start --workspace=backend",
     "start:worker": "npm run start:worker --workspace=backend",
     "test": "npm run test --workspace=backend && npm run test --workspace=frontend",
@@ -20,8 +28,31 @@
     "test:frontend": "npm run test --workspace=frontend",
     "test:coverage": "npm run test:coverage --workspace=backend && npm run test:coverage --workspace=frontend",
     "test:system": "npm run test:system --workspace=backend",
+    "test:release": "npx vitest run --config release-tests/vitest.config.ts",
+    "test:release:smoke": "npx vitest run --config release-tests/vitest.config.ts smoke/",
+    "test:release:install": "npx vitest run --config release-tests/vitest.config.ts install/",
+    "test:release:e2e": "npx vitest run --config release-tests/vitest.config.ts e2e/",
+    "test:release:upgrade": "npx vitest run --config release-tests/vitest.config.ts upgrade/",
+    "test:release:config": "npx vitest run --config release-tests/vitest.config.ts config/",
     "lint": "npm run lint --workspace=backend && npm run lint --workspace=frontend",
     "typecheck": "npm run typecheck --workspace=backend && npm run typecheck --workspace=frontend"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.7.0",
+    "chokidar": "^4.0.0",
+    "commander": "^14.0.3",
+    "cookie-parser": "^1.4.7",
+    "diff2html": "^3.4.0",
+    "express": "^4.21.0",
+    "express-rate-limit": "^8.2.1",
+    "jose": "^6.1.3",
+    "node-pty": "^1.0.0",
+    "pino": "^9.6.0",
+    "pino-pretty": "^13.0.0",
+    "selfsigned": "^5.5.0",
+    "ssh2": "^1.16.0",
+    "uuid": "^11.0.0",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^7.18.0",

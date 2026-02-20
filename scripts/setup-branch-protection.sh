@@ -29,7 +29,7 @@ gh api "repos/$REPO/branches/main/protection" \
 {
   "required_status_checks": {
     "strict": true,
-    "contexts": ["lint-typecheck", "test-backend", "test-frontend"]
+    "contexts": ["lint-typecheck", "test-backend", "test-frontend", "test-release"]
   },
   "enforce_admins": true,
   "required_pull_request_reviews": null,
