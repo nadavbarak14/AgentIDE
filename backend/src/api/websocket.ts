@@ -6,6 +6,7 @@ import type { PtySpawner } from '../worker/pty-spawner.js';
 import type { FileWatcher } from '../worker/file-watcher.js';
 import type { WsClientMessage, BoardCommand } from '../models/types.js';
 import { createSessionLogger, logger } from '../services/logger.js';
+import { verifyToken, COOKIE_NAME } from '../auth/jwt.js';
 
 // Map of sessionId → Set of connected WebSocket clients
 const sessionClients = new Map<string, Set<WebSocket>>();
@@ -16,17 +17,41 @@ export function setupWebSocket(
   sessionManager: SessionManager,
   ptySpawner: PtySpawner,
   fileWatcher?: FileWatcher,
+  jwtSecret?: string,
+  authRequired?: boolean,
 ): void {
   const wss = new WebSocketServer({ noServer: true });
 
   // Handle HTTP upgrade
-  server.on('upgrade', (request, socket, head) => {
+  server.on('upgrade', async (request, socket, head) => {
     const url = new URL(request.url || '', `http://${request.headers.host}`);
     const match = url.pathname.match(/^\/ws\/sessions\/([a-f0-9-]+)$/);
 
     if (!match) {
       socket.destroy();
       return;
+    }
+
+    // JWT auth check on WebSocket upgrade (when auth is required)
+    if (authRequired && jwtSecret) {
+      const cookieHeader = request.headers.cookie || '';
+      const cookies: Record<string, string> = {};
+      for (const pair of cookieHeader.split(';')) {
+        const [key, ...vals] = pair.trim().split('=');
+        if (key) cookies[key.trim()] = vals.join('=').trim();
+      }
+      const token = cookies[COOKIE_NAME];
+      if (!token) {
+        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+        socket.destroy();
+        return;
+      }
+      const payload = await verifyToken(token, jwtSecret);
+      if (!payload) {
+        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+        socket.destroy();
+        return;
+      }
     }
 
     const sessionId = match[1];

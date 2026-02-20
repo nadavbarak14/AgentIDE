@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import { logger } from '../services/logger.js';
+import { verifyToken, COOKIE_NAME } from '../auth/jwt.js';
 
 // Request logging
 export function requestLogger(req: Request, _res: Response, next: NextFunction): void {
@@ -44,6 +45,38 @@ export function validateBody(requiredFields: string[]) {
         return;
       }
     }
+    next();
+  };
+}
+
+// Auth middleware — skip auth when authRequired=false (localhost mode)
+export function createAuthMiddleware(jwtSecret: string, authRequired: boolean) {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    if (!authRequired) {
+      next();
+      return;
+    }
+
+    const token = req.cookies?.[COOKIE_NAME];
+    if (!token) {
+      res.status(401).json({ error: 'Authentication required' });
+      return;
+    }
+
+    const payload = await verifyToken(token, jwtSecret);
+    if (!payload) {
+      res.status(401).json({ error: 'Authentication required' });
+      return;
+    }
+
+    // Check if license has expired since JWT was issued
+    if (payload.licenseExpiresAt && new Date(payload.licenseExpiresAt).getTime() < Date.now()) {
+      res.status(401).json({ error: 'License expired' });
+      return;
+    }
+
+    // Attach auth payload to request for downstream use
+    (req as Request & { auth?: typeof payload }).auth = payload;
     next();
   };
 }

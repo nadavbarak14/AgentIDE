@@ -17,6 +17,15 @@ export function createWorkersRouter(repo: Repository, workerManager: WorkerManag
   });
 
   router.post('/', validateBody(['name', 'sshHost', 'sshUser', 'sshKeyPath']), async (req, res) => {
+    // Validate SSH key file before creating the worker record
+    try {
+      workerManager.validateSshKeyFile(req.body.sshKeyPath);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Invalid SSH key file';
+      res.status(400).json({ error: message });
+      return;
+    }
+
     try {
       const worker = repo.createWorker(req.body);
       await workerManager.connectWorker(worker);
