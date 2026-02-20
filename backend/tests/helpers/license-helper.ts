@@ -5,11 +5,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const PRIVATE_KEY_PATH = path.join(
-  process.env.HOME || process.env.USERPROFILE || '.',
-  '.agentide',
-  'private.pem',
-);
+// Use the dev private key bundled as a test fixture (matches the public key in license.ts)
+const PRIVATE_KEY_PATH = path.join(import.meta.dirname, 'dev-private.pem');
 
 let privateKey: string | null = null;
 
