@@ -8,6 +8,11 @@ export interface SelectedElement {
   selector: string;
   rect: { x: number; y: number; width: number; height: number };
   text: string;
+  outerHtml?: string;
+  computedStyles?: Record<string, string>;
+  ancestors?: string[];
+  pageUrl?: string;
+  pageTitle?: string;
 }
 
 export interface UsePreviewBridgeCallbacks {
@@ -24,6 +29,7 @@ export interface UsePreviewBridgeReturn {
   isRecording: boolean;
   recordingDuration: number;
   recordedEvents: React.MutableRefObject<unknown[]>;
+  videoDataUrl: string | null;
   screenshotDataUrl: string | null;
   elementsCheckResult: Record<string, boolean> | null;
   enterInspectMode: () => void;
@@ -48,6 +54,7 @@ export function usePreviewBridge(
   const [isRecording, setIsRecording] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [screenshotDataUrl, setScreenshotDataUrl] = useState<string | null>(null);
+  const [videoDataUrl, setVideoDataUrl] = useState<string | null>(null);
   const [elementsCheckResult, setElementsCheckResult] = useState<Record<string, boolean> | null>(null);
 
   const recordedEvents = useRef<unknown[]>([]);
@@ -110,6 +117,11 @@ export function usePreviewBridge(
             selector: data.selector,
             rect: data.rect,
             text: data.text,
+            outerHtml: data.outerHtml,
+            computedStyles: data.computedStyles,
+            ancestors: data.ancestors,
+            pageUrl: data.pageUrl,
+            pageTitle: data.pageTitle,
           };
           setSelectedElement(element);
           callbacksRef.current?.onElementSelected?.(element);
@@ -136,6 +148,7 @@ export function usePreviewBridge(
 
         case 'c3:bridge:recordingStarted':
           setIsRecording(true);
+          setVideoDataUrl(null);
           startDurationTimer();
           break;
 
@@ -147,6 +160,9 @@ export function usePreviewBridge(
         case 'c3:bridge:recordingAutoStopped':
           setIsRecording(false);
           stopDurationTimer();
+          if (data.videoDataUrl) {
+            setVideoDataUrl(data.videoDataUrl);
+          }
           break;
 
         case 'c3:bridge:elementsChecked':
@@ -227,6 +243,7 @@ export function usePreviewBridge(
     recordingDuration,
     recordedEvents,
     screenshotDataUrl,
+    videoDataUrl,
     elementsCheckResult,
     enterInspectMode,
     exitInspectMode,

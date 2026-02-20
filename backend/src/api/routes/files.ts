@@ -5,13 +5,61 @@ import dns from 'node:dns/promises';
 import net from 'node:net';
 import path from 'node:path';
 import fs from 'node:fs';
+import zlib from 'node:zlib';
 import type { Repository } from '../../models/repository.js';
 import { validateUuid, sanitizePath } from '../middleware.js';
 import { listDirectory, readFile, writeFile, searchFiles } from '../../worker/file-reader.js';
 import { getDiff } from '../../worker/git-operations.js';
 import { logger } from '../../services/logger.js';
 
-const BRIDGE_SCRIPT_TAG = '<script src="/api/inspect-bridge.js"></script>';
+const BRIDGE_VERSION = '4';
+const BRIDGE_SCRIPT_TAG = `<script src="/api/inspect-bridge.js?v=${BRIDGE_VERSION}" data-c3-bridge></script>`;
+
+/** Decompress a buffer based on content-encoding */
+function decompressBuffer(buf: Buffer, encoding: string): Buffer {
+  if (encoding.includes('gzip')) return Buffer.from(zlib.gunzipSync(buf));
+  if (encoding.includes('br')) return Buffer.from(zlib.brotliDecompressSync(buf));
+  if (encoding.includes('deflate')) return Buffer.from(zlib.inflateSync(buf));
+  return buf;
+}
+
+/** Rewrite absolute paths in HTML to go through the proxy, and inject a fetch/XHR interceptor */
+function rewriteHtmlForProxy(html: string, proxyBase: string): string {
+  // Rewrite src="/..." and href="/..." attributes (but not "//..." protocol-relative)
+  let rewritten = html.replace(
+    /((?:src|href|action)\s*=\s*)(["'])\/(?!\/)(.*?)\2/gi,
+    `$1$2${proxyBase}/$3$2`,
+  );
+
+  // Rewrite JSON URLs inside <script> tags (e.g. Next.js RSC payloads)
+  // Handles both \"/_next/...\" and ["/_next/..."] patterns
+  rewritten = rewritten.replace(
+    /\\"\/(\_next\/[^"\\]*)\\"/g,
+    `\\"${proxyBase}/$1\\"`,
+  );
+  rewritten = rewritten.replace(
+    /\["\/(\_next\/[^"]*?)"/g,
+    `["${proxyBase}/$1"`,
+  );
+
+  // Inject a URL rewriter script that intercepts fetch, XHR, and dynamic elements
+  const urlRewriter = `<script>(function(){var b="${proxyBase}";var oF=window.fetch;window.fetch=function(u,o){if(typeof u==="string"&&u.startsWith("/")&&!u.startsWith(b))u=b+u;return oF.call(this,u,o)};var oX=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,u){if(typeof u==="string"&&u.startsWith("/")&&!u.startsWith(b))u=b+u;return oX.apply(this,arguments)};new MutationObserver(function(ms){ms.forEach(function(m){m.addedNodes.forEach(function(n){if(n.nodeType===1){if(n.hasAttribute&&n.hasAttribute("data-c3-bridge"))return;["src","href"].forEach(function(a){var v=n.getAttribute&&n.getAttribute(a);if(v&&v.startsWith("/")&&!v.startsWith(b)&&!v.startsWith("//"))n.setAttribute(a,b+v)})}})})}).observe(document.documentElement,{childList:true,subtree:true})})()</script>`;
+
+  // Strip <meta> CSP tags from proxied HTML — they'd block our injected scripts
+  rewritten = rewritten.replace(/<meta[^>]*http-equiv\s*=\s*["']Content-Security-Policy["'][^>]*>/gi, '');
+
+  rewritten = injectBridgeScript(rewritten);
+  // Insert URL rewriter right after <head> so it runs before any resources load
+  if (rewritten.includes('<head>')) {
+    rewritten = rewritten.replace('<head>', '<head>' + urlRewriter);
+  } else if (rewritten.includes('<head ')) {
+    rewritten = rewritten.replace(/<head\s[^>]*>/, '$&' + urlRewriter);
+  } else {
+    rewritten = urlRewriter + rewritten;
+  }
+
+  return rewritten;
+}
 
 /** Inject the inspect-bridge script before </head> in an HTML document */
 function injectBridgeScript(html: string): string {
@@ -256,7 +304,11 @@ export function createFilesRouter(repo: Repository): Router {
 
     const ext = path.extname(servePath).toLowerCase();
     const mimeType = MIME_TYPES[ext] || 'application/octet-stream';
+    // Remove restrictive headers for preview iframe content
+    res.removeHeader('x-frame-options');
+    res.removeHeader('content-security-policy');
     res.setHeader('Content-Type', mimeType);
+    res.setHeader('Access-Control-Allow-Origin', '*');
 
     // Inject bridge script into HTML files
     if (ext === '.html' || ext === '.htm') {
@@ -315,6 +367,7 @@ export function createFilesRouter(repo: Repository): Router {
     delete forwardHeaders['connection'];
     delete forwardHeaders['upgrade'];
     delete forwardHeaders['cookie']; // Don't leak dashboard cookies to proxied server
+    delete forwardHeaders['accept-encoding']; // Request uncompressed so we can rewrite HTML
     forwardHeaders['host'] = `localhost:${targetPort}`;
 
     const proxyReq = http.request(
@@ -326,24 +379,67 @@ export function createFilesRouter(repo: Repository): Router {
         headers: forwardHeaders as http.OutgoingHttpHeaders,
       },
       (proxyRes) => {
-        // Remove headers that could cause issues
+        // Remove restrictive headers set by the global security middleware —
+        // these would otherwise merge into writeHead() and block iframe embedding
+        res.removeHeader('x-frame-options');
+        res.removeHeader('content-security-policy');
+
+        // Remove headers from upstream that could also cause issues
         const responseHeaders = { ...proxyRes.headers };
-        delete responseHeaders['x-frame-options']; // Allow embedding in iframe
-        delete responseHeaders['content-security-policy']; // Allow proxy context
-        delete responseHeaders['set-cookie']; // Don't let proxied server set cookies on dashboard domain
+        delete responseHeaders['x-frame-options'];
+        delete responseHeaders['content-security-policy'];
+        delete responseHeaders['set-cookie'];
+        // Allow cross-origin access for fonts/scripts loaded by the iframe
+        responseHeaders['access-control-allow-origin'] = '*';
+
+        // Rewrite Location headers to stay within the proxy path
+        const proxyBase = `/api/sessions/${sessionId}/proxy/${targetPort}`;
+        if (responseHeaders['location']) {
+          const loc = responseHeaders['location'] as string;
+          if (loc.startsWith('/')) {
+            responseHeaders['location'] = proxyBase + loc;
+          } else if (loc.startsWith('http://localhost:') || loc.startsWith('http://127.0.0.1:')) {
+            try {
+              const locUrl = new URL(loc);
+              responseHeaders['location'] = proxyBase + locUrl.pathname + locUrl.search + locUrl.hash;
+            } catch { /* leave as-is */ }
+          }
+        }
+
+        // Rewrite Link header preload hints (e.g. Next.js font preloads)
+        // These contain absolute paths that the browser fetches before HTML is processed
+        if (responseHeaders['link']) {
+          const linkVal = responseHeaders['link'] as string;
+          responseHeaders['link'] = linkVal.replace(/<\//g, `<${proxyBase}/`);
+        }
 
         const contentType = (proxyRes.headers['content-type'] || '').toLowerCase();
         if (contentType.includes('text/html')) {
-          // Buffer HTML responses to inject bridge script
+          // Buffer HTML to decompress, rewrite absolute paths, and inject scripts
           const chunks: Buffer[] = [];
           proxyRes.on('data', (chunk: Buffer) => chunks.push(chunk));
           proxyRes.on('end', () => {
-            const body = Buffer.concat(chunks).toString('utf-8');
-            const modified = injectBridgeScript(body);
-            delete responseHeaders['content-length'];
-            responseHeaders['content-length'] = String(Buffer.byteLength(modified));
-            res.writeHead(proxyRes.statusCode || 200, responseHeaders);
-            res.end(modified);
+            try {
+              let raw: Buffer = Buffer.concat(chunks);
+              const encoding = (proxyRes.headers['content-encoding'] || '').toLowerCase();
+              if (encoding) {
+                raw = decompressBuffer(raw, encoding) as Buffer;
+                delete responseHeaders['content-encoding'];
+              }
+              const body = raw.toString('utf-8');
+              const modified = rewriteHtmlForProxy(body, proxyBase);
+              delete responseHeaders['content-length'];
+              responseHeaders['content-length'] = String(Buffer.byteLength(modified));
+              res.writeHead(proxyRes.statusCode || 200, responseHeaders);
+              res.end(modified);
+            } catch (err) {
+              logger.warn({ error: (err as Error).message }, 'Failed to process proxied HTML');
+              const raw = Buffer.concat(chunks);
+              delete responseHeaders['content-length'];
+              responseHeaders['content-length'] = String(raw.length);
+              res.writeHead(proxyRes.statusCode || 200, responseHeaders);
+              res.end(raw);
+            }
           });
         } else {
           res.writeHead(proxyRes.statusCode || 200, responseHeaders);
@@ -417,18 +513,21 @@ export function createFilesRouter(repo: Repository): Router {
     const isHttps = targetUrl.protocol === 'https:';
     const transport = isHttps ? https : http;
 
+    const proxyHeaders = { ...req.headers, host: targetUrl.host };
+    // Don't forward the dashboard's cookies to external sites
+    delete proxyHeaders.cookie;
+
     const proxyReq = transport.request(
       targetUrl.href,
       {
         method: req.method,
-        headers: {
-          ...req.headers,
-          host: targetUrl.host,
-          // Don't forward the dashboard's cookies to external sites
-          cookie: undefined,
-        },
+        headers: proxyHeaders,
       },
       (proxyRes) => {
+        // Remove restrictive headers set by the global security middleware
+        res.removeHeader('x-frame-options');
+        res.removeHeader('content-security-policy');
+
         const responseHeaders = { ...proxyRes.headers };
         // Strip headers that block iframe embedding
         delete responseHeaders['x-frame-options'];
@@ -436,6 +535,7 @@ export function createFilesRouter(repo: Repository): Router {
         delete responseHeaders['content-security-policy-report-only'];
         // Don't leak external cookies back to the dashboard
         delete responseHeaders['set-cookie'];
+        responseHeaders['access-control-allow-origin'] = '*';
 
         const contentType = (proxyRes.headers['content-type'] || '').toLowerCase();
         if (contentType.includes('text/html')) {

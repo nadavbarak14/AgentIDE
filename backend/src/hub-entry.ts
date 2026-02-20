@@ -143,18 +143,14 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
   app.use(express.json());
   app.use(cookieParser());
 
-  // Security headers
+  // Security headers (skip X-Frame-Options and CSP for proxy/serve routes used by preview iframe)
   app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
-
-    // Preview proxy routes must be embeddable in our iframe — the proxy handler
-    // already strips upstream X-Frame-Options/CSP, so don't re-add them here.
-    const isProxyRoute = req.path.includes('/proxy-url/') || req.path.includes('/proxy/');
+    const isProxyRoute = req.path.includes('/proxy/') || req.path.includes('/proxy-url/') || req.path.includes('/serve/');
     if (!isProxyRoute) {
       res.setHeader('X-Frame-Options', 'DENY');
-      res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:; font-src 'self'; frame-src 'self' http://localhost:* http://127.0.0.1:*");
+      res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-eval' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: blob:; media-src 'self' data: blob:; connect-src 'self' ws: wss: https://cdn.jsdelivr.net; font-src 'self' data: https://cdn.jsdelivr.net");
     }
-
     next();
   });
 
@@ -184,7 +180,7 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
   app.get('/api/inspect-bridge.js', (_req, res) => {
     const bridgePath = path.join(import.meta.dirname, 'api/inspect-bridge.js');
     res.setHeader('Content-Type', 'application/javascript');
-    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.setHeader('Cache-Control', 'no-cache');
     res.sendFile(bridgePath);
   });
 

@@ -36,12 +36,11 @@ export class PreviewService {
       throw new Error(`Session is not active: ${sessionId} (status: ${session.status})`);
     }
 
-    const rect = comment.elementRectJson ? JSON.parse(comment.elementRectJson) : null;
     const selector = comment.elementSelector || 'unknown';
-    const rectStr = rect ? `(${rect.x},${rect.y})` : '(unknown)';
-    const screenshotStr = comment.screenshotPath || 'none';
+    const tag = comment.elementTag || 'unknown';
+    const page = comment.pageUrl || 'unknown page';
 
-    const message = `[Visual Feedback] Element: ${selector} at ${rectStr}, Screenshot: ${screenshotStr}, Comment: ${comment.commentText}. Please address this feedback.\n`;
+    const message = `[Visual Feedback] Page: ${page}\nElement: <${tag}> (${selector})\nComment: ${comment.commentText}\nPlease find the source file that renders ${page} and address this feedback.\n`;
 
     logger.info(
       { sessionId, commentId, selector },
@@ -79,13 +78,17 @@ export class PreviewService {
     if (pending.length === 1) {
       const c = pending[0];
       const selector = c.elementSelector || 'unknown';
-      message = `[Visual Feedback] Element: ${selector}, Comment: ${c.commentText}. Please address this feedback.\n`;
+      const tag = c.elementTag || 'unknown';
+      const page = c.pageUrl || 'unknown page';
+      message = `[Visual Feedback] Page: ${page}\nElement: <${tag}> (${selector})\nComment: ${c.commentText}\nPlease find the source file that renders ${page} and address this feedback.\n`;
     } else {
       const items = pending.map((c, i) => {
         const selector = c.elementSelector || 'unknown';
-        return `(${i + 1}) Element: ${selector}, Comment: ${c.commentText}`;
+        const tag = c.elementTag || 'unknown';
+        const page = c.pageUrl || 'unknown page';
+        return `(${i + 1}) Page: ${page} | Element: <${tag}> (${selector}) | Comment: ${c.commentText}`;
       });
-      message = `[Visual Feedback — ${pending.length} comments] ${items.join(' ')}. Please address all visual feedback.\n`;
+      message = `[Visual Feedback — ${pending.length} comments]\n${items.join('\n')}\nPlease find the source files for these pages and address all feedback.\n`;
     }
 
     logger.info(
