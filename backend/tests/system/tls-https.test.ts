@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import https from 'node:https';
 import selfsigned from 'selfsigned';
 import WebSocket from 'ws';
 import { createAuthTestServer, generateAndActivate, getBaseUrl, type AuthTestServer } from './auth-test-server.js';
