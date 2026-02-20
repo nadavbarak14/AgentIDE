@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { TerminalView } from './TerminalView';
+import { ShellTerminal } from './ShellTerminal';
 import { FileTree } from './FileTree';
 import { FileViewer } from './FileViewer';
 import { DiffViewer } from './DiffViewer';
@@ -288,7 +289,13 @@ export function SessionCard({
     return containerWidth >= neededWidth;
   }, [showLeftPanel, showRightPanel]);
 
-  const handleTogglePanel = useCallback((panelType: 'files' | 'git' | 'preview' | 'issues') => {
+  const handleTogglePanel = useCallback((panelType: 'files' | 'git' | 'preview' | 'issues' | 'shell') => {
+    // Shell uses bottom panel slot
+    if (panelType === 'shell') {
+      panel.setBottomPanel(panel.bottomPanel === 'shell' ? 'none' : 'shell');
+      return;
+    }
+
     // Check if any panel already shows this content type — toggle off
     const leftShows = panel.leftPanel === panelType;
     const rightShows = panel.rightPanel === panelType;
@@ -360,6 +367,9 @@ export function SessionCard({
           break;
         case 'toggle_issues':
           handleTogglePanel('issues');
+          break;
+        case 'toggle_shell':
+          handleTogglePanel('shell');
           break;
         case 'search_files':
           if (panel.leftPanel !== 'files') panel.setLeftPanel('files');
@@ -655,6 +665,18 @@ export function SessionCard({
               Issues
               {chordArmed && isCurrent && <span className="ml-1 px-1 py-px bg-blue-600 text-white text-[10px] rounded font-mono animate-pulse">I</span>}
             </button>
+            <button
+              onClick={() => handleTogglePanel('shell')}
+              className={`px-1.5 py-0.5 text-xs rounded transition-colors ${
+                panel.bottomPanel === 'shell'
+                  ? 'bg-orange-500/20 text-orange-400'
+                  : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+              }`}
+              title="Shell Terminal (Ctrl+., S)"
+            >
+              Shell
+              {chordArmed && isCurrent && <span className="ml-1 px-1 py-px bg-blue-600 text-white text-[10px] rounded font-mono animate-pulse">S</span>}
+            </button>
             <div className="w-px h-3.5 bg-gray-600 mx-0.5" />
             <button
               onClick={() => panel.setFontSize(Math.max(panel.fontSize - 2, 8))}
@@ -723,7 +745,7 @@ export function SessionCard({
         {/* Top Zone — horizontal layout */}
         <div
           className="flex min-w-0 min-h-0"
-          style={{ flex: showBottomZone ? '1 1 0%' : '1 1 auto' }}
+          style={{ flex: (showBottomZone || (showToolbar && panel.bottomPanel === 'shell')) ? '1 1 0%' : '1 1 auto' }}
         >
           {/* Left Panel */}
           {showLeftPanel && (
@@ -809,6 +831,21 @@ export function SessionCard({
             style={{ flex: `0 0 ${panel.bottomHeightPercent}%` }}
           >
             {renderTerminalOrStatus()}
+          </div>
+        )}
+
+        {/* Shell Terminal Bottom Zone */}
+        {showToolbar && panel.bottomPanel === 'shell' && (
+          <div
+            className="border-t border-gray-700 min-h-[150px]"
+            style={{ flex: '0 0 35%' }}
+          >
+            <ShellTerminal
+              sessionId={session.id}
+              active={session.status === 'active' || session.status === 'completed'}
+              fontSize={panel.fontSize}
+              onClose={() => panel.setBottomPanel('none')}
+            />
           </div>
         )}
       </div>

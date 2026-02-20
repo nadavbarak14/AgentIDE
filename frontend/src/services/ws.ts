@@ -6,6 +6,7 @@ export type WsServerMessage =
   | { type: 'needs_input'; sessionId: string; needsInput: boolean; detectedPattern: string; idleSeconds: number }
   | { type: 'artifact'; artifactId: string; artifactType: string; path: string; previewUrl: string }
   | { type: 'board_command'; sessionId: string; command: string; params: Record<string, string> }
+  | { type: 'shell_status'; sessionId: string; status: 'running' | 'stopped' | 'killed'; pid?: number; exitCode?: number; shell?: string }
   | { type: 'error'; message: string; recoverable: boolean };
 
 export interface WsClientOptions {

@@ -140,6 +140,25 @@ export interface Comment {
   sentAt: string | null;
 }
 
+// Shell Terminal
+export type ShellStatus = 'none' | 'running' | 'stopped' | 'killed';
+
+export interface ShellInfo {
+  sessionId: string;
+  status: ShellStatus;
+  pid: number | null;
+  shell: string | null;
+}
+
+export interface WsShellStatusMessage {
+  type: 'shell_status';
+  sessionId: string;
+  status: ShellStatus;
+  pid?: number;
+  exitCode?: number;
+  shell?: string;
+}
+
 // Search
 export interface SearchResult {
   filePath: string;
