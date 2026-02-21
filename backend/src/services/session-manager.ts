@@ -220,13 +220,30 @@ export class SessionManager extends EventEmitter {
 
   /**
    * Open a shell terminal for a session. Session must be active.
+   * For remote workers, opens an SSH shell on the remote server.
    */
-  openShell(sessionId: string, cols?: number, rows?: number): ShellInfo {
-    if (!this._shellSpawner) throw new Error('Shell support not available');
+  async openShell(sessionId: string, cols?: number, rows?: number): Promise<ShellInfo> {
     const session = this.repo.getSession(sessionId);
     if (!session) throw new Error('Session not found');
     if (session.status !== 'active') throw new Error('Session is not active');
-    if (this._shellSpawner.hasShell(sessionId)) throw new Error('Shell already running');
+
+    // Check if shell is already running (for both local and remote)
+    if (this._shellSpawner && this._shellSpawner.hasShell(sessionId)) {
+      throw new Error('Shell already running');
+    }
+
+    // Check if session has a remote worker
+    if (session.workerId) {
+      const worker = this.repo.getWorker(session.workerId);
+      if (worker && worker.type === 'remote') {
+        // Open remote shell via SSH
+        if (!this._tunnelManager) throw new Error('Tunnel manager not available');
+        return await this.openRemoteShell(sessionId, session.workerId, session.workingDirectory, cols, rows);
+      }
+    }
+
+    // Local shell
+    if (!this._shellSpawner) throw new Error('Shell support not available');
 
     const proc = this._shellSpawner.spawn(sessionId, session.workingDirectory, cols, rows);
     return {
@@ -235,6 +252,44 @@ export class SessionManager extends EventEmitter {
       pid: proc.pid,
       shell: proc.shell,
     };
+  }
+
+  /**
+   * Open a remote shell via SSH for a session on a remote worker.
+   */
+  private async openRemoteShell(
+    sessionId: string,
+    workerId: string,
+    workingDirectory: string,
+    cols?: number,
+    rows?: number
+  ): Promise<ShellInfo> {
+    if (!this._remotePtyBridge) throw new Error('Remote PTY bridge not available');
+
+    const log = createSessionLogger(sessionId);
+    log.info({ workerId, workingDirectory }, 'opening remote shell via SSH');
+
+    // Use RemotePtyBridge's tunnel to open a shell, but don't run claude
+    const stream = await this._tunnelManager!.shell(workerId, { cols: cols || 120, rows: rows || 40 });
+
+    // Send commands to cd into the working directory and source shell profile
+    const cmd = `source ~/.bashrc 2>/dev/null; source ~/.bash_profile 2>/dev/null; cd ${this.escapeShellArg(workingDirectory)}\n`;
+    stream.write(cmd);
+
+    // Register the shell stream with shell spawner for I/O handling
+    // Note: We're treating the remote SSH shell similar to a local shell
+    this._shellSpawner?.registerRemoteShell(sessionId, stream);
+
+    return {
+      sessionId,
+      status: 'running',
+      pid: 0, // Remote shells don't have local PIDs
+      shell: 'bash', // Assuming bash on remote server
+    };
+  }
+
+  private escapeShellArg(arg: string): string {
+    return `'${arg.replace(/'/g, "'\\''")}'`;
   }
 
   /**
