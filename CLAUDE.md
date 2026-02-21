@@ -72,7 +72,6 @@ TypeScript 5.x, Node.js 20 LTS: Follow standard conventions
 - 011-browser-preview: Added TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, Tailwind CSS 3, Vite 6, html2canvas-pro@1.5.8, better-sqlite3, ws 8
 - 011-browser-preview: Added TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, Vite 6, Tailwind CSS 3, xterm.js 5, better-sqlite3, ws 8, chokidar 4 (existing) + html2canvas, rrweb, rrweb-player, multer (new)
 - 012-session-connect-ux: Added TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, better-sqlite3, ssh2, node-pty, xterm.js 5, ws 8, Tailwind CSS 3, Vite 6
->>>>>>> 2e5324c (chore: update CLAUDE.md with remote directory support tech stack)
 
 
 <!-- MANUAL ADDITIONS START -->
