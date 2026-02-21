@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
+import os from 'node:os';
+import path from 'node:path';
 import WebSocket from 'ws';
 import { createTestServer, getBaseUrl, type TestServer } from './test-server.js';
 
@@ -16,7 +18,7 @@ describe('WebSocket Events', () => {
     const res = await fetch(`${baseUrl}/api/sessions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ workingDirectory: '/tmp/ws-test', title: 'WS Test' }),
+      body: JSON.stringify({ workingDirectory: path.join(os.homedir(), 'ws-test'), title: 'WS Test' }),
     });
     const data = await res.json();
     sessionId = data.id;
