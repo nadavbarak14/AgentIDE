@@ -23,6 +23,54 @@ function decompressBuffer(buf: Buffer, encoding: string): Buffer {
   return buf;
 }
 
+/**
+ * Rewrite Set-Cookie headers so cookies are scoped to the proxy path.
+ * This lets proxied apps (e.g. login sessions) work through the iframe
+ * without leaking cookies to the dashboard or other proxy paths.
+ *
+ * Each proxy-scoped cookie gets a name prefix (__c3p_) so we can identify
+ * which cookies belong to the proxied app vs the dashboard when forwarding.
+ */
+function rewriteSetCookieHeaders(
+  setCookieHeaders: string | string[] | undefined,
+  proxyBase: string,
+): string[] {
+  if (!setCookieHeaders) return [];
+  const headers = Array.isArray(setCookieHeaders) ? setCookieHeaders : [setCookieHeaders];
+  return headers.map((cookie) => {
+    // Prefix the cookie name so we can identify proxy cookies later
+    let rewritten = cookie.replace(/^([^=]+)=/, '__c3p_$1=');
+    // Set Path to the proxy base (replace any existing Path)
+    if (/;\s*path\s*=/i.test(rewritten)) {
+      rewritten = rewritten.replace(/;\s*path\s*=\s*[^;]*/i, `; Path=${proxyBase}/`);
+    } else {
+      rewritten += `; Path=${proxyBase}/`;
+    }
+    // Remove Domain= since we're proxying through the dashboard host
+    rewritten = rewritten.replace(/;\s*domain\s*=[^;]*/i, '');
+    // Remove Secure flag since proxy may be HTTP
+    rewritten = rewritten.replace(/;\s*secure/i, '');
+    // Remove SameSite=None (needs Secure) — set to Lax instead
+    rewritten = rewritten.replace(/;\s*samesite\s*=\s*[^;]*/i, '; SameSite=Lax');
+    return rewritten;
+  });
+}
+
+/**
+ * Extract proxy-scoped cookies from the browser's Cookie header,
+ * strip the __c3p_ prefix, and return a clean cookie string for the upstream server.
+ * This ensures we only forward cookies that the proxied app originally set.
+ */
+function extractProxyCookies(cookieHeader: string | undefined): string {
+  if (!cookieHeader) return '';
+  return cookieHeader
+    .split(';')
+    .map(c => c.trim())
+    .filter(c => c.startsWith('__c3p_'))
+    .map(c => c.replace('__c3p_', ''))
+    .join('; ');
+}
+
 /** Rewrite absolute paths in HTML to go through the proxy, and inject a fetch/XHR interceptor */
 function rewriteHtmlForProxy(html: string, proxyBase: string): string {
   // Rewrite src="/..." and href="/..." attributes (but not "//..." protocol-relative)
@@ -361,14 +409,23 @@ export function createFilesRouter(repo: Repository): Router {
     const targetPath = '/' + ((req.params as Record<string, string>)[0] || '');
     const queryString = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
 
-    // Strip hop-by-hop headers and dashboard cookies
+    const proxyBase = `/api/sessions/${sessionId}/proxy/${targetPort}`;
+
+    // Strip hop-by-hop headers; forward only proxy-scoped cookies
     const forwardHeaders: Record<string, string | string[] | undefined> = { ...req.headers };
     delete forwardHeaders['host'];
     delete forwardHeaders['connection'];
     delete forwardHeaders['upgrade'];
-    delete forwardHeaders['cookie']; // Don't leak dashboard cookies to proxied server
     delete forwardHeaders['accept-encoding']; // Request uncompressed so we can rewrite HTML
     forwardHeaders['host'] = `localhost:${targetPort}`;
+    // Only forward cookies that the proxied app originally set (prefixed with __c3p_),
+    // stripped back to their original names. This prevents dashboard cookies from leaking.
+    const proxyCookies = extractProxyCookies(req.headers.cookie);
+    if (proxyCookies) {
+      forwardHeaders['cookie'] = proxyCookies;
+    } else {
+      delete forwardHeaders['cookie'];
+    }
 
     const proxyReq = http.request(
       {
@@ -388,12 +445,15 @@ export function createFilesRouter(repo: Repository): Router {
         const responseHeaders = { ...proxyRes.headers };
         delete responseHeaders['x-frame-options'];
         delete responseHeaders['content-security-policy'];
-        delete responseHeaders['set-cookie'];
+        // Rewrite Set-Cookie headers to scope cookies to the proxy path
+        const rewrittenCookies = rewriteSetCookieHeaders(proxyRes.headers['set-cookie'], proxyBase);
+        if (rewrittenCookies.length > 0) {
+          responseHeaders['set-cookie'] = rewrittenCookies;
+        } else {
+          delete responseHeaders['set-cookie'];
+        }
         // Allow cross-origin access for fonts/scripts loaded by the iframe
         responseHeaders['access-control-allow-origin'] = '*';
-
-        // Rewrite Location headers to stay within the proxy path
-        const proxyBase = `/api/sessions/${sessionId}/proxy/${targetPort}`;
         if (responseHeaders['location']) {
           const loc = responseHeaders['location'] as string;
           if (loc.startsWith('/')) {
@@ -456,6 +516,7 @@ export function createFilesRouter(repo: Repository): Router {
     });
 
     // Pipe request body for POST/PUT/etc.
+    // The proxy route is excluded from express.json() so the raw stream is intact.
     req.pipe(proxyReq);
   });
 

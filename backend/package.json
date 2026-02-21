@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT tsx watch src/hub-entry.ts",
-    "build": "tsc && chmod +x dist/cli.js",
+    "build": "tsc && chmod +x dist/cli.js && cp src/api/inspect-bridge.js dist/api/inspect-bridge.js",
     "start": "node dist/hub-entry.js",
     "start:worker": "node dist/worker-entry.js",
     "test": "vitest run",

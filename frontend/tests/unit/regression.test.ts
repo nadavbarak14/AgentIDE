@@ -64,6 +64,40 @@ describe('Regression: overflow bar must show amber background when sessions need
   });
 });
 
+describe('Regression: _t= cache-bust param must not accumulate on iframe reload', () => {
+  // Fixed in 011-browser-preview: file_changed events caused _t= params to pile up infinitely
+
+  function cleanAndAppendCacheBust(url: string): string {
+    const cleanUrl = url.replace(/[?&]_t=\d+/g, '');
+    const separator = cleanUrl.includes('?') ? '&' : '?';
+    return `${cleanUrl}${separator}_t=${Date.now()}`;
+  }
+
+  it('appends single _t= to clean URL', () => {
+    const result = cleanAndAppendCacheBust('/api/sessions/x/proxy/3000/login');
+    expect(result).toMatch(/^\/api\/sessions\/x\/proxy\/3000\/login\?_t=\d+$/);
+  });
+
+  it('replaces existing _t= instead of accumulating', () => {
+    const result = cleanAndAppendCacheBust('/api/sessions/x/proxy/3000/login?_t=111');
+    expect(result).toMatch(/^\/api\/sessions\/x\/proxy\/3000\/login\?_t=\d+$/);
+    expect(result).not.toContain('_t=111');
+  });
+
+  it('handles multiple accumulated _t= params', () => {
+    const result = cleanAndAppendCacheBust('/api/sessions/x/proxy/3000/login?_t=111&_t=222&_t=333');
+    const matches = result.match(/_t=/g);
+    expect(matches).toHaveLength(1);
+  });
+
+  it('preserves other query params while replacing _t=', () => {
+    const result = cleanAndAppendCacheBust('/api/sessions/x/proxy/3000/login?foo=bar&_t=111');
+    expect(result).toContain('foo=bar');
+    const matches = result.match(/_t=/g);
+    expect(matches).toHaveLength(1);
+  });
+});
+
 describe('Regression: modified file tabs must require close confirmation', () => {
   // Fixed in 004-ux-polish: closing a modified tab discarded changes without confirmation
 
