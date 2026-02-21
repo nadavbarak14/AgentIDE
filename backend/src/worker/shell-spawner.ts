@@ -1,4 +1,5 @@
 import * as pty from 'node-pty';
+import type { ClientChannel } from 'ssh2';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -17,6 +18,7 @@ export interface ShellProcess {
 
 export class ShellSpawner extends EventEmitter {
   private processes = new Map<string, pty.IPty>();
+  private remoteStreams = new Map<string, ClientChannel>(); // For remote SSH shells
   private shellInfo = new Map<string, { shell: string; cwd: string }>();
   private scrollbackDir: string;
   private scrollbackBuffers = new Map<string, string>();
@@ -34,6 +36,7 @@ export class ShellSpawner extends EventEmitter {
   /**
    * Detect the user's default shell from $SHELL, falling back to /bin/bash.
    */
+  // WSL2: $SHELL is set by the Linux kernel, /bin/bash fallback is valid
   getDefaultShell(): string {
     return process.env.SHELL || '/bin/bash';
   }
@@ -105,8 +108,41 @@ export class ShellSpawner extends EventEmitter {
     };
   }
 
+  /**
+   * Register a remote SSH shell stream for a session.
+   * Used for remote worker shells that run over SSH tunnels.
+   */
+  registerRemoteShell(sessionId: string, stream: ClientChannel): void {
+    const log = createSessionLogger(sessionId);
+    log.info('registering remote SSH shell');
+
+    this.remoteStreams.set(sessionId, stream);
+    this.shellInfo.set(sessionId, { shell: 'bash', cwd: 'remote' });
+    this.scrollbackBuffers.set(sessionId, '');
+
+    // Handle output
+    stream.on('data', (data: Buffer) => {
+      const str = data.toString();
+      this.emit('data', sessionId, str);
+      this.appendScrollback(sessionId, str);
+    });
+
+    stream.stderr.on('data', (data: Buffer) => {
+      const str = data.toString();
+      this.emit('data', sessionId, str);
+    });
+
+    // Handle exit
+    stream.on('close', () => {
+      log.info('remote shell closed');
+      this.flushScrollback(sessionId);
+      this.cleanupRemoteShell(sessionId);
+      this.emit('exit', sessionId, 0);
+    });
+  }
+
   hasShell(sessionId: string): boolean {
-    return this.processes.has(sessionId);
+    return this.processes.has(sessionId) || this.remoteStreams.has(sessionId);
   }
 
   getShellInfo(sessionId: string): { shell: string; cwd: string } | undefined {
@@ -121,6 +157,12 @@ export class ShellSpawner extends EventEmitter {
     const proc = this.processes.get(sessionId);
     if (proc) {
       proc.write(data);
+      return;
+    }
+
+    const stream = this.remoteStreams.get(sessionId);
+    if (stream) {
+      stream.write(data);
     }
   }
 
@@ -128,24 +170,44 @@ export class ShellSpawner extends EventEmitter {
     const proc = this.processes.get(sessionId);
     if (proc) {
       proc.resize(cols, rows);
+      return;
+    }
+
+    const stream = this.remoteStreams.get(sessionId);
+    if (stream) {
+      stream.setWindow(rows, cols, rows * 16, cols * 8);
     }
   }
 
   kill(sessionId: string): void {
     const proc = this.processes.get(sessionId);
-    if (!proc) return;
+    if (proc) {
+      const log = createSessionLogger(sessionId);
+      log.info('killing shell process');
 
-    const log = createSessionLogger(sessionId);
-    log.info('killing shell process');
-
-    try {
-      if (proc.pid) {
-        process.kill(-proc.pid, 'SIGTERM');
-      } else {
-        proc.kill();
+      try {
+        if (proc.pid) {
+          process.kill(-proc.pid, 'SIGTERM');
+        } else {
+          proc.kill();
+        }
+      } catch {
+        try { proc.kill(); } catch { /* already dead */ }
       }
-    } catch {
-      try { proc.kill(); } catch { /* already dead */ }
+      return;
+    }
+
+    const stream = this.remoteStreams.get(sessionId);
+    if (stream) {
+      const log = createSessionLogger(sessionId);
+      log.info('killing remote shell');
+      stream.write('\x03'); // Ctrl+C
+      setTimeout(() => {
+        try {
+          stream.write('exit\n');
+          stream.close();
+        } catch { /* already closed */ }
+      }, 100);
     }
   }
 
@@ -213,8 +275,22 @@ export class ShellSpawner extends EventEmitter {
     this.scrollbackBuffers.delete(sessionId);
   }
 
+  private cleanupRemoteShell(sessionId: string): void {
+    this.remoteStreams.delete(sessionId);
+    this.shellInfo.delete(sessionId);
+
+    const scrollbackTimer = this.scrollbackWriters.get(sessionId);
+    if (scrollbackTimer) {
+      clearTimeout(scrollbackTimer);
+      this.scrollbackWriters.delete(sessionId);
+    }
+    this.scrollbackBuffers.delete(sessionId);
+  }
+
   destroy(): void {
-    logger.info({ count: this.processes.size }, 'destroying all shell processes');
+    logger.info({ count: this.processes.size + this.remoteStreams.size }, 'destroying all shell processes');
+
+    // Destroy local processes
     for (const [sessionId, proc] of this.processes) {
       try {
         if (proc.pid) {
@@ -231,6 +307,17 @@ export class ShellSpawner extends EventEmitter {
       }
       this.flushScrollback(sessionId);
       this.cleanup(sessionId);
+    }
+
+    // Destroy remote streams
+    for (const [sessionId, stream] of this.remoteStreams) {
+      try {
+        stream.close();
+      } catch {
+        // Already closed
+      }
+      this.flushScrollback(sessionId);
+      this.cleanupRemoteShell(sessionId);
     }
   }
 }

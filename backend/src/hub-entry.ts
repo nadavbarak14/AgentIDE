@@ -27,6 +27,7 @@ import { setupWebSocket, broadcastToSession } from './api/websocket.js';
 import { FileWatcher } from './worker/file-watcher.js';
 import { requestLogger, errorHandler } from './api/middleware.js';
 import { logger } from './services/logger.js';
+import { checkPrerequisites, detectWSLVersion } from './services/prerequisites.js';
 
 export interface HubOptions {
   port?: number;
@@ -133,7 +134,7 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
   // API routes
   app.use('/api/settings', createSettingsRouter(repo));
   app.use('/api/sessions', createFilesRouter(repo));
-  app.use('/api/sessions', createSessionsRouter(repo, sessionManager, projectService));
+  app.use('/api/sessions', createSessionsRouter(repo, sessionManager, projectService, tunnelManager));
   app.use('/api/workers', createWorkersRouter(repo, workerManager, tunnelManager));
   app.use('/api/directories', createDirectoriesRouter());
   app.use('/api/projects', createProjectsRouter(repo, projectService));
@@ -324,6 +325,10 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
 
   // Start worker health checks
   workerManager.startHealthCheck();
+
+  // Check platform prerequisites (non-blocking warnings)
+  detectWSLVersion();
+  checkPrerequisites();
 
   // Graceful shutdown
   const shutdown = () => {

@@ -148,6 +148,9 @@ export const workers = {
   test: (id: string) =>
     request<{ ok: boolean; latency_ms: number }>(`/workers/${id}/test`, { method: 'POST' }),
 
+  connect: (id: string) =>
+    request<{ ok: boolean; message: string }>(`/workers/${id}/connect`, { method: 'POST' }),
+
   directories: (workerId: string, dirPath?: string, query?: string) => {
     const params = new URLSearchParams();
     if (dirPath) params.set('path', dirPath);

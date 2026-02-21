@@ -227,3 +227,128 @@ describe('Remote directory browsing (mocked)', () => {
     expect(output.trim()).toBe('/home/remote');
   });
 });
+
+describe('Remote session creation with directory validation', () => {
+  let repo: any;
+  let localWorker: any;
+  let remoteWorker: any;
+
+  beforeEach(async () => {
+    const { Repository } = await import('../../src/models/repository.js');
+    const { createTestDb, closeDb } = await import('../../src/models/db.js');
+
+    const db = createTestDb();
+    repo = new Repository(db);
+
+    // Create local worker
+    localWorker = repo.createLocalWorker('Local Worker', 5);
+
+    // Create remote worker
+    remoteWorker = repo.createWorker({
+      name: 'Remote Worker',
+      sshHost: '192.168.1.100',
+      sshUser: 'ubuntu',
+      sshKeyPath: '/home/user/.ssh/id_rsa',
+      maxSessions: 5,
+    });
+  });
+
+  afterEach(async () => {
+    const { closeDb } = await import('../../src/models/db.js');
+    closeDb();
+  });
+
+  describe('Acceptance Scenario 1: Remote worker + remote home path', () => {
+    it('creates session successfully for /home/ubuntu/project on remote worker', async () => {
+      const { validateDirectoryForWorker } = await import('../../src/api/routes/directories.js');
+
+      const validation = validateDirectoryForWorker(remoteWorker, '/home/ubuntu/project');
+
+      expect(validation.valid).toBe(true);
+      expect(validation.reason).toBeUndefined();
+    });
+  });
+
+  describe('Acceptance Scenario 2: Remote worker + remote system path', () => {
+    it('creates session successfully for /opt/webapp on remote worker', async () => {
+      const { validateDirectoryForWorker } = await import('../../src/api/routes/directories.js');
+
+      const validation = validateDirectoryForWorker(remoteWorker, '/opt/webapp');
+
+      expect(validation.valid).toBe(true);
+      expect(validation.reason).toBeUndefined();
+    });
+
+    it('allows /var/www/app on remote worker', async () => {
+      const { validateDirectoryForWorker } = await import('../../src/api/routes/directories.js');
+
+      const validation = validateDirectoryForWorker(remoteWorker, '/var/www/app');
+
+      expect(validation.valid).toBe(true);
+    });
+
+    it('allows root directory on remote worker', async () => {
+      const { validateDirectoryForWorker } = await import('../../src/api/routes/directories.js');
+
+      const validation = validateDirectoryForWorker(remoteWorker, '/');
+
+      expect(validation.valid).toBe(true);
+    });
+  });
+
+  describe('Acceptance Scenario 3: Local worker + path outside home', () => {
+    it('rejects /opt/project with local_restriction reason', async () => {
+      const { validateDirectoryForWorker } = await import('../../src/api/routes/directories.js');
+
+      const validation = validateDirectoryForWorker(localWorker, '/opt/project');
+
+      expect(validation.valid).toBe(false);
+      expect(validation.reason).toBe('local_restriction');
+    });
+
+    it('rejects /var/www/app with local_restriction reason', async () => {
+      const { validateDirectoryForWorker } = await import('../../src/api/routes/directories.js');
+
+      const validation = validateDirectoryForWorker(localWorker, '/var/www/app');
+
+      expect(validation.valid).toBe(false);
+      expect(validation.reason).toBe('local_restriction');
+    });
+
+    it('rejects root directory with local_restriction reason', async () => {
+      const { validateDirectoryForWorker } = await import('../../src/api/routes/directories.js');
+
+      const validation = validateDirectoryForWorker(localWorker, '/');
+
+      expect(validation.valid).toBe(false);
+      expect(validation.reason).toBe('local_restriction');
+    });
+  });
+
+  describe('No regressions: Local worker + path inside home', () => {
+    it('allows paths within home directory for local worker', async () => {
+      const { validateDirectoryForWorker } = await import('../../src/api/routes/directories.js');
+      const os = await import('node:os');
+      const path = await import('node:path');
+
+      const homeDir = os.homedir();
+      const projectPath = path.join(homeDir, 'projects', 'myapp');
+
+      const validation = validateDirectoryForWorker(localWorker, projectPath);
+
+      expect(validation.valid).toBe(true);
+      expect(validation.reason).toBeUndefined();
+    });
+
+    it('allows home directory itself for local worker', async () => {
+      const { validateDirectoryForWorker } = await import('../../src/api/routes/directories.js');
+      const os = await import('node:os');
+
+      const homeDir = os.homedir();
+
+      const validation = validateDirectoryForWorker(localWorker, homeDir);
+
+      expect(validation.valid).toBe(true);
+    });
+  });
+});

@@ -7,6 +7,7 @@ export function WorkerList() {
   const [form, setForm] = useState({ name: '', sshHost: '', sshUser: '', sshKeyPath: '', sshPort: '22', maxSessions: '2' });
   const [testing, setTesting] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<Record<string, string>>({});
+  const [connecting, setConnecting] = useState<string | null>(null);
 
   useEffect(() => {
     workersApi.list().then(setWorkerList).catch(() => {});
@@ -30,11 +31,33 @@ export function WorkerList() {
     setTesting(id);
     try {
       const result = await workersApi.test(id);
-      setTestResult((prev) => ({ ...prev, [id]: `OK (${result.latency_ms}ms)` }));
-    } catch {
-      setTestResult((prev) => ({ ...prev, [id]: 'Failed' }));
+      if (result.ok && result.claudeAvailable) {
+        setTestResult((prev) => ({ ...prev, [id]: `✓ SSH + Claude OK (${result.latency_ms}ms)` }));
+      } else if (result.ok === false && result.claudeAvailable === false) {
+        setTestResult((prev) => ({ ...prev, [id]: '⚠ SSH OK, Claude CLI missing!' }));
+      } else {
+        setTestResult((prev) => ({ ...prev, [id]: `OK (${result.latency_ms}ms)` }));
+      }
+    } catch (err: any) {
+      const message = err?.message || 'Connection failed';
+      setTestResult((prev) => ({ ...prev, [id]: `✗ ${message}` }));
     } finally {
       setTesting(null);
+    }
+  };
+
+  const handleConnect = async (id: string) => {
+    setConnecting(id);
+    try {
+      await workersApi.connect(id);
+      // Refresh worker list to update status
+      const updated = await workersApi.list();
+      setWorkerList(updated);
+      setTestResult((prev) => ({ ...prev, [id]: 'Connected' }));
+    } catch {
+      setTestResult((prev) => ({ ...prev, [id]: 'Connection failed' }));
+    } finally {
+      setConnecting(null);
     }
   };
 
@@ -79,6 +102,11 @@ export function WorkerList() {
               <span className="text-xs text-gray-400">{worker.type}</span>
             </div>
             <div className="flex items-center gap-1">
+              {worker.type === 'remote' && worker.status === 'disconnected' && (
+                <button onClick={() => handleConnect(worker.id)} disabled={connecting === worker.id} className="px-1.5 py-0.5 text-xs text-green-400 hover:bg-green-500/20 rounded">
+                  {connecting === worker.id ? 'Connecting...' : 'Connect'}
+                </button>
+              )}
               {worker.type === 'remote' && (
                 <button onClick={() => handleTest(worker.id)} disabled={testing === worker.id} className="px-1.5 py-0.5 text-xs text-blue-400 hover:bg-blue-500/20 rounded">
                   {testing === worker.id ? 'Testing...' : 'Test'}

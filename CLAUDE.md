@@ -44,6 +44,8 @@ Auto-generated from all feature plans. Last updated: 2026-02-17
 - SQLite (existing `workers` table, no schema changes needed) (012-session-connect-ux)
 - TypeScript 5.7, Node.js 20 LTS + React 18, Vite 6, Tailwind CSS 3 (existing); no new dependencies (012-extension-system)
 - N/A — no database changes; extension state held in React component state only (012-extension-system)
+- TypeScript 5.7, Node.js 20 LTS + Express 4, ssh2 (existing), better-sqlite3 (existing) (013-remote-directory-support)
+- SQLite (better-sqlite3) — existing workers and sessions tables (013-remote-directory-support)
 
 - TypeScript 5.x, Node.js 20 LTS + React 18, Tailwind CSS 3, xterm.js 5, Monaco Editor, Express, node-pty, ssh2, chokidar, diff2html, ws (001-c3-dashboard)
 
@@ -63,12 +65,14 @@ npm test && npm run lint
 TypeScript 5.x, Node.js 20 LTS: Follow standard conventions
 
 ## Recent Changes
+- 013-remote-directory-support: Added TypeScript 5.7, Node.js 20 LTS + Express 4, ssh2 (existing), better-sqlite3 (existing)
 - 012-extension-system: Added TypeScript 5.7, Node.js 20 LTS + React 18, Vite 6, Tailwind CSS 3 (existing); no new dependencies
 - 012-session-connect-ux: Added TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, ssh2, better-sqlite3, Tailwind CSS 3
 - 012-session-connect-ux: Added TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, better-sqlite3, ssh2, node-pty, xterm.js 5, ws 8, Tailwind CSS 3, Vite 6
-- 011-resume-worktree: Added TypeScript 5.7, Node.js 20 LTS + Express 4, React 18, better-sqlite3, node-pty, ws 8, Tailwind CSS 3, Vite 6
 - 011-browser-preview: Added TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, Tailwind CSS 3, Vite 6, html2canvas-pro@1.5.8, better-sqlite3, ws 8
 - 011-browser-preview: Added TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, Vite 6, Tailwind CSS 3, xterm.js 5, better-sqlite3, ws 8, chokidar 4 (existing) + html2canvas, rrweb, rrweb-player, multer (new)
+- 012-session-connect-ux: Added TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, better-sqlite3, ssh2, node-pty, xterm.js 5, ws 8, Tailwind CSS 3, Vite 6
+>>>>>>> 2e5324c (chore: update CLAUDE.md with remote directory support tech stack)
 
 
 <!-- MANUAL ADDITIONS START -->

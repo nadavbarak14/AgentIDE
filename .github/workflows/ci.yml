@@ -106,8 +106,42 @@ jobs:
         run: npx vitest run --config vitest.system.config.ts
         working-directory: backend
 
+  test-wsl2:
+    needs: [test-backend]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: Vampire/setup-wsl@v3
+        with:
+          distribution: Ubuntu-22.04
+
+      - name: Install system dependencies
+        shell: wsl-bash {0}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential python3 curl lsof
+
+      - name: Install Node.js 20
+        shell: wsl-bash {0}
+        run: |
+          curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+          sudo apt-get install -y nodejs
+
+      - name: Install dependencies
+        shell: wsl-bash {0}
+        run: npm ci
+
+      - name: Build
+        shell: wsl-bash {0}
+        run: npm run build
+
+      - name: Run tests
+        shell: wsl-bash {0}
+        run: npm test
+
   test-release:
-    needs: [lint-typecheck, test-backend, test-frontend, test-system]
+    needs: [lint-typecheck, test-backend, test-frontend, test-system, test-wsl2]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
