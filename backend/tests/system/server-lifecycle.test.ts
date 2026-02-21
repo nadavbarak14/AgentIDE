@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import os from 'node:os';
+import path from 'node:path';
 import { createTestServer, getBaseUrl, type TestServer } from './test-server.js';
+
+// Use paths under $HOME so they pass the isWithinHomeDir() security check
+const homeDir = os.homedir();
+const testDir = (name: string) => path.join(homeDir, name);
 
 describe('Server Lifecycle', () => {
   let ctx: TestServer;
@@ -24,16 +30,17 @@ describe('Server Lifecycle', () => {
   });
 
   it('POST /api/sessions creates a session', async () => {
+    const dir = testDir('test-create');
     const res = await fetch(`${baseUrl}/api/sessions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ workingDirectory: '/tmp/test-create', title: 'System Test' }),
+      body: JSON.stringify({ workingDirectory: dir, title: 'System Test' }),
     });
     expect(res.status).toBe(201);
     const data = await res.json();
     expect(data).toHaveProperty('id');
     expect(data.title).toBe('System Test');
-    expect(data.workingDirectory).toBe('/tmp/test-create');
+    expect(data.workingDirectory).toBe(dir);
   });
 
   it('GET /api/sessions lists sessions', async () => {
@@ -58,7 +65,7 @@ describe('Server Lifecycle', () => {
     const createRes = await fetch(`${baseUrl}/api/sessions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ workingDirectory: '/tmp/test-list', title: 'List Test' }),
+      body: JSON.stringify({ workingDirectory: testDir('test-list'), title: 'List Test' }),
     });
     const created = await createRes.json();
 
@@ -87,7 +94,7 @@ describe('Server Lifecycle', () => {
     const sessionRes = await fetch(`${baseUrl}/api/sessions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ workingDirectory: '/tmp/test-comments', title: 'Comment Test' }),
+      body: JSON.stringify({ workingDirectory: testDir('test-comments'), title: 'Comment Test' }),
     });
     const session = await sessionRes.json();
 

@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import os from 'node:os';
+import path from 'node:path';
 import express from 'express';
 import request from 'supertest';
 import { createTestDb, closeDb } from '../../src/models/db.js';
@@ -18,6 +20,8 @@ const mockedCheckGhStatus = vi.mocked(checkGhStatus);
 const mockedListIssues = vi.mocked(listIssues);
 const mockedGetIssueDetail = vi.mocked(getIssueDetail);
 
+const testProjectDir = path.join(os.homedir(), 'test-project');
+
 describe('GitHub Issues API', () => {
   let app: express.Express;
   let repo: Repository;
@@ -33,7 +37,7 @@ describe('GitHub Issues API', () => {
     app.use('/api/sessions', createGitHubRouter(repo));
 
     // Create a session to use in tests
-    const session = repo.createSession({ workingDirectory: '/tmp/test-project', title: 'GH Test' });
+    const session = repo.createSession({ workingDirectory: testProjectDir, title: 'GH Test' });
     sessionId = session.id;
   });
 
@@ -70,7 +74,7 @@ describe('GitHub Issues API', () => {
       expect(res.body.repoOwner).toBe('acme');
       expect(res.body.repoName).toBe('widgets');
       expect(res.body.error).toBeNull();
-      expect(mockedCheckGhStatus).toHaveBeenCalledWith('/tmp/test-project');
+      expect(mockedCheckGhStatus).toHaveBeenCalledWith(testProjectDir);
     });
   });
 
@@ -101,7 +105,7 @@ describe('GitHub Issues API', () => {
       expect(res.body.issues).toHaveLength(1);
       expect(res.body.totalCount).toBe(1);
       expect(res.body.issues[0].number).toBe(1);
-      expect(mockedListIssues).toHaveBeenCalledWith('/tmp/test-project', {
+      expect(mockedListIssues).toHaveBeenCalledWith(testProjectDir, {
         assignee: undefined,
         state: undefined,
         limit: undefined,
@@ -154,7 +158,7 @@ describe('GitHub Issues API', () => {
       expect(res.body.title).toBe('Critical bug');
       expect(res.body.body).toBe('Steps to reproduce...');
       expect(res.body.comments).toHaveLength(1);
-      expect(mockedGetIssueDetail).toHaveBeenCalledWith('/tmp/test-project', 42);
+      expect(mockedGetIssueDetail).toHaveBeenCalledWith(testProjectDir, 42);
     });
 
     it('returns 400 for invalid number', async () => {
