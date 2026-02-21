@@ -392,7 +392,6 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
                     style={{ width: 360, height: 640 }}
                     onLoad={handleIframeLoad}
                     onError={() => { setError(true); setLoading(false); }}
-                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
                   />
                   {/* Home indicator */}
                   <div className="h-5 bg-gray-900 flex items-center justify-center flex-shrink-0">
@@ -417,7 +416,6 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
                     style={{ width: customViewportWidth, height: customViewportHeight }}
                     onLoad={handleIframeLoad}
                     onError={() => { setError(true); setLoading(false); }}
-                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
                   />
                   <div className="text-center text-xs text-gray-500 mt-1">
                     {customViewportWidth} x {customViewportHeight}
@@ -431,7 +429,6 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
                 className="w-full h-full border-0"
                 onLoad={handleIframeLoad}
                 onError={() => { setError(true); setLoading(false); }}
-                sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
               />
             )}
           </>
