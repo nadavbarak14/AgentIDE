@@ -8,12 +8,15 @@ export function useExtensions() {
 
   useEffect(() => {
     let cancelled = false;
+    console.log('[useExtensions] Loading extensions...');
     loadExtensions().then((exts) => {
+      console.log('[useExtensions] Loaded', exts.length, 'extensions:', exts.map(e => e.name));
       if (!cancelled) {
         setExtensions(exts);
         setLoading(false);
       }
-    }).catch(() => {
+    }).catch((err) => {
+      console.warn('[useExtensions] Load failed:', err);
       if (!cancelled) setLoading(false);
     });
     return () => { cancelled = true; };

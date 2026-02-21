@@ -39,6 +39,7 @@ export const ExtensionPanel = forwardRef<ExtensionPanelHandle, ExtensionPanelPro
         if (!iframeRef.current || event.source !== iframeRef.current.contentWindow) return;
         const msg = event.data;
         if (msg?.type === 'ready') {
+          console.debug(`[extensions] ${extension.name}: received ready`);
           setStatus('ready');
           if (loadTimeoutRef.current) {
             clearTimeout(loadTimeoutRef.current);
@@ -48,7 +49,19 @@ export const ExtensionPanel = forwardRef<ExtensionPanelHandle, ExtensionPanelPro
       };
       window.addEventListener('message', handleMessage);
       return () => window.removeEventListener('message', handleMessage);
-    }, []);
+    }, [extension.name]);
+
+    // On iframe load, send a ping so extension re-sends ready (handles race condition)
+    const handleIframeLoad = useCallback(() => {
+      console.debug(`[extensions] ${extension.name}: iframe onload fired`);
+      // Small delay to let iframe scripts initialize
+      setTimeout(() => {
+        if (iframeRef.current?.contentWindow) {
+          iframeRef.current.contentWindow.postMessage({ type: 'ping' }, '*');
+          console.debug(`[extensions] ${extension.name}: sent ping to iframe`);
+        }
+      }, 100);
+    }, [extension.name]);
 
     // Load timeout
     useEffect(() => {
@@ -104,6 +117,7 @@ export const ExtensionPanel = forwardRef<ExtensionPanelHandle, ExtensionPanelPro
             sandbox="allow-scripts"
             className="w-full h-full border-0"
             title={extension.displayName}
+            onLoad={handleIframeLoad}
           />
         )}
       </div>

@@ -334,54 +334,21 @@ export function SessionCard({
     setRefreshingSkills(true);
     setRefreshResult(null);
     try {
-      // Ensure shell is open
-      await fetch(`/api/sessions/${session.id}/shell`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cols: 120, rows: 30 }),
-      }).catch(() => {/* shell may already be running — 409 is fine */});
-
-      // Connect a temporary WebSocket to the shell, send the command, collect output
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}/ws/sessions/${session.id}/shell`;
-      const ws = new WebSocket(wsUrl);
-      ws.binaryType = 'arraybuffer';
-
-      let output = '';
-      const encoder = new TextEncoder();
-      const decoder = new TextDecoder();
-
-      await new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => { ws.close(); reject(new Error('timeout')); }, 10000);
-
-        ws.onopen = () => {
-          // Type the command + Enter
-          ws.send(encoder.encode('npm run register-extensions 2>&1; echo "___DONE___"\n'));
-        };
-        ws.onmessage = (event) => {
-          if (event.data instanceof ArrayBuffer) {
-            output += decoder.decode(event.data);
-            if (output.includes('___DONE___')) {
-              clearTimeout(timeout);
-              ws.close();
-              resolve();
-            }
-          }
-        };
-        ws.onerror = () => { clearTimeout(timeout); reject(new Error('ws error')); };
-      });
-
-      const match = output.match(/(\d+) extension\(s\) processed/);
-      setRefreshResult({ ok: true, msg: match ? `${match[1]} extension(s) refreshed` : 'Skills refreshed' });
-      // Show the shell panel so user can see the output
-      panel.setBottomPanel('shell');
+      const res = await fetch('/api/register-extensions', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        const match = (data.output || '').match(/(\d+) extension\(s\) processed/);
+        setRefreshResult({ ok: true, msg: match ? `${match[1]} extension(s)` : 'Done' });
+      } else {
+        setRefreshResult({ ok: false, msg: data.error || 'Failed' });
+      }
     } catch {
-      setRefreshResult({ ok: false, msg: 'Failed to refresh skills' });
+      setRefreshResult({ ok: false, msg: 'Failed to refresh' });
     } finally {
       setRefreshingSkills(false);
       setTimeout(() => setRefreshResult(null), 3000);
     }
-  }, [session.id, refreshingSkills, panel]);
+  }, [refreshingSkills]);
 
   const showToolbar = session.status === 'active' || session.status === 'completed';
   const showLeftPanel = showToolbar && panel.leftPanel !== 'none';
@@ -1067,6 +1034,37 @@ export function SessionCard({
               title={refreshResult ? refreshResult.msg : 'Refresh extension skills'}
             >
               {refreshingSkills ? '...' : refreshResult ? (refreshResult.ok ? '\u2713' : '\u2717') : '\u27F3 Skills'}
+            </button>
+            <button
+              onClick={async () => {
+                const instructions = [
+                  'I want to create a new extension skill for AgentIDE.',
+                  'An extension lives in extensions/<name>/ and needs:',
+                  '1. manifest.json - with name, displayName, panel entry, skills list, and boardCommands',
+                  '2. ui/ folder - with index.html, styles.css, app.js for the panel UI',
+                  '3. skills/ folder - each skill in skills/<skill-name>/ with SKILL.md (description + instructions) and a shell script',
+                  '',
+                  'Look at extensions/frontend-design/ as a reference implementation.',
+                  'The extension panel communicates with the host via postMessage bridge (ready/init/ping handshake, board-command dispatch, send-comment for sending text to Claude).',
+                  '',
+                  'Please ask me what kind of extension I want to create, then build it following this pattern.',
+                ].join('\n');
+                try {
+                  // If session is completed, continue it first
+                  if (session.status === 'completed' && session.claudeSessionId) {
+                    onContinue?.(session.id);
+                    // Wait briefly for session to become active
+                    await new Promise(r => setTimeout(r, 2000));
+                  }
+                  await sessionsApi.input(session.id, instructions + '\n');
+                } catch {
+                  // Ignore — session may not be ready yet
+                }
+              }}
+              className="px-1.5 py-0.5 text-xs rounded transition-colors text-gray-400 hover:bg-gray-700 hover:text-gray-200"
+              title="Send instructions to Claude for creating a new extension skill"
+            >
+              + Skill
             </button>
             <div className="w-px h-3.5 bg-gray-600 mx-0.5" />
             <button
