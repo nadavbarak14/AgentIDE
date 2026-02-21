@@ -31,6 +31,13 @@ function decompressBuffer(buf: Buffer, encoding: string): Buffer {
  * Each proxy-scoped cookie gets a name prefix (__c3p_) so we can identify
  * which cookies belong to the proxied app vs the dashboard when forwarding.
  */
+/**
+ * Rewrite Set-Cookie headers from the upstream server:
+ * - Scope Path to the proxy base so cookies don't leak to other routes
+ * - Remove Domain (we're proxying through the dashboard host)
+ * - Remove Secure (proxy may be HTTP)
+ * - Normalize SameSite to Lax
+ */
 function rewriteSetCookieHeaders(
   setCookieHeaders: string | string[] | undefined,
   proxyBase: string,
@@ -38,8 +45,7 @@ function rewriteSetCookieHeaders(
   if (!setCookieHeaders) return [];
   const headers = Array.isArray(setCookieHeaders) ? setCookieHeaders : [setCookieHeaders];
   return headers.map((cookie) => {
-    // Prefix the cookie name so we can identify proxy cookies later
-    let rewritten = cookie.replace(/^([^=]+)=/, '__c3p_$1=');
+    let rewritten = cookie;
     // Set Path to the proxy base (replace any existing Path)
     if (/;\s*path\s*=/i.test(rewritten)) {
       rewritten = rewritten.replace(/;\s*path\s*=\s*[^;]*/i, `; Path=${proxyBase}/`);
@@ -54,21 +60,6 @@ function rewriteSetCookieHeaders(
     rewritten = rewritten.replace(/;\s*samesite\s*=\s*[^;]*/i, '; SameSite=Lax');
     return rewritten;
   });
-}
-
-/**
- * Extract proxy-scoped cookies from the browser's Cookie header,
- * strip the __c3p_ prefix, and return a clean cookie string for the upstream server.
- * This ensures we only forward cookies that the proxied app originally set.
- */
-function extractProxyCookies(cookieHeader: string | undefined): string {
-  if (!cookieHeader) return '';
-  return cookieHeader
-    .split(';')
-    .map(c => c.trim())
-    .filter(c => c.startsWith('__c3p_'))
-    .map(c => c.replace('__c3p_', ''))
-    .join('; ');
 }
 
 /** Rewrite absolute paths in HTML to go through the proxy, and inject a fetch/XHR interceptor */
@@ -418,14 +409,9 @@ export function createFilesRouter(repo: Repository): Router {
     delete forwardHeaders['upgrade'];
     delete forwardHeaders['accept-encoding']; // Request uncompressed so we can rewrite HTML
     forwardHeaders['host'] = `localhost:${targetPort}`;
-    // Only forward cookies that the proxied app originally set (prefixed with __c3p_),
-    // stripped back to their original names. This prevents dashboard cookies from leaking.
-    const proxyCookies = extractProxyCookies(req.headers.cookie);
-    if (proxyCookies) {
-      forwardHeaders['cookie'] = proxyCookies;
-    } else {
-      delete forwardHeaders['cookie'];
-    }
+    // Forward all cookies — the browser scopes cookies by path, so cookies
+    // on the proxy path were set by the proxied app (via Set-Cookie or JS).
+    // We leave req.headers.cookie as-is.
 
     const proxyReq = http.request(
       {
