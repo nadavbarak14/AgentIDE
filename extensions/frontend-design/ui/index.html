@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Frontend Design</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <!-- Toolbar -->
+    <div class="toolbar">
+      <span class="toolbar-label">Frontend Design</span>
+      <div class="toolbar-spacer"></div>
+      <button id="btn-inspect" class="toolbar-btn" title="Inspect & Comment">
+        &#x1f50d; Inspect
+      </button>
+      <button id="btn-text-select" class="toolbar-btn" title="Select Text">
+        &#x2702; Select
+      </button>
+    </div>
+
+    <!-- Tab bar -->
+    <div id="tab-bar" class="tab-bar"></div>
+
+    <!-- Screen viewport -->
+    <div id="viewport" class="viewport">
+      <!-- Inspect overlay sits on top of the iframe -->
+      <div id="inspect-overlay" class="inspect-overlay"></div>
+      <!-- Screen iframe or placeholder rendered by app.js -->
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+{
+  "name": "hello-world",
+  "displayName": "Hello World",
+  "panel": {
+    "entry": "ui/index.html",
+    "defaultPosition": "right",
+    "icon": "puzzle"
+  },
+  "boardCommands": ["hello.ping"]
+}
