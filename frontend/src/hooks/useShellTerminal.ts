@@ -29,7 +29,7 @@ export function useShellTerminal({ sessionId, enabled = true }: UseShellTerminal
   const sendBinaryRef = useRef<(data: ArrayBuffer | Uint8Array) => void>(() => {});
   const sendResizeRef = useRef<(cols: number, rows: number) => void>(() => {});
 
-  const { initTerminal, write, fit, clear, focus, setFontSize } = useTerminal({
+  const { initTerminal, write, fit, clear, focus, setFontSize, terminal: terminalRef } = useTerminal({
     onData: (data) => {
       // Send keyboard input as binary to the shell WebSocket
       const ws = wsRef.current;
@@ -143,6 +143,10 @@ export function useShellTerminal({ sessionId, enabled = true }: UseShellTerminal
     setWsState((prev) => ({ ...prev, status: 'killed' }));
   }, [sessionId]);
 
+  const getSelection = useCallback((): string => {
+    return terminalRef.current?.getSelection() || '';
+  }, []);
+
   return {
     // Terminal
     initTerminal,
@@ -151,6 +155,7 @@ export function useShellTerminal({ sessionId, enabled = true }: UseShellTerminal
     clear,
     focus,
     setFontSize,
+    getSelection,
     // Shell WebSocket state
     connected: wsState.connected,
     status: wsState.status,

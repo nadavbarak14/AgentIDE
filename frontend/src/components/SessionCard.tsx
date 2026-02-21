@@ -381,6 +381,17 @@ export function SessionCard({
     return () => window.removeEventListener('c3:shortcut', handler);
   }, [showToolbar, session.id, panel, handleTogglePanel, showLeftPanel, showRightPanel]);
 
+  // Send selected shell text to the Claude session as input
+  const handleShellSendToClaude = useCallback(async (text: string) => {
+    if (!text.trim() || session.status !== 'active') return;
+    try {
+      const message = `[Shell output]\n\`\`\`\n${text.trim()}\n\`\`\`\n`;
+      await sessionsApi.input(session.id, message);
+    } catch {
+      // Ignore errors (session might have completed)
+    }
+  }, [session.id, session.status]);
+
   const closeLeftPanel = useCallback(() => {
     // Guard: don't close if it would leave no visible content
     if (!panel.terminalVisible && panel.rightPanel === 'none') return;
@@ -845,6 +856,7 @@ export function SessionCard({
               active={session.status === 'active' || session.status === 'completed'}
               fontSize={panel.fontSize}
               onClose={() => panel.setBottomPanel('none')}
+              onSendToClaude={session.status === 'active' ? handleShellSendToClaude : undefined}
             />
           </div>
         )}
