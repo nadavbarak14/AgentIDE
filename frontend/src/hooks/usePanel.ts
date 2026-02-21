@@ -95,6 +95,7 @@ export function usePanel(sessionId: string | null) {
   const [tabScrollPositions, setTabScrollPositions] = useState<Record<string, ScrollPosition>>({});
   const [gitScrollPosition, setGitScrollPosition] = useState(0);
   const [previewUrl, setPreviewUrl] = useState('');
+  const [previewNavCounter, setPreviewNavCounter] = useState(0);
 
   // Typed setters that accept PanelContent
   const setLeftPanel = useCallback((val: PanelContent | ((prev: PanelContent) => PanelContent)) => {
@@ -345,6 +346,8 @@ export function usePanel(sessionId: string | null) {
     updateScrollPosition,
     setGitScrollPosition,
     setPreviewUrl,
+    previewNavCounter,
+    bumpPreviewNavCounter: () => setPreviewNavCounter(c => c + 1),
     setPanelWidth: setRightWidthPercent, // legacy — maps to right width
     // File tabs
     fileTabs,

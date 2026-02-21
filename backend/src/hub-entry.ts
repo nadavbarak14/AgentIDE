@@ -132,7 +132,14 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
 
   // Create Express app
   const app = express();
-  app.use(express.json());
+  // Parse JSON bodies for all routes EXCEPT proxy routes (proxy needs raw stream for piping)
+  app.use((req, res, next) => {
+    if (req.path.includes('/proxy/') || req.path.includes('/proxy-url/')) {
+      next();
+    } else {
+      express.json()(req, res, next);
+    }
+  });
   app.use(cookieParser());
 
   // Security headers (skip X-Frame-Options and CSP for proxy/serve routes used by preview iframe)
