@@ -7,10 +7,12 @@ import type { SessionManager } from '../../services/session-manager.js';
 import type { ProjectService } from '../../services/project-service.js';
 import type { SessionStatus } from '../../models/types.js';
 import { validateUuid, validateBody } from '../middleware.js';
-import { isWithinHomeDir } from './directories.js';
+import { validateDirectoryForWorker } from './directories.js';
 import { logger } from '../../services/logger.js';
 
-export function createSessionsRouter(repo: Repository, sessionManager: SessionManager, projectService?: ProjectService): Router {
+import type { TunnelManager } from '../../hub/tunnel.js';
+
+export function createSessionsRouter(repo: Repository, sessionManager: SessionManager, projectService?: ProjectService, tunnelManager?: TunnelManager): Router {
   const router = Router();
 
   // GET /api/sessions — list all sessions
@@ -25,44 +27,99 @@ export function createSessionsRouter(repo: Repository, sessionManager: SessionMa
   });
 
   // POST /api/sessions — create a new session (or auto-continue if existing session in same dir)
-  router.post('/', validateBody(['workingDirectory', 'title']), (req, res) => {
+  router.post('/', validateBody(['workingDirectory', 'title']), async (req, res) => {
     const { workingDirectory, title, targetWorker, startFresh, worktree } = req.body;
     if (typeof workingDirectory !== 'string' || typeof title !== 'string') {
       res.status(400).json({ error: 'workingDirectory and title must be strings' });
       return;
     }
 
-    // Enforce $HOME restriction (FR-005)
+    // Worker-aware directory validation (FR-003)
     const resolvedDir = path.resolve(workingDirectory);
-    if (!isWithinHomeDir(resolvedDir)) {
-      logger.warn({ path: resolvedDir }, 'session creation rejected: directory outside $HOME');
-      res.status(403).json({ error: 'Directory not allowed: path must be within home directory' });
+
+    // Get worker (default to local worker if not specified)
+    const effectiveWorkerId = targetWorker || repo.getLocalWorker()?.id;
+    if (!effectiveWorkerId) {
+      res.status(500).json({ error: 'No workers available' });
+      return;
+    }
+
+    const worker = repo.getWorker(effectiveWorkerId);
+    if (!worker) {
+      res.status(400).json({ error: 'Invalid targetWorker: worker not found', workerId: effectiveWorkerId });
+      return;
+    }
+
+    // Validate directory based on worker type
+    const validation = validateDirectoryForWorker(worker, resolvedDir);
+    if (!validation.valid) {
+      logger.warn(
+        { path: resolvedDir, workerId: worker.id, workerType: worker.type, reason: validation.reason },
+        'session creation rejected: directory validation failed',
+      );
+      res.status(403).json({
+        error:
+          validation.reason === 'local_restriction'
+            ? 'Directory not allowed: path must be within home directory'
+            : 'Directory not allowed',
+        reason: validation.reason,
+        path: resolvedDir,
+        workerType: worker.type,
+      });
       return;
     }
 
     // Auto-create directory if it doesn't exist (FR-027)
-    if (!fs.existsSync(resolvedDir)) {
-      try {
-        fs.mkdirSync(resolvedDir, { recursive: true });
-      } catch {
-        res.status(400).json({ error: `Cannot create directory: ${resolvedDir}` });
-        return;
-      }
-    }
-
-    // Git auto-init for worktree sessions (FR-009)
-    if (worktree) {
-      const gitDir = path.join(resolvedDir, '.git');
-      if (!fs.existsSync(gitDir)) {
+    // Only check/create directories locally for local workers
+    if (worker.type === 'local') {
+      if (!fs.existsSync(resolvedDir)) {
         try {
-          execSync('git init', { cwd: resolvedDir, stdio: 'pipe' });
-          logger.info({ dir: resolvedDir }, 'auto-initialized git repository for worktree session');
-        } catch (err) {
-          const stderr = err instanceof Error ? (err as Error & { stderr?: Buffer }).stderr?.toString() : '';
-          logger.error({ dir: resolvedDir, err }, 'git auto-init failed');
-          res.status(422).json({ error: 'Failed to initialize git repository', details: stderr });
+          fs.mkdirSync(resolvedDir, { recursive: true });
+        } catch {
+          res.status(400).json({ error: `Cannot create directory: ${resolvedDir}` });
           return;
         }
+      }
+
+      // Git auto-init for worktree sessions (FR-009)
+      if (worktree) {
+        const gitDir = path.join(resolvedDir, '.git');
+        if (!fs.existsSync(gitDir)) {
+          try {
+            execSync('git init', { cwd: resolvedDir, stdio: 'pipe' });
+            logger.info({ dir: resolvedDir }, 'auto-initialized git repository for worktree session');
+          } catch (err) {
+            const stderr = err instanceof Error ? (err as Error & { stderr?: Buffer }).stderr?.toString() : '';
+            logger.error({ dir: resolvedDir, err }, 'git auto-init failed');
+            res.status(422).json({ error: 'Failed to initialize git repository', details: stderr });
+            return;
+          }
+        }
+      }
+    }
+    // For remote workers, auto-create directory on remote server if it doesn't exist
+    else if (worker.type === 'remote' && tunnelManager) {
+      if (!tunnelManager.isConnected(worker.id)) {
+        res.status(502).json({ error: 'Worker not connected' });
+        return;
+      }
+
+      try {
+        // Check if directory exists on remote server
+        const checkCmd = `test -d ${escapeShellArg(resolvedDir)} && echo exists || echo missing`;
+        const checkResult = await tunnelManager.exec(worker.id, checkCmd);
+
+        if (checkResult.trim() === 'missing') {
+          // Create directory recursively
+          logger.info({ workerId: worker.id, path: resolvedDir }, 'creating remote directory');
+          await tunnelManager.exec(worker.id, `mkdir -p ${escapeShellArg(resolvedDir)}`);
+          logger.info({ workerId: worker.id, path: resolvedDir }, 'remote directory created successfully');
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to create directory';
+        logger.error({ workerId: worker.id, path: resolvedDir, err }, 'failed to create remote directory');
+        res.status(500).json({ error: `Cannot create remote directory: ${message}` });
+        return;
       }
     }
 
@@ -271,11 +328,11 @@ export function createSessionsRouter(repo: Repository, sessionManager: SessionMa
   // ─── Shell Terminal ───
 
   // POST /api/sessions/:id/shell — open (spawn) a shell terminal
-  router.post('/:id/shell', validateUuid('id'), (req, res) => {
+  router.post('/:id/shell', validateUuid('id'), async (req, res) => {
     const id = String(req.params.id);
     const { cols, rows } = req.body || {};
     try {
-      const info = sessionManager.openShell(id, cols, rows);
+      const info = await sessionManager.openShell(id, cols, rows);
       res.status(201).json(info);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error';
@@ -585,4 +642,8 @@ function composeBatchMessage(comments: Array<{ filePath: string; startLine: numb
     `(${i + 1}) ${composeSingleComment(c.filePath, c.startLine, c.endLine, c.codeSnippet, c.commentText, c.side)}`
   ).join(' ');
   return `[Code Review — ${comments.length} comments] ${items}. Please address all comments.\n`;
+}
+
+function escapeShellArg(arg: string): string {
+  return `'${arg.replace(/'/g, "'\\''")}'`;
 }
