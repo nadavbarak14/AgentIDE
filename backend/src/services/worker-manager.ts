@@ -96,10 +96,43 @@ export class WorkerManager extends EventEmitter {
 
     const start = Date.now();
     try {
+      // Test SSH connectivity
       await this.tunnelManager.exec(worker.id, 'echo ok');
+
+      // Check if Claude CLI is installed
+      let claudeAvailable = false;
+      let claudeVersion = '';
+      try {
+        // Use bash login shell to load PATH from .bashrc/.bash_profile
+        const versionOutput = await this.tunnelManager.exec(worker.id, 'bash -l -c "claude --version 2>&1"');
+        // Check if command was found (not "command not found" or similar errors)
+        if (versionOutput.includes('command not found') || versionOutput.includes('not found')) {
+          claudeAvailable = false;
+          claudeVersion = 'Not installed';
+        } else {
+          claudeAvailable = true;
+          claudeVersion = versionOutput.trim();
+        }
+      } catch {
+        // Claude not found
+        claudeAvailable = false;
+        claudeVersion = 'Not installed';
+      }
+
       const latency = Date.now() - start;
-      logger.info({ workerId: worker.id, latency_ms: latency }, 'worker health check passed');
-      return { ok: true, latency_ms: latency };
+
+      if (!claudeAvailable) {
+        logger.warn({ workerId: worker.id, latency_ms: latency }, 'SSH connected but Claude CLI not found');
+        return {
+          ok: false,
+          latency_ms: latency,
+          error: 'Claude CLI not found on remote server',
+          claudeAvailable: false
+        };
+      }
+
+      logger.info({ workerId: worker.id, latency_ms: latency, claudeVersion }, 'worker health check passed');
+      return { ok: true, latency_ms: latency, claudeAvailable: true, claudeVersion };
     } catch (err) {
       const latency = Date.now() - start;
       logger.warn({ workerId: worker.id, latency_ms: latency, err }, 'worker health check failed');

@@ -31,9 +31,32 @@ export class RemotePtyBridge extends EventEmitter {
     }
   }
 
+  /**
+   * Ensure settings file exists on remote server.
+   * Creates a minimal settings.json without hooks (remote hooks not supported yet).
+   */
+  private async ensureRemoteSettings(workerId: string): Promise<void> {
+    const settingsDir = `/tmp/.c3-hooks-${this.hubPort}`;
+    const settingsPath = `${settingsDir}/settings.json`;
+
+    // Create directory and settings file on remote server
+    const settings = {
+      hooks: {}  // No hooks for remote workers yet
+    };
+
+    const settingsJson = JSON.stringify(settings, null, 2);
+    const cmd = `mkdir -p ${settingsDir} && cat > ${settingsPath} << 'SETTINGS_EOF'\n${settingsJson}\nSETTINGS_EOF`;
+
+    await this.tunnelManager.exec(workerId, cmd);
+    logger.info({ workerId, settingsPath }, 'created settings file on remote server');
+  }
+
   async spawn(sessionId: string, workerId: string, workingDirectory: string, args: string[] = []): Promise<PtyProcess> {
     const log = createSessionLogger(sessionId);
     log.info({ workerId, workingDirectory, args }, 'spawning remote claude process via SSH');
+
+    // Create settings file on remote server (without hooks for now)
+    await this.ensureRemoteSettings(workerId);
 
     const stream = await this.tunnelManager.shell(workerId, { cols: 120, rows: 40 });
     this.channels.set(sessionId, stream);
@@ -75,9 +98,10 @@ export class RemotePtyBridge extends EventEmitter {
     this.ensureIdlePoller();
 
     // Build the claude command to send to the remote shell
+    // Source shell profile to load PATH where claude is installed
     const claudeArgs = ['claude', '--settings', `/tmp/.c3-hooks-${this.hubPort}/settings.json`];
     claudeArgs.push(...args);
-    const cmd = `cd ${escapeShellArg(workingDirectory)} && ${claudeArgs.join(' ')}\n`;
+    const cmd = `source ~/.bashrc 2>/dev/null; source ~/.bash_profile 2>/dev/null; cd ${escapeShellArg(workingDirectory)} && ${claudeArgs.join(' ')}\n`;
 
     log.info({ cmd: cmd.trim() }, 'sending claude command to remote shell');
     stream.write(cmd);

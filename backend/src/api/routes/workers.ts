@@ -124,10 +124,32 @@ export function createWorkersRouter(repo: Repository, workerManager: WorkerManag
       if (result.ok) {
         res.json(result);
       } else {
-        res.status(502).json({ error: 'Connection failed' });
+        // Return the full result including error details and claudeAvailable flag
+        res.status(502).json(result);
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Connection test failed';
+      res.status(502).json({ error: message, ok: false });
+    }
+  });
+
+  router.post('/:id/connect', validateUuid('id'), async (req, res) => {
+    const id = String(req.params.id);
+    const worker = repo.getWorker(id);
+    if (!worker) {
+      res.status(404).json({ error: 'Worker not found' });
+      return;
+    }
+    if (worker.type === 'local') {
+      res.status(400).json({ error: 'Local worker is always connected' });
+      return;
+    }
+    try {
+      await workerManager.connectWorker(worker);
+      res.json({ ok: true, message: 'Worker connected successfully' });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Connection failed';
+      logger.error({ workerId: id, err }, 'failed to connect worker');
       res.status(502).json({ error: message });
     }
   });
@@ -164,12 +186,8 @@ export function createWorkersRouter(repo: Repository, workerManager: WorkerManag
       // Default to remote $HOME
       const browsePath = queryPath || remoteHome;
 
-      // Restrict to remote $HOME
-      if (!browsePath.startsWith(remoteHome)) {
-        logger.warn({ workerId: id, path: browsePath, remoteHome }, 'remote directory browse rejected: outside $HOME');
-        res.status(403).json({ error: 'Directory not allowed: path must be within home directory' });
-        return;
-      }
+      // Remote workers can browse any path (SSH permissions control access)
+      // No local home directory restriction for remote workers
 
       // Check cache
       const cacheKey = `${id}:${browsePath}:${query}`;
