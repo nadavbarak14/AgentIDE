@@ -143,7 +143,13 @@ export function Dashboard() {
     if (newActive.length > 0 && displayedIds.length < maxVisible) {
       setDisplayedIds((prev) => {
         const slots = maxVisible - prev.length;
-        const toAdd = newActive.slice(0, slots).map((s) => s.id);
+        if (slots <= 0) return prev;
+        const prevSet = new Set(prev);
+        const toAdd = newActive
+          .filter((s) => !prevSet.has(s.id))
+          .slice(0, slots)
+          .map((s) => s.id);
+        if (toAdd.length === 0) return prev;
         return [...prev, ...toAdd];
       });
     }
