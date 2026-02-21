@@ -16,7 +16,7 @@ interface ServerProcess {
 
 /**
  * Start the CLI server as a subprocess, wait for it to be ready.
- * Uses a temp directory for HOME and cwd to isolate DB and license files.
+ * Uses a temp directory for HOME and cwd to isolate DB files.
  */
 function startServer(
   args: string[] = [],
@@ -98,7 +98,6 @@ function killServer(sp: ServerProcess): Promise<number | null> {
         resolve(code);
       }
     });
-    // Kill the process group (negative PID) so npx + tsx + node all get the signal
     try {
       if (sp.proc.pid) process.kill(-sp.proc.pid, 'SIGTERM');
     } catch {
@@ -130,7 +129,7 @@ function cleanup(tmpDir: string): void {
   }
 }
 
-describe('System: CLI E2E (US3)', { timeout: 30000 }, () => {
+describe('System: CLI E2E', { timeout: 30000 }, () => {
   const servers: ServerProcess[] = [];
 
   afterEach(async () => {
@@ -142,120 +141,40 @@ describe('System: CLI E2E (US3)', { timeout: 30000 }, () => {
   });
 
   it('agentide start --port PORT launches and responds to HTTP', async () => {
-    // Use a random high port
     const port = 18000 + Math.floor(Math.random() * 1000);
     const sp = await startServer(['--port', String(port)]);
     servers.push(sp);
 
     expect(sp.port).toBe(port);
 
-    const res = await fetch(`${sp.baseUrl}/api/auth/status`);
+    const res = await fetch(`${sp.baseUrl}/api/health`);
     expect(res.status).toBe(200);
 
     const body = await res.json();
-    expect(body.authRequired).toBeDefined();
+    expect(body.status).toBe('ok');
   });
 
-  it('default host=localhost → authRequired=false', async () => {
+  it('API routes are accessible without authentication', async () => {
     const port = 18100 + Math.floor(Math.random() * 1000);
     const sp = await startServer(['--port', String(port)]);
     servers.push(sp);
 
-    const res = await fetch(`${sp.baseUrl}/api/auth/status`);
-    const body = await res.json();
-    expect(body.authRequired).toBe(false);
-
-    // Protected routes should be accessible
+    // Sessions endpoint should be accessible
     const sessionsRes = await fetch(`${sp.baseUrl}/api/sessions`);
     expect(sessionsRes.status).toBe(200);
   });
 
-  it('--host 0.0.0.0 → authRequired=true, protected routes return 401', async () => {
+  it('--host 0.0.0.0 starts without auth, routes accessible', async () => {
     const port = 18200 + Math.floor(Math.random() * 1000);
     const sp = await startServer(['--port', String(port), '--host', '0.0.0.0']);
     servers.push(sp);
 
-    const statusRes = await fetch(`http://127.0.0.1:${sp.port}/api/auth/status`);
-    const body = await statusRes.json();
-    expect(body.authRequired).toBe(true);
+    // Health check
+    const healthRes = await fetch(`http://127.0.0.1:${sp.port}/api/health`);
+    expect(healthRes.status).toBe(200);
 
-    // Protected routes should be blocked
+    // Sessions should be accessible (no auth required)
     const sessionsRes = await fetch(`http://127.0.0.1:${sp.port}/api/sessions`);
-    expect(sessionsRes.status).toBe(401);
-  });
-
-  it('--host 0.0.0.0 --no-auth → authRequired=false', async () => {
-    const port = 18300 + Math.floor(Math.random() * 1000);
-    const sp = await startServer(['--port', String(port), '--host', '0.0.0.0', '--no-auth']);
-    servers.push(sp);
-
-    const res = await fetch(`http://127.0.0.1:${sp.port}/api/auth/status`);
-    const body = await res.json();
-    expect(body.authRequired).toBe(false);
-  });
-
-  // Note: SIGTERM/SIGKILL shutdown tests are skipped because tsx spawns node as
-  // a grandchild process, and killing tsx does not reliably propagate to the node
-  // process in test environments. The shutdown handler in hub-entry.ts is verified
-  // by code review and the server-lifecycle system tests.
-
-  it('agentide activate with valid key saves to disk, invalid key exits 1', async () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentide-activate-test-'));
-
-    try {
-      // Test invalid key
-      const invalidResult = await new Promise<{ code: number | null; stderr: string }>((resolve) => {
-        const proc = spawn(tsxBin, [CLI_PATH, 'activate', 'invalid-key'], {
-          cwd: tmpDir,
-          env: { ...process.env, HOME: tmpDir },
-          stdio: ['pipe', 'pipe', 'pipe'],
-        });
-        let stderr = '';
-        proc.stderr?.on('data', (d: Buffer) => { stderr += d.toString(); });
-        proc.on('exit', (code) => resolve({ code, stderr }));
-        setTimeout(() => { proc.kill(); resolve({ code: null, stderr }); }, 10000);
-      });
-
-      expect(invalidResult.code).toBe(1);
-
-      // Test valid key — need to set up the private key first
-      // We can only test valid activation if the private key exists
-      const privateKeyPath = path.join(
-        process.env.HOME || '.',
-        '.agentide',
-        'private.pem',
-      );
-      if (fs.existsSync(privateKeyPath)) {
-        // Generate a valid key using the helper
-        const { generateTestLicenseKey } = await import('../helpers/license-helper.js');
-        const licenseKey = generateTestLicenseKey({
-          email: 'cli-test@example.com',
-          plan: 'pro',
-          maxSessions: 5,
-          expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
-        });
-
-        const validResult = await new Promise<{ code: number | null; stdout: string }>((resolve) => {
-          const proc = spawn(tsxBin, [CLI_PATH, 'activate', licenseKey], {
-            cwd: tmpDir,
-            env: { ...process.env, HOME: tmpDir },
-            stdio: ['pipe', 'pipe', 'pipe'],
-          });
-          let stdout = '';
-          proc.stdout?.on('data', (d: Buffer) => { stdout += d.toString(); });
-          proc.on('exit', (code) => resolve({ code, stdout }));
-          setTimeout(() => { proc.kill(); resolve({ code: null, stdout }); }, 10000);
-        });
-
-        expect(validResult.code).toBe(0);
-        expect(validResult.stdout).toContain('cli-test@example.com');
-
-        // Verify file was saved
-        const savedKey = path.join(tmpDir, '.agentide', 'license.key');
-        expect(fs.existsSync(savedKey)).toBe(true);
-      }
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-    }
+    expect(sessionsRes.status).toBe(200);
   });
 });

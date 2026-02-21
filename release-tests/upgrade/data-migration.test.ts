@@ -38,8 +38,8 @@ describe('Upgrade: Data migration from v0.1.0', { timeout: 120_000 }, () => {
 
   it('server starts without errors on old schema', async () => {
     // If we got here, beforeAll succeeded — server started on the fixture DB
-    const res = await fetch(`${server.baseUrl}/api/auth/status`);
-    expect([200, 401]).toContain(res.status);
+    const res = await fetch(`${server.baseUrl}/api/health`);
+    expect(res.status).toBe(200);
   });
 
   it('GET /api/sessions returns all 3 fixture sessions', async () => {

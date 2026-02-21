@@ -14,9 +14,6 @@ export interface StartOptions {
   binaryPath: string;
   port?: number;
   host?: string;
-  tls?: boolean;
-  selfSigned?: boolean;
-  noAuth?: boolean;
   extraArgs?: string[];
   timeout?: number;
 }
@@ -31,9 +28,6 @@ export function startServer(opts: StartOptions): Promise<RunningServer> {
     env,
     binaryPath,
     host,
-    tls,
-    selfSigned,
-    noAuth,
     extraArgs = [],
     timeout = 30_000,
   } = opts;
@@ -44,9 +38,6 @@ export function startServer(opts: StartOptions): Promise<RunningServer> {
 
   const args = [binaryPath, 'start', '--port', String(port)];
   if (host) args.push('--host', host);
-  if (tls) args.push('--tls');
-  if (selfSigned) args.push('--self-signed');
-  if (noAuth) args.push('--no-auth');
   args.push(...extraArgs);
 
   return new Promise((resolve, reject) => {
@@ -169,23 +160,15 @@ function stopServer(proc: ChildProcess): Promise<number | null> {
 export async function waitForHealth(
   baseUrl: string,
   timeoutMs = 10_000,
-  options?: { rejectUnauthorized?: boolean },
 ): Promise<void> {
   const start = Date.now();
-  const fetchOpts: RequestInit = {};
-
-  // For HTTPS with self-signed certs
-  if (baseUrl.startsWith('https') && options?.rejectUnauthorized === false) {
-    // Node 18+ supports this via the dispatcher
-    (fetchOpts as Record<string, unknown>).dispatcher = undefined;
-  }
 
   while (Date.now() - start < timeoutMs) {
     try {
-      const res = await fetch(`${baseUrl}/api/auth/status`, {
+      const res = await fetch(`${baseUrl}/api/health`, {
         signal: AbortSignal.timeout(2000),
       });
-      if (res.status === 200 || res.status === 401) {
+      if (res.status === 200) {
         return;
       }
     } catch {

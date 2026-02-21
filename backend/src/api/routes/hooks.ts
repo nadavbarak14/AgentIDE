@@ -2,13 +2,13 @@ import { Router } from 'express';
 import type { Repository } from '../../models/repository.js';
 import { logger } from '../../services/logger.js';
 
-export function createHooksRouter(repo: Repository, authRequired = false): Router {
+export function createHooksRouter(repo: Repository, isRemote = false): Router {
   const router = Router();
 
   // POST /api/hooks/event — receive hook callbacks from spawned Claude processes
-  // When auth is required (remote mode), restrict to localhost-only callers
+  // When server binds to non-localhost, restrict to localhost-only callers
   router.post('/event', (req, res) => {
-    if (authRequired) {
+    if (isRemote) {
       const ip = req.ip || req.socket.remoteAddress || '';
       const isLocal = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
       if (!isLocal) {

@@ -28,8 +28,8 @@ describe('Config: Port and host options', { timeout: 120_000 }, () => {
     try {
       expect(server.port).toBeGreaterThan(0);
       await waitForHealth(server.baseUrl);
-      const res = await fetch(`${server.baseUrl}/api/auth/status`);
-      expect([200, 401]).toContain(res.status);
+      const res = await fetch(`${server.baseUrl}/api/health`);
+      expect(res.status).toBe(200);
     } finally {
       await server.stop();
     }
@@ -44,25 +44,24 @@ describe('Config: Port and host options', { timeout: 120_000 }, () => {
     try {
       expect(server.port).toBe(8765);
       await waitForHealth(server.baseUrl);
-      const res = await fetch(`http://127.0.0.1:8765/api/auth/status`);
-      expect([200, 401]).toContain(res.status);
+      const res = await fetch(`http://127.0.0.1:8765/api/health`);
+      expect(res.status).toBe(200);
     } finally {
       await server.stop();
     }
   });
 
-  it('server starts with --host 0.0.0.0 and --no-auth', async () => {
+  it('server starts with --host 0.0.0.0', async () => {
     const server = await startServer({
       env,
       binaryPath: artifact.binaryPath,
       host: '0.0.0.0',
-      noAuth: true,
     });
     try {
       await waitForHealth(server.baseUrl);
       // Connecting via 127.0.0.1 should work since 0.0.0.0 binds all interfaces
-      const res = await fetch(`http://127.0.0.1:${server.port}/api/auth/status`);
-      expect([200, 401]).toContain(res.status);
+      const res = await fetch(`http://127.0.0.1:${server.port}/api/health`);
+      expect(res.status).toBe(200);
     } finally {
       await server.stop();
     }

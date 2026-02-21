@@ -7,10 +7,6 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     ...options,
   });
   if (!res.ok) {
-    // Dispatch auth event on 401 so the app can show the license gate
-    if (res.status === 401) {
-      window.dispatchEvent(new CustomEvent('auth:unauthorized'));
-    }
     const body = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(body.error || `HTTP ${res.status}`);
   }
@@ -602,29 +598,3 @@ export const settings = {
     request<Settings>('/settings', { method: 'PATCH', body: JSON.stringify(data) }),
 };
 
-// ─── Auth ───
-
-export interface AuthStatus {
-  authRequired: boolean;
-  authenticated: boolean;
-  email: string | null;
-  plan: string | null;
-  licenseExpiresAt: string | null;
-}
-
-export interface ActivateResponse {
-  email: string;
-  plan: string;
-  maxSessions: number;
-  expiresAt: string;
-}
-
-export const auth = {
-  status: () => request<AuthStatus>('/auth/status'),
-  activate: (licenseKey: string) =>
-    request<ActivateResponse>('/auth/activate', {
-      method: 'POST',
-      body: JSON.stringify({ licenseKey }),
-    }),
-  logout: () => request<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
-};
