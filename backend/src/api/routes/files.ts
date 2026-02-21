@@ -65,11 +65,11 @@ function rewriteHtmlForProxy(html: string, proxyBase: string): string {
   // Rewrite JSON URLs inside <script> tags (e.g. Next.js RSC payloads)
   // Handles both \"/_next/...\" and ["/_next/..."] patterns
   rewritten = rewritten.replace(
-    /\\"\/(\_next\/[^"\\]*)\\"/g,
+    /\\"\/(_next\/[^"\\]*)\\"/g,
     `\\"${proxyBase}/$1\\"`,
   );
   rewritten = rewritten.replace(
-    /\["\/(\_next\/[^"]*?)"/g,
+    /\["\/(_next\/[^"]*?)"/g,
     `["${proxyBase}/$1"`,
   );
 
