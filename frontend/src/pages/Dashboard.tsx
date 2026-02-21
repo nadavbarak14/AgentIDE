@@ -338,6 +338,7 @@ export function Dashboard() {
       case 'toggle_preview':
       case 'toggle_claude':
       case 'toggle_issues':
+      case 'toggle_shell':
       case 'search_files':
         if (curId) {
           window.dispatchEvent(new CustomEvent('c3:shortcut', { detail: { action, sessionId: curId } }));
