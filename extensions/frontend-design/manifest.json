@@ -1,0 +1,19 @@
+{
+  "name": "frontend-design",
+  "displayName": "Frontend Design",
+  "panel": {
+    "entry": "ui/index.html",
+    "defaultPosition": "right",
+    "icon": "layout"
+  },
+  "skills": [
+    "skills/design-add-screen",
+    "skills/design-update-screen",
+    "skills/design-remove-screen"
+  ],
+  "boardCommands": [
+    "design.add_screen",
+    "design.update_screen",
+    "design.remove_screen"
+  ]
+}

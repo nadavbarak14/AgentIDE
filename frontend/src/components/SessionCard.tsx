@@ -7,7 +7,9 @@ import { DiffViewer } from './DiffViewer';
 import { LivePreview } from './LivePreview';
 import { ProjectSearch } from './ProjectSearch';
 import { GitHubIssues } from './GitHubIssues';
+import { ExtensionPanel, type ExtensionPanelHandle } from './ExtensionPanel';
 import { usePanel } from '../hooks/usePanel';
+import { useExtensions } from '../hooks/useExtensions';
 import { sessions as sessionsApi, type Session, type Worker } from '../services/api';
 import type { WsServerMessage } from '../services/ws';
 import { WorkerBadge } from './WorkerBadge';
@@ -46,6 +48,7 @@ export function SessionCard({
   onSetCurrent,
 }: SessionCardProps) {
   const panel = usePanel(session.id);
+  const { extensionsWithPanel, getExtension } = useExtensions();
   const [resizingSide, setResizingSide] = useState<'left' | 'right' | null>(null);
   const [resizingVertical, setResizingVertical] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -63,6 +66,8 @@ export function SessionCard({
 
   // Bridge ref for view-* board command relay
   const previewBridgeRef = useRef<UsePreviewBridgeReturn | null>(null);
+  // Extension panel refs for forwarding board commands to extension iframes
+  const extensionPanelRefs = useRef<Record<string, ExtensionPanelHandle | null>>({});
 
   const handleWsMessage = useCallback((msg: WsServerMessage) => {
     // Handle connection_lost / connection_restored for remote sessions
@@ -87,22 +92,31 @@ export function SessionCard({
     if (msg.type === 'board_command') {
       try {
         // Smart open: ensure the target panel is visible (never toggle off)
-        const ensurePanelOpen = (panelType: 'files' | 'git' | 'preview' | 'issues') => {
+        const ensurePanelOpen = (panelType: string) => {
+          const pt = panelType as import('../hooks/usePanel').PanelContent;
           // Already showing in either side → nothing to do
-          if (panel.leftPanel === panelType || panel.rightPanel === panelType) return;
+          if (panel.leftPanel === pt || panel.rightPanel === pt) return;
 
-          const defaultSide = panelType === 'files' ? 'left' : 'right';
+          // Determine default side: files→left, extensions use their config, others→right
+          let defaultSide: 'left' | 'right' = 'right';
+          if (panelType === 'files') {
+            defaultSide = 'left';
+          } else if (panelType.startsWith('ext:')) {
+            const ext = getExtension(panelType.slice(4));
+            defaultSide = ext?.panelConfig?.defaultPosition ?? 'right';
+          }
+
           const leftOccupied = panel.leftPanel !== 'none';
           const rightOccupied = panel.rightPanel !== 'none';
 
           if (defaultSide === 'left') {
-            if (!leftOccupied) panel.setLeftPanel(panelType);
-            else if (!rightOccupied) panel.setRightPanel(panelType);
-            else panel.setLeftPanel(panelType); // replace default side
+            if (!leftOccupied) panel.setLeftPanel(pt);
+            else if (!rightOccupied) panel.setRightPanel(pt);
+            else panel.setLeftPanel(pt); // replace default side
           } else {
-            if (!rightOccupied) panel.setRightPanel(panelType);
-            else if (!leftOccupied) panel.setLeftPanel(panelType);
-            else panel.setRightPanel(panelType); // replace default side
+            if (!rightOccupied) panel.setRightPanel(pt);
+            else if (!leftOccupied) panel.setLeftPanel(pt);
+            else panel.setRightPanel(pt); // replace default side
           }
         };
 
@@ -116,7 +130,7 @@ export function SessionCard({
             });
           }
         } else if (msg.command === 'show_panel' && msg.params.panel) {
-          ensurePanelOpen(msg.params.panel as 'files' | 'git' | 'preview' | 'issues');
+          ensurePanelOpen(msg.params.panel);
           // If opening preview with a URL, navigate to it once the bridge is ready
           if (msg.params.panel === 'preview' && msg.params.url) {
             panel.setPreviewUrl(msg.params.url);
@@ -260,17 +274,114 @@ export function SessionCard({
             }
           })();
         }
+
+        // Handle auto-skill board commands (ext.comment, ext.select_text)
+        if (msg.command === 'ext.comment' && msg.params.extension) {
+          const extKey = `ext:${msg.params.extension}` as import('../hooks/usePanel').PanelContent;
+          ensurePanelOpen(extKey);
+          const handle = extensionPanelRefs.current[msg.params.extension];
+          if (handle) {
+            handle.sendToExtension({
+              type: 'board-command',
+              command: 'enable-inspect',
+              params: msg.params.screen ? { screen: msg.params.screen } : {},
+            });
+          }
+        } else if (msg.command === 'ext.select_text' && msg.params.extension) {
+          const extKey = `ext:${msg.params.extension}` as import('../hooks/usePanel').PanelContent;
+          ensurePanelOpen(extKey);
+          const handle = extensionPanelRefs.current[msg.params.extension];
+          if (handle) {
+            handle.sendToExtension({
+              type: 'board-command',
+              command: 'enable-text-select',
+              params: {},
+            });
+          }
+        }
+
+        // Forward board commands to matching extensions
+        for (const ext of extensionsWithPanel) {
+          if (ext.boardCommands.includes(msg.command)) {
+            const handle = extensionPanelRefs.current[ext.name];
+            if (handle) {
+              handle.sendToExtension({
+                type: 'board-command',
+                command: msg.command,
+                params: msg.params,
+              });
+            }
+          }
+        }
       } catch {
         // Never disrupt the terminal for command handling errors
       }
     }
-  }, [panel, session.id]);
+  }, [panel, session.id, getExtension, extensionsWithPanel]);
 
   useEffect(() => {
     return () => {
       if (fileChangeDebounceRef.current) clearTimeout(fileChangeDebounceRef.current);
     };
   }, []);
+
+  // Refresh Skills button state
+  const [refreshingSkills, setRefreshingSkills] = useState(false);
+  const [refreshResult, setRefreshResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  const handleRefreshSkills = useCallback(async () => {
+    if (refreshingSkills) return;
+    setRefreshingSkills(true);
+    setRefreshResult(null);
+    try {
+      // Ensure shell is open
+      await fetch(`/api/sessions/${session.id}/shell`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cols: 120, rows: 30 }),
+      }).catch(() => {/* shell may already be running — 409 is fine */});
+
+      // Connect a temporary WebSocket to the shell, send the command, collect output
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}/ws/sessions/${session.id}/shell`;
+      const ws = new WebSocket(wsUrl);
+      ws.binaryType = 'arraybuffer';
+
+      let output = '';
+      const encoder = new TextEncoder();
+      const decoder = new TextDecoder();
+
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => { ws.close(); reject(new Error('timeout')); }, 10000);
+
+        ws.onopen = () => {
+          // Type the command + Enter
+          ws.send(encoder.encode('npm run register-extensions 2>&1; echo "___DONE___"\n'));
+        };
+        ws.onmessage = (event) => {
+          if (event.data instanceof ArrayBuffer) {
+            output += decoder.decode(event.data);
+            if (output.includes('___DONE___')) {
+              clearTimeout(timeout);
+              ws.close();
+              resolve();
+            }
+          }
+        };
+        ws.onerror = () => { clearTimeout(timeout); reject(new Error('ws error')); };
+      });
+
+      const match = output.match(/(\d+) extension\(s\) processed/);
+      setRefreshResult({ ok: true, msg: match ? `${match[1]} extension(s) refreshed` : 'Skills refreshed' });
+      // Show the shell panel so user can see the output
+      panel.setBottomPanel('shell');
+    } catch {
+      setRefreshResult({ ok: false, msg: 'Failed to refresh skills' });
+    } finally {
+      setRefreshingSkills(false);
+      setTimeout(() => setRefreshResult(null), 3000);
+    }
+  }, [session.id, refreshingSkills, panel]);
 
   const showToolbar = session.status === 'active' || session.status === 'completed';
   const showLeftPanel = showToolbar && panel.leftPanel !== 'none';
@@ -394,6 +505,41 @@ export function SessionCard({
     }
   }, []);
 
+  // Handle outbound board commands from extension iframes
+  const handleExtensionBoardCommand = useCallback((command: string, params: Record<string, string>) => {
+    try {
+      const pt = params.panel as import('../hooks/usePanel').PanelContent | undefined;
+      if (command === 'show_panel' && pt) {
+        // Extension wants to open a panel
+        const ensureOpen = (panelType: string) => {
+          const p = panelType as import('../hooks/usePanel').PanelContent;
+          if (panel.leftPanel === p || panel.rightPanel === p) return;
+          const rightOccupied = panel.rightPanel !== 'none';
+          if (!rightOccupied) panel.setRightPanel(p);
+          else panel.setLeftPanel(p);
+        };
+        ensureOpen(params.panel);
+      } else if (command === 'open_file' && params.path) {
+        panel.addFileTab(params.path);
+      }
+    } catch {
+      // Never disrupt terminal
+    }
+  }, [panel]);
+
+  // Handle comments from extension iframes
+  const handleExtensionComment = useCallback(async (text: string, context: Record<string, string>) => {
+    try {
+      const contextParts = Object.entries(context)
+        .map(([k, v]) => `[${k}: ${v}]`)
+        .join(' ');
+      const formatted = contextParts ? `${contextParts}\n${text}` : text;
+      await sessionsApi.input(session.id, formatted + '\n');
+    } catch {
+      // Ignore errors
+    }
+  }, [session.id]);
+
   const handleFileSelect = useCallback((filePath: string) => {
     panel.addFileTab(filePath);
   }, [panel]);
@@ -442,7 +588,9 @@ export function SessionCard({
     return containerWidth >= neededWidth;
   }, [showLeftPanel, showRightPanel]);
 
-  const handleTogglePanel = useCallback((panelType: 'files' | 'git' | 'preview' | 'issues' | 'shell') => {
+  const handleTogglePanel = useCallback((panelType: string) => {
+    const pt = panelType as import('../hooks/usePanel').PanelContent;
+
     // Shell uses bottom panel slot
     if (panelType === 'shell') {
       panel.setBottomPanel(panel.bottomPanel === 'shell' ? 'none' : 'shell');
@@ -450,8 +598,8 @@ export function SessionCard({
     }
 
     // Check if any panel already shows this content type — toggle off
-    const leftShows = panel.leftPanel === panelType;
-    const rightShows = panel.rightPanel === panelType;
+    const leftShows = panel.leftPanel === pt;
+    const rightShows = panel.rightPanel === pt;
 
     if (leftShows) {
       panel.setLeftPanel('none');
@@ -463,30 +611,32 @@ export function SessionCard({
     }
 
     // Smart placement: prefer default side, fall back to other side if occupied
-    const defaultSide = panelType === 'files' ? 'left' : 'right';
+    let defaultSide: 'left' | 'right' = panelType === 'files' ? 'left' : 'right';
+    if (panelType.startsWith('ext:')) {
+      const ext = getExtension(panelType.slice(4));
+      defaultSide = ext?.panelConfig?.defaultPosition ?? 'right';
+    }
     const leftOccupied = panel.leftPanel !== 'none';
     const rightOccupied = panel.rightPanel !== 'none';
 
     if (defaultSide === 'left') {
       if (!leftOccupied && canOpenPanel('left')) {
-        panel.setLeftPanel(panelType);
+        panel.setLeftPanel(pt);
       } else if (!rightOccupied && canOpenPanel('right')) {
-        panel.setRightPanel(panelType);
+        panel.setRightPanel(pt);
       } else if (canOpenPanel('left')) {
-        // Both occupied — replace the default side
-        panel.setLeftPanel(panelType);
+        panel.setLeftPanel(pt);
       }
     } else {
       if (!rightOccupied && canOpenPanel('right')) {
-        panel.setRightPanel(panelType);
+        panel.setRightPanel(pt);
       } else if (!leftOccupied && canOpenPanel('left')) {
-        panel.setLeftPanel(panelType);
+        panel.setLeftPanel(pt);
       } else if (canOpenPanel('right')) {
-        // Both occupied — replace the default side
-        panel.setRightPanel(panelType);
+        panel.setRightPanel(pt);
       }
     }
-  }, [panel, canOpenPanel]);
+  }, [panel, canOpenPanel, getExtension]);
 
   // Track chord armed state for showing key hints on tabs
   const [chordArmed, setChordArmed] = useState(false);
@@ -561,12 +711,16 @@ export function SessionCard({
   const showBottomZone = showToolbar && panel.terminalPosition === 'bottom' && panel.terminalVisible;
 
   // Content type options for panel header dropdowns
-  const CONTENT_OPTIONS = [
+  const CONTENT_OPTIONS: readonly { value: string; label: string }[] = [
     { value: 'files', label: 'Files' },
     { value: 'git', label: 'Git' },
     { value: 'preview', label: 'Preview' },
     { value: 'issues', label: 'Issues' },
-  ] as const;
+    ...extensionsWithPanel.map((ext) => ({
+      value: ext.panelKey,
+      label: ext.displayName,
+    })),
+  ];
 
   // Render the content for a panel based on its content type
   const renderPanelContent = (contentType: string, slot: 'left' | 'right') => {
@@ -664,6 +818,23 @@ export function SessionCard({
           />
         );
       default:
+        // Extension panels: ext:<name>
+        if (contentType.startsWith('ext:')) {
+          const extName = contentType.slice(4);
+          const ext = getExtension(extName);
+          if (ext) {
+            return (
+              <ExtensionPanel
+                ref={(handle) => { extensionPanelRefs.current[extName] = handle; }}
+                extension={ext}
+                sessionId={session.id}
+                onClose={slot === 'left' ? closeLeftPanel : closeRightPanel}
+                onBoardCommand={handleExtensionBoardCommand}
+                onSendComment={handleExtensionComment}
+              />
+            );
+          }
+        }
         return null;
     }
   };
@@ -860,6 +1031,42 @@ export function SessionCard({
             >
               Shell
               {chordArmed && isCurrent && <span className="ml-1 px-1 py-px bg-blue-600 text-white text-[10px] rounded font-mono animate-pulse">S</span>}
+            </button>
+            {extensionsWithPanel.length > 0 && (
+              <>
+                <div className="w-px h-3.5 bg-gray-600 mx-0.5" />
+                {extensionsWithPanel.map((ext) => (
+                  <button
+                    key={ext.panelKey}
+                    onClick={() => handleTogglePanel(ext.panelKey as 'files')}
+                    className={`px-1.5 py-0.5 text-xs rounded transition-colors ${
+                      panel.leftPanel === ext.panelKey || panel.rightPanel === ext.panelKey
+                        ? 'bg-cyan-500/20 text-cyan-400'
+                        : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+                    }`}
+                    title={ext.displayName}
+                  >
+                    {ext.displayName}
+                  </button>
+                ))}
+              </>
+            )}
+            <div className="w-px h-3.5 bg-gray-600 mx-0.5" />
+            <button
+              onClick={handleRefreshSkills}
+              disabled={refreshingSkills}
+              className={`px-1.5 py-0.5 text-xs rounded transition-colors ${
+                refreshingSkills
+                  ? 'text-gray-500 cursor-wait'
+                  : refreshResult
+                    ? refreshResult.ok
+                      ? 'text-green-400'
+                      : 'text-red-400'
+                    : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+              }`}
+              title={refreshResult ? refreshResult.msg : 'Refresh extension skills'}
+            >
+              {refreshingSkills ? '...' : refreshResult ? (refreshResult.ok ? '\u2713' : '\u2717') : '\u27F3 Skills'}
             </button>
             <div className="w-px h-3.5 bg-gray-600 mx-0.5" />
             <button

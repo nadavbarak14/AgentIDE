@@ -17,8 +17,12 @@
     "README.md"
   ],
   "scripts": {
+    "register-extensions": "node scripts/register-extension-skills.js",
+    "predev:backend": "npm run register-extensions",
+    "predev:frontend": "npm run register-extensions",
     "dev:backend": "npm run dev --workspace=backend",
     "dev:frontend": "npm run dev --workspace=frontend",
+    "prebuild": "npm run register-extensions",
     "build": "npm run build --workspace=backend && npm run build --workspace=frontend",
     "prepublishOnly": "npm run build",
     "start": "npm run start --workspace=backend",
