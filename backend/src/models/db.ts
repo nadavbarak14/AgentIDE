@@ -101,6 +101,22 @@ CREATE TABLE IF NOT EXISTS comments (
 CREATE INDEX IF NOT EXISTS idx_comments_session ON comments(session_id);
 CREATE INDEX IF NOT EXISTS idx_comments_status ON comments(status);
 
+CREATE TABLE IF NOT EXISTS projects (
+  id TEXT PRIMARY KEY,
+  worker_id TEXT NOT NULL REFERENCES workers(id) ON DELETE CASCADE,
+  directory_path TEXT NOT NULL,
+  display_name TEXT NOT NULL,
+  bookmarked INTEGER NOT NULL DEFAULT 0,
+  position INTEGER DEFAULT NULL,
+  last_used_at TEXT NOT NULL DEFAULT (datetime('now')),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(worker_id, directory_path)
+);
+
+CREATE INDEX IF NOT EXISTS idx_projects_worker ON projects(worker_id);
+CREATE INDEX IF NOT EXISTS idx_projects_last_used ON projects(last_used_at DESC);
+CREATE INDEX IF NOT EXISTS idx_projects_bookmarked ON projects(bookmarked, position);
+
 CREATE TABLE IF NOT EXISTS auth_config (
   id INTEGER PRIMARY KEY CHECK(id = 1),
   jwt_secret TEXT NOT NULL,

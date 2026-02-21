@@ -8,11 +8,13 @@ import { LivePreview } from './LivePreview';
 import { ProjectSearch } from './ProjectSearch';
 import { GitHubIssues } from './GitHubIssues';
 import { usePanel } from '../hooks/usePanel';
-import { sessions as sessionsApi, type Session } from '../services/api';
+import { sessions as sessionsApi, type Session, type Worker } from '../services/api';
 import type { WsServerMessage } from '../services/ws';
+import { WorkerBadge } from './WorkerBadge';
 
 interface SessionCardProps {
   session: Session;
+  workers?: Worker[];
   focused?: boolean;
   isCurrent?: boolean;
   isSingleView?: boolean;
@@ -32,6 +34,7 @@ const STATUS_COLORS: Record<string, string> = {
 
 export function SessionCard({
   session,
+  workers,
   focused = false,
   isCurrent = false,
   isSingleView: _isSingleView = false,
@@ -54,8 +57,17 @@ export function SessionCard({
 
   // Port detection — managed internally from WebSocket events
   const [detectedPort, setDetectedPort] = useState<{ port: number; localPort: number } | null>(null);
+  // Connection status for remote sessions
+  const [connectionLost, setConnectionLost] = useState(false);
 
   const handleWsMessage = useCallback((msg: WsServerMessage) => {
+    // Handle connection_lost / connection_restored for remote sessions
+    if (msg.type === 'connection_lost') {
+      setConnectionLost(true);
+    }
+    if (msg.type === 'connection_restored') {
+      setConnectionLost(false);
+    }
     if (msg.type === 'file_changed') {
       if (fileChangeDebounceRef.current) {
         clearTimeout(fileChangeDebounceRef.current);
@@ -537,7 +549,19 @@ export function SessionCard({
   // Helper to render terminal or status indicator (used in both center and bottom positions)
   const renderTerminalOrStatus = () => {
     if (session.status === 'active') {
-      return <TerminalView sessionId={session.id} active={true} fontSize={panel.fontSize} onWsMessage={handleWsMessage} />;
+      return (
+        <div className="relative h-full">
+          <TerminalView sessionId={session.id} active={true} fontSize={panel.fontSize} onWsMessage={handleWsMessage} />
+          {connectionLost && (
+            <div className="absolute inset-0 flex items-center justify-center bg-amber-900/40 z-10">
+              <div className="bg-gray-900/90 border border-amber-500 rounded px-4 py-2 text-center">
+                <p className="text-amber-400 text-sm font-medium">Connection lost</p>
+                <p className="text-gray-400 text-xs mt-1">Reconnecting...</p>
+              </div>
+            </div>
+          )}
+        </div>
+      );
     }
     if (session.status === 'queued') {
       return (
@@ -588,6 +612,7 @@ export function SessionCard({
         <div className="flex items-center gap-1.5 min-w-0 flex-shrink-0">
           <span className={`w-2 h-2 rounded-full flex-shrink-0 ${STATUS_COLORS[session.status]}`} />
           <span className="text-sm font-medium truncate max-w-[180px]">{session.title || 'Untitled'}</span>
+          {workers && <WorkerBadge workerId={session.workerId} workers={workers} />}
           {session.needsInput && (
             <span className="text-sm text-amber-400 animate-pulse font-bold" title="Needs input">!</span>
           )}

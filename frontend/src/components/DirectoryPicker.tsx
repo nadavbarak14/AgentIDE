@@ -1,33 +1,49 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { directories, type DirectoryEntry } from '../services/api';
+import { directories, workers, type DirectoryEntry } from '../services/api';
 
 interface DirectoryPickerProps {
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
+  workerId?: string;
+  isRemote?: boolean;
 }
 
-export function DirectoryPicker({ value, onChange, placeholder }: DirectoryPickerProps) {
+export function DirectoryPicker({ value, onChange, placeholder, workerId, isRemote }: DirectoryPickerProps) {
   const [suggestions, setSuggestions] = useState<DirectoryEntry[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const [pathExists, setPathExists] = useState(true);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [connectionError, setConnectionError] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
+  // Unified directory listing: routes to local or remote API
+  const listDirectories = useCallback(async (dirPath?: string, query?: string) => {
+    if (isRemote && workerId) {
+      return workers.directories(workerId, dirPath, query);
+    }
+    return directories.list(dirPath, query);
+  }, [isRemote, workerId]);
+
   const fetchSuggestions = useCallback(async (inputValue: string) => {
+    setConnectionError(false);
+
     if (!inputValue) {
       // Fetch home directory contents
       setLoading(true);
       try {
-        const result = await directories.list();
+        const result = await listDirectories();
         setSuggestions(result.entries);
         setPathExists(result.exists);
         setShowDropdown(true);
-      } catch {
+      } catch (err) {
         setSuggestions([]);
+        if (isRemote && err instanceof Error && err.message.includes('not connected')) {
+          setConnectionError(true);
+        }
       } finally {
         setLoading(false);
       }
@@ -55,17 +71,20 @@ export function DirectoryPicker({ value, onChange, placeholder }: DirectoryPicke
 
     setLoading(true);
     try {
-      const result = await directories.list(parentDir || undefined, query || undefined);
+      const result = await listDirectories(parentDir || undefined, query || undefined);
       setSuggestions(result.entries);
       setPathExists(result.exists || result.entries.length > 0);
       setShowDropdown(true);
-    } catch {
+    } catch (err) {
       setSuggestions([]);
       setPathExists(false);
+      if (isRemote && err instanceof Error && err.message.includes('not connected')) {
+        setConnectionError(true);
+      }
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [listDirectories, isRemote]);
 
   // Debounced fetch
   useEffect(() => {
@@ -114,7 +133,7 @@ export function DirectoryPicker({ value, onChange, placeholder }: DirectoryPicke
     }
   };
 
-  const showCreateHint = value.trim() && !pathExists && !loading && suggestions.length === 0;
+  const showCreateHint = value.trim() && !pathExists && !loading && suggestions.length === 0 && !isRemote;
 
   return (
     <div className="relative">
@@ -132,6 +151,9 @@ export function DirectoryPicker({ value, onChange, placeholder }: DirectoryPicke
         <div className="absolute right-2 top-1/2 -translate-y-1/2">
           <div className="w-3 h-3 border border-gray-500 border-t-blue-400 rounded-full animate-spin" />
         </div>
+      )}
+      {connectionError && (
+        <div className="text-xs text-red-400 mt-1">Connection lost — unable to browse remote directories</div>
       )}
 
       {showDropdown && (suggestions.length > 0 || showCreateHint) && (

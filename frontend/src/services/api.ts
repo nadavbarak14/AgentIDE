@@ -47,10 +47,25 @@ export interface Worker {
   sshHost: string | null;
   sshPort: number;
   sshUser: string | null;
+  sshKeyPath: string | null;
   status: 'connected' | 'disconnected' | 'error';
   maxSessions: number;
   activeSessionCount?: number;
   lastHeartbeat: string | null;
+}
+
+export interface Project {
+  id: string;
+  workerId: string;
+  directoryPath: string;
+  displayName: string;
+  bookmarked: boolean;
+  position: number | null;
+  lastUsedAt: string;
+  createdAt: string;
+  workerName?: string;
+  workerType?: 'local' | 'remote';
+  workerStatus?: 'connected' | 'disconnected' | 'error';
 }
 
 export interface Settings {
@@ -123,10 +138,46 @@ export const workers = {
     maxSessions?: number;
   }) => request<Worker>('/workers', { method: 'POST', body: JSON.stringify(data) }),
 
+  update: (id: string, data: {
+    name?: string;
+    sshHost?: string;
+    sshPort?: number;
+    sshUser?: string;
+    sshKeyPath?: string;
+    maxSessions?: number;
+  }) => request<Worker>(`/workers/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+
   delete: (id: string) => request<void>(`/workers/${id}`, { method: 'DELETE' }),
 
   test: (id: string) =>
     request<{ ok: boolean; latency_ms: number }>(`/workers/${id}/test`, { method: 'POST' }),
+
+  directories: (workerId: string, dirPath?: string, query?: string) => {
+    const params = new URLSearchParams();
+    if (dirPath) params.set('path', dirPath);
+    if (query) params.set('query', query);
+    const qs = params.toString();
+    return request<DirectoryListResult>(`/workers/${workerId}/directories${qs ? `?${qs}` : ''}`);
+  },
+};
+
+// ─── Projects ───
+
+export const projects = {
+  list: (workerId?: string) => {
+    const params = new URLSearchParams();
+    if (workerId) params.set('workerId', workerId);
+    const query = params.toString();
+    return request<{ projects: Project[] }>(`/projects${query ? `?${query}` : ''}`);
+  },
+
+  create: (data: { workerId: string; directoryPath: string; displayName?: string; bookmarked?: boolean }) =>
+    request<Project>('/projects', { method: 'POST', body: JSON.stringify(data) }),
+
+  update: (id: string, data: { displayName?: string; bookmarked?: boolean; position?: number | null }) =>
+    request<Project>(`/projects/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+
+  delete: (id: string) => request<void>(`/projects/${id}`, { method: 'DELETE' }),
 };
 
 // ─── Files ───
@@ -281,12 +332,30 @@ export interface DirectoryListResult {
   exists: boolean;
 }
 
+export interface FileBrowserEntry {
+  name: string;
+  path: string;
+  type: 'file' | 'directory';
+}
+
+export interface FileBrowserResult {
+  path: string;
+  entries: FileBrowserEntry[];
+  exists: boolean;
+}
+
 export const directories = {
   list: (dirPath?: string, query?: string) => {
     const params = new URLSearchParams();
     if (dirPath) params.set('path', dirPath);
     if (query) params.set('query', query);
     return request<DirectoryListResult>(`/directories?${params.toString()}`);
+  },
+
+  files: (dirPath?: string) => {
+    const params = new URLSearchParams();
+    if (dirPath) params.set('path', dirPath);
+    return request<FileBrowserResult>(`/directories/files?${params.toString()}`);
   },
 
   create: (dirPath: string) =>

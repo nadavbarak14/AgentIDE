@@ -1,12 +1,16 @@
 import { useState } from 'react';
-import type { Session } from '../services/api';
-import { DirectoryPicker } from './DirectoryPicker';
+import type { Session, Worker } from '../services/api';
+import { ProjectPicker } from './ProjectPicker';
+import { WorkerSelector } from './WorkerSelector';
+import { WorkerBadge } from './WorkerBadge';
 
 interface SessionQueueProps {
   activeSessions: Session[];
   queuedSessions: Session[];
   completedSessions: Session[];
   failedSessions: Session[];
+  workers: Worker[];
+  onRequestAddMachine?: () => void;
   onCreateSession: (workingDirectory: string, title: string, targetWorker?: string | null, startFresh?: boolean, worktree?: boolean) => Promise<unknown>;
   onDeleteSession: (id: string) => Promise<void>;
   onContinueSession: (id: string) => Promise<unknown>;
@@ -19,6 +23,8 @@ export function SessionQueue({
   queuedSessions,
   completedSessions,
   failedSessions,
+  workers: workersList,
+  onRequestAddMachine,
   onCreateSession,
   onDeleteSession,
   onContinueSession,
@@ -27,18 +33,32 @@ export function SessionQueue({
 }: SessionQueueProps) {
   const [directory, setDirectory] = useState('');
   const [title, setTitle] = useState('');
+  const [targetWorker, setTargetWorker] = useState<string | null>(null);
   const [startFresh, setStartFresh] = useState(false);
   const [worktree, setWorktree] = useState(false);
   const [creating, setCreating] = useState(false);
+
+  const handleProjectSelect = (directoryPath: string, workerId: string | null) => {
+    setDirectory(directoryPath);
+    if (workerId) setTargetWorker(workerId);
+  };
+
+  const handleWorkerChange = (workerId: string | null) => {
+    if (workerId !== targetWorker) {
+      setDirectory(''); // Clear directory — paths differ between machines
+    }
+    setTargetWorker(workerId);
+  };
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!directory.trim() || !title.trim()) return;
     setCreating(true);
     try {
-      await onCreateSession(directory.trim(), title.trim(), null, startFresh, worktree);
+      await onCreateSession(directory.trim(), title.trim(), targetWorker, startFresh, worktree);
       setDirectory('');
       setTitle('');
+      setTargetWorker(null);
       setStartFresh(false);
       setWorktree(false);
     } finally {
@@ -59,10 +79,18 @@ export function SessionQueue({
             onChange={(e) => setTitle(e.target.value)}
             className="w-full px-2 py-1.5 text-sm bg-gray-900 border border-gray-600 rounded text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
           />
-          <DirectoryPicker
-            value={directory}
-            onChange={setDirectory}
-            placeholder="Working directory (start typing...)"
+          <ProjectPicker
+            selectedDirectory={directory}
+            onDirectoryChange={setDirectory}
+            onSelect={handleProjectSelect}
+            workerId={targetWorker || undefined}
+            isRemote={targetWorker ? workersList.find((w) => w.id === targetWorker)?.type === 'remote' : false}
+          />
+          <WorkerSelector
+            workers={workersList}
+            selectedWorkerId={targetWorker}
+            onChange={handleWorkerChange}
+            onRequestAddMachine={onRequestAddMachine}
           />
           <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer">
             <input
@@ -104,6 +132,7 @@ export function SessionQueue({
               <SessionItem
                 key={session.id}
                 session={session}
+                workers={workersList}
                 onClick={() => onFocusSession(session.id)}
                 onAction={() => onKillSession(session.id)}
                 actionLabel="Kill"
@@ -123,6 +152,7 @@ export function SessionQueue({
                 key={session.id}
                 session={session}
                 onDelete={() => onDeleteSession(session.id)}
+                workers={workersList}
               />
             ))}
           </div>
@@ -137,6 +167,7 @@ export function SessionQueue({
               <SessionItem
                 key={session.id}
                 session={session}
+                workers={workersList}
                 onDelete={() => onDeleteSession(session.id)}
                 onAction={() => onContinueSession(session.id)}
                 actionLabel="Restart"
@@ -155,6 +186,7 @@ export function SessionQueue({
               <SessionItem
                 key={session.id}
                 session={session}
+                workers={workersList}
                 onDelete={() => onDeleteSession(session.id)}
                 onAction={() => onContinueSession(session.id)}
                 actionLabel="Restart"
@@ -170,6 +202,7 @@ export function SessionQueue({
 
 function SessionItem({
   session,
+  workers,
   onClick,
   onDelete,
   onAction,
@@ -177,6 +210,7 @@ function SessionItem({
   actionColor,
 }: {
   session: Session;
+  workers?: Worker[];
   onClick?: () => void;
   onDelete?: () => void;
   onAction?: () => void;
@@ -207,6 +241,7 @@ function SessionItem({
             />
           )}
           <p className="text-sm text-gray-300 truncate">{session.title || 'Untitled'}</p>
+          {workers && <WorkerBadge workerId={session.workerId} workers={workers} />}
           {session.needsInput && (
             <span className="text-xs text-amber-400 flex-shrink-0">!</span>
           )}
@@ -230,7 +265,7 @@ function SessionItem({
             onClick={onDelete}
             className="px-1.5 py-0.5 text-xs text-gray-500 hover:bg-red-500/20 hover:text-red-400 rounded"
           >
-            ×
+            x
           </button>
         )}
       </div>

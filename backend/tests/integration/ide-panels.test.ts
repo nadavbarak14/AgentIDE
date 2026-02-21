@@ -140,11 +140,8 @@ describe('IDE Panels API', () => {
 
   describe('Comments', () => {
     it('creates a comment and returns 201', async () => {
-      const dir = path.join(tmpDir, 'p1');
-      const createRes = await request(app)
-        .post('/api/sessions')
-        .send({ workingDirectory: dir, title: 'S1' });
-      const sessionId = createRes.body.id;
+      const session = repo.createSession({ workingDirectory: path.join(tmpDir, 'p1'), title: 'S1' });
+      const sessionId = session.id;
 
       const res = await request(app)
         .post(`/api/sessions/${sessionId}/comments`)
@@ -257,10 +254,10 @@ describe('IDE Panels API', () => {
 
     it('delivers pending comments', async () => {
       const dir = path.join(tmpDir, 'p1');
-      const createRes = await request(app)
-        .post('/api/sessions')
-        .send({ workingDirectory: dir, title: 'S1' });
-      const sessionId = createRes.body.id;
+      fs.mkdirSync(dir, { recursive: true });
+      const created = sessionManager.createSession({ workingDirectory: dir, title: 'S1' });
+      await sessionManager.activateSession(created.id);
+      const sessionId = created.id;
 
       // Create comments directly in repo as pending
       repo.createComment({
@@ -288,10 +285,10 @@ describe('IDE Panels API', () => {
 
     it('deletes comments from DB after successful delivery (ephemeral)', async () => {
       const dir = path.join(tmpDir, 'p1');
-      const createRes = await request(app)
-        .post('/api/sessions')
-        .send({ workingDirectory: dir, title: 'S1' });
-      const sessionId = createRes.body.id;
+      fs.mkdirSync(dir, { recursive: true });
+      const created = sessionManager.createSession({ workingDirectory: dir, title: 'S1' });
+      await sessionManager.activateSession(created.id);
+      const sessionId = created.id;
 
       repo.createComment({
         sessionId,

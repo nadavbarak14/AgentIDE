@@ -7,6 +7,8 @@ export type WsServerMessage =
   | { type: 'artifact'; artifactId: string; artifactType: string; path: string; previewUrl: string }
   | { type: 'board_command'; sessionId: string; command: string; params: Record<string, string> }
   | { type: 'shell_status'; sessionId: string; status: 'running' | 'stopped' | 'killed'; pid?: number; exitCode?: number; shell?: string }
+  | { type: 'connection_lost'; sessionId: string }
+  | { type: 'connection_restored'; sessionId: string }
   | { type: 'error'; message: string; recoverable: boolean };
 
 export interface WsClientOptions {

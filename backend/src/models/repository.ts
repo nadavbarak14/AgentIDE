@@ -7,6 +7,7 @@ import type {
   SessionStatus,
   Worker,
   CreateWorkerInput,
+  UpdateWorkerInput,
   WorkerStatus,
   Artifact,
   ArtifactType,
@@ -22,6 +23,9 @@ import type {
   CommentStatus,
   CommentSide,
   AuthConfig,
+  Project,
+  CreateProjectInput,
+  UpdateProjectInput,
 } from './types.js';
 
 // Helper: convert SQLite row to Session
@@ -104,6 +108,19 @@ function rowToComment(row: Record<string, unknown>): Comment {
     side: (row.side as CommentSide) || 'new',
     createdAt: row.created_at as string,
     sentAt: (row.sent_at as string) || null,
+  };
+}
+
+function rowToProject(row: Record<string, unknown>): Project {
+  return {
+    id: row.id as string,
+    workerId: row.worker_id as string,
+    directoryPath: row.directory_path as string,
+    displayName: row.display_name as string,
+    bookmarked: Boolean(row.bookmarked),
+    position: row.position as number | null,
+    lastUsedAt: row.last_used_at as string,
+    createdAt: row.created_at as string,
   };
 }
 
@@ -385,6 +402,21 @@ export class Repository {
       .run(status, id);
   }
 
+  updateWorker(id: string, input: UpdateWorkerInput): Worker | null {
+    const updates: string[] = [];
+    const params: unknown[] = [];
+    if (input.name !== undefined) { updates.push('name = ?'); params.push(input.name); }
+    if (input.sshHost !== undefined) { updates.push('ssh_host = ?'); params.push(input.sshHost); }
+    if (input.sshPort !== undefined) { updates.push('ssh_port = ?'); params.push(input.sshPort); }
+    if (input.sshUser !== undefined) { updates.push('ssh_user = ?'); params.push(input.sshUser); }
+    if (input.sshKeyPath !== undefined) { updates.push('ssh_key_path = ?'); params.push(input.sshKeyPath); }
+    if (input.maxSessions !== undefined) { updates.push('max_sessions = ?'); params.push(input.maxSessions); }
+    if (updates.length === 0) return this.getWorker(id);
+    params.push(id);
+    this.db.prepare(`UPDATE workers SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+    return this.getWorker(id);
+  }
+
   // ─── Artifacts ───
 
   createArtifact(sessionId: string, type: ArtifactType, filePath: string): Artifact {
@@ -642,5 +674,117 @@ export class Repository {
        WHERE id = 1`,
     ).run();
     return this.getAuthConfig();
+  }
+
+  // ─── Projects ───
+
+  createProject(input: CreateProjectInput): Project {
+    const id = uuid();
+    const displayName = input.displayName || input.directoryPath.split('/').pop() || 'Untitled';
+    // Upsert: if the worker_id+directory_path pair already exists, update it
+    this.db
+      .prepare(
+        `INSERT INTO projects (id, worker_id, directory_path, display_name, bookmarked, last_used_at, created_at)
+         VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+         ON CONFLICT(worker_id, directory_path) DO UPDATE SET
+           display_name = CASE WHEN excluded.display_name != '' THEN excluded.display_name ELSE projects.display_name END,
+           bookmarked = excluded.bookmarked,
+           last_used_at = datetime('now')`,
+      )
+      .run(id, input.workerId, input.directoryPath, displayName, input.bookmarked ? 1 : 0);
+
+    // Return the actual row (may be existing row on conflict)
+    const row = this.db
+      .prepare('SELECT * FROM projects WHERE worker_id = ? AND directory_path = ?')
+      .get(input.workerId, input.directoryPath) as Record<string, unknown>;
+    return rowToProject(row);
+  }
+
+  getProject(id: string): Project | null {
+    const row = this.db.prepare('SELECT * FROM projects WHERE id = ?').get(id) as
+      | Record<string, unknown>
+      | undefined;
+    return row ? rowToProject(row) : null;
+  }
+
+  listProjects(workerId?: string): Project[] {
+    let sql: string;
+    const params: unknown[] = [];
+    if (workerId) {
+      sql = `SELECT * FROM projects WHERE worker_id = ?
+             ORDER BY bookmarked DESC,
+               CASE WHEN bookmarked = 1 THEN position ELSE NULL END ASC,
+               last_used_at DESC`;
+      params.push(workerId);
+    } else {
+      sql = `SELECT * FROM projects
+             ORDER BY bookmarked DESC,
+               CASE WHEN bookmarked = 1 THEN position ELSE NULL END ASC,
+               last_used_at DESC`;
+    }
+    const rows = this.db.prepare(sql).all(...params) as Record<string, unknown>[];
+    const projects = rows.map(rowToProject);
+
+    // Limit non-bookmarked (recent) to 10
+    const bookmarked = projects.filter((p) => p.bookmarked);
+    const recent = projects.filter((p) => !p.bookmarked).slice(0, 10);
+    return [...bookmarked, ...recent];
+  }
+
+  updateProject(id: string, input: UpdateProjectInput): Project | null {
+    const updates: string[] = [];
+    const params: unknown[] = [];
+    if (input.displayName !== undefined) {
+      updates.push('display_name = ?');
+      params.push(input.displayName);
+    }
+    if (input.bookmarked !== undefined) {
+      updates.push('bookmarked = ?');
+      params.push(input.bookmarked ? 1 : 0);
+      if (!input.bookmarked) {
+        updates.push('position = NULL');
+      }
+    }
+    if (input.position !== undefined) {
+      updates.push('position = ?');
+      params.push(input.position);
+    }
+    if (updates.length === 0) return this.getProject(id);
+
+    params.push(id);
+    this.db.prepare(`UPDATE projects SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+    return this.getProject(id);
+  }
+
+  deleteProject(id: string): boolean {
+    const result = this.db.prepare('DELETE FROM projects WHERE id = ?').run(id);
+    return result.changes > 0;
+  }
+
+  touchProject(workerId: string, directoryPath: string): Project {
+    // Update last_used_at if exists, otherwise create
+    const existing = this.db
+      .prepare('SELECT * FROM projects WHERE worker_id = ? AND directory_path = ?')
+      .get(workerId, directoryPath) as Record<string, unknown> | undefined;
+
+    if (existing) {
+      this.db
+        .prepare("UPDATE projects SET last_used_at = datetime('now') WHERE id = ?")
+        .run(existing.id);
+      return this.getProject(existing.id as string)!;
+    }
+
+    return this.createProject({ workerId, directoryPath });
+  }
+
+  evictOldRecent(maxRecent: number = 10): void {
+    // Delete non-bookmarked projects beyond the limit, keeping the most recent
+    this.db
+      .prepare(
+        `DELETE FROM projects WHERE bookmarked = 0 AND id NOT IN (
+           SELECT id FROM projects WHERE bookmarked = 0 ORDER BY last_used_at DESC LIMIT ?
+         )`,
+      )
+      .run(maxRecent);
   }
 }

@@ -2,7 +2,9 @@ import { EventEmitter } from 'node:events';
 import type { Repository } from '../models/repository.js';
 import type { Session, CreateSessionInput, ShellInfo } from '../models/types.js';
 import type { PtySpawner, PtyProcess } from '../worker/pty-spawner.js';
+import type { RemotePtyBridge } from '../worker/remote-pty-bridge.js';
 import type { ShellSpawner } from '../worker/shell-spawner.js';
+import type { TunnelManager } from '../hub/tunnel.js';
 import type { QueueManager } from './queue-manager.js';
 import { createSessionLogger, logger } from './logger.js';
 
@@ -16,18 +18,29 @@ export class SessionManager extends EventEmitter {
   // (sent input), which proves the session "did work" in response.
   // Set when a session is activated. Cleared when the user sends input.
   private suspendGuardIds = new Set<string>();
+  // Track which sessions are remote (for input routing)
+  private remoteSessions = new Set<string>();
 
   private _shellSpawner: ShellSpawner | null = null;
+  private _remotePtyBridge: RemotePtyBridge | null = null;
+  private _tunnelManager: TunnelManager | null = null;
 
   constructor(
     private repo: Repository,
     private ptySpawner: PtySpawner,
     private queueManager: QueueManager,
     shellSpawner?: ShellSpawner,
+    remotePtyBridge?: RemotePtyBridge,
+    tunnelManager?: TunnelManager,
   ) {
     super();
     this._shellSpawner = shellSpawner || null;
+    this._remotePtyBridge = remotePtyBridge || null;
+    this._tunnelManager = tunnelManager || null;
     this.setupPtyListeners();
+    if (this._remotePtyBridge) {
+      this.setupRemotePtyListeners();
+    }
     this.setupQueueListeners();
   }
 
@@ -41,6 +54,14 @@ export class SessionManager extends EventEmitter {
    * Otherwise, --continue is used so Claude resumes the latest conversation in that directory.
    */
   createSession(input: CreateSessionInput, startFresh = false): Session {
+    // Default targetWorker to local worker if not specified
+    if (!input.targetWorker) {
+      const localWorker = this.repo.getLocalWorker();
+      if (localWorker) {
+        input = { ...input, targetWorker: localWorker.id };
+      }
+    }
+
     const session = this.repo.createSession(input);
     const log = createSessionLogger(session.id);
     log.info({ title: session.title, dir: session.workingDirectory, startFresh }, 'session created');
@@ -51,19 +72,40 @@ export class SessionManager extends EventEmitter {
 
     // Try to activate immediately if slot available
     if (this.queueManager.hasAvailableSlot()) {
-      this.activateSession(session.id);
+      this.activateSession(session.id).catch((err) => {
+        createSessionLogger(session.id).error({ err }, 'failed to auto-activate session');
+      });
     }
 
     return this.repo.getSession(session.id)!;
   }
 
+  get remotePtyBridge(): RemotePtyBridge | null {
+    return this._remotePtyBridge;
+  }
+
+  isRemoteSession(sessionId: string): boolean {
+    return this.remoteSessions.has(sessionId);
+  }
+
   /**
    * Activate a queued session — spawn the Claude process.
+   * Routes to local PtySpawner or RemotePtyBridge based on worker type.
    */
-  activateSession(sessionId: string): Session | null {
+  async activateSession(sessionId: string): Promise<Session | null> {
     const session = this.repo.getSession(sessionId);
     if (!session) return null;
     const log = createSessionLogger(sessionId);
+
+    // Determine if this is a remote session
+    const worker = session.workerId ? this.repo.getWorker(session.workerId) : null;
+    const isRemote = worker?.type === 'remote';
+
+    if (isRemote && !this._remotePtyBridge) {
+      log.error('remote PTY bridge not available');
+      this.repo.failSession(sessionId);
+      return this.repo.getSession(sessionId);
+    }
 
     try {
       let ptyProc: PtyProcess;
@@ -71,31 +113,11 @@ export class SessionManager extends EventEmitter {
       const isStartFresh = this.startFreshIds.has(sessionId);
       this.startFreshIds.delete(sessionId);
 
-      if (session.continuationCount > 0 && session.claudeSessionId) {
-        // Resume the specific conversation by ID (not just the most recent in the directory)
-        log.info({ claudeSessionId: session.claudeSessionId }, 'resuming specific conversation with claude --resume');
-        ptyProc = this.ptySpawner.spawnResume(
-          sessionId,
-          session.workingDirectory,
-          session.claudeSessionId,
-        );
-      } else if (session.continuationCount > 0) {
-        // No claudeSessionId stored (legacy or failed capture) — fall back to -c
-        log.info('continuing session with claude -c (no claudeSessionId available)');
-        ptyProc = this.ptySpawner.spawnContinue(
-          sessionId,
-          session.workingDirectory,
-        );
-      } else if (isStartFresh || session.worktree) {
-        // Start fresh or worktree — no --continue flag
-        // Worktree creates a new isolated branch, so --continue is not compatible
-        const args = session.worktree ? ['--worktree'] : [];
-        log.info({ worktree: session.worktree, startFresh: isStartFresh }, 'spawning new claude process');
-        ptyProc = this.ptySpawner.spawn(sessionId, session.workingDirectory, args);
+      if (isRemote && this._remotePtyBridge && worker) {
+        ptyProc = await this.activateRemoteSession(session, worker.id, isStartFresh, log);
+        this.remoteSessions.add(sessionId);
       } else {
-        // Default: use --continue to resume most recent Claude session in this directory
-        log.info({ dir: session.workingDirectory }, 'spawning claude with --continue');
-        ptyProc = this.ptySpawner.spawn(sessionId, session.workingDirectory, ['--continue']);
+        ptyProc = this.activateLocalSession(session, isStartFresh, log);
       }
 
       this.activePtys.set(sessionId, ptyProc);
@@ -112,6 +134,71 @@ export class SessionManager extends EventEmitter {
       log.error({ err }, 'failed to activate session');
       this.repo.failSession(sessionId);
       return this.repo.getSession(sessionId);
+    }
+  }
+
+  private activateLocalSession(
+    session: Session,
+    isStartFresh: boolean,
+    log: ReturnType<typeof createSessionLogger>,
+  ): PtyProcess {
+    if (session.continuationCount > 0 && session.claudeSessionId) {
+      log.info({ claudeSessionId: session.claudeSessionId }, 'resuming specific conversation with claude --resume');
+      return this.ptySpawner.spawnResume(
+        session.id,
+        session.workingDirectory,
+        session.claudeSessionId,
+      );
+    } else if (session.continuationCount > 0) {
+      log.info('continuing session with claude -c (no claudeSessionId available)');
+      return this.ptySpawner.spawnContinue(
+        session.id,
+        session.workingDirectory,
+      );
+    } else if (isStartFresh || session.worktree) {
+      const args = session.worktree ? ['--worktree'] : [];
+      log.info({ worktree: session.worktree, startFresh: isStartFresh }, 'spawning new claude process');
+      return this.ptySpawner.spawn(session.id, session.workingDirectory, args);
+    } else {
+      log.info({ dir: session.workingDirectory }, 'spawning claude with --continue');
+      return this.ptySpawner.spawn(session.id, session.workingDirectory, ['--continue']);
+    }
+  }
+
+  private async activateRemoteSession(
+    session: Session,
+    workerId: string,
+    isStartFresh: boolean,
+    log: ReturnType<typeof createSessionLogger>,
+  ): Promise<PtyProcess> {
+    const bridge = this._remotePtyBridge!;
+
+    // Git auto-init for worktree sessions on remote
+    if (session.worktree && this._tunnelManager) {
+      try {
+        const checkGit = await this._tunnelManager.exec(workerId, `test -d ${escapeShellArg(session.workingDirectory)}/.git && echo exists || echo missing`);
+        if (checkGit.trim() === 'missing') {
+          log.info({ dir: session.workingDirectory }, 'auto-initializing git repo on remote worker');
+          await this._tunnelManager.exec(workerId, `cd ${escapeShellArg(session.workingDirectory)} && git init`);
+        }
+      } catch (err) {
+        log.warn({ err }, 'failed to auto-init git on remote — proceeding without');
+      }
+    }
+
+    if (session.continuationCount > 0 && session.claudeSessionId) {
+      log.info({ claudeSessionId: session.claudeSessionId, workerId }, 'resuming remote conversation with --resume');
+      return bridge.spawnResume(session.id, workerId, session.workingDirectory, session.claudeSessionId);
+    } else if (session.continuationCount > 0) {
+      log.info({ workerId }, 'continuing remote session with -c');
+      return bridge.spawnContinue(session.id, workerId, session.workingDirectory);
+    } else if (isStartFresh || session.worktree) {
+      const args = session.worktree ? ['--worktree'] : [];
+      log.info({ worktree: session.worktree, startFresh: isStartFresh, workerId }, 'spawning new remote claude process');
+      return bridge.spawn(session.id, workerId, session.workingDirectory, args);
+    } else {
+      log.info({ dir: session.workingDirectory, workerId }, 'spawning remote claude with --continue');
+      return bridge.spawn(session.id, workerId, session.workingDirectory, ['--continue']);
     }
   }
 
@@ -136,7 +223,9 @@ export class SessionManager extends EventEmitter {
 
     // Try to activate immediately if slot available
     if (this.queueManager.hasAvailableSlot()) {
-      this.activateSession(sessionId);
+      this.activateSession(sessionId).catch((err) => {
+        createSessionLogger(sessionId).error({ err }, 'failed to activate continued session');
+      });
       return { status: 'active', message: 'Session resumed' };
     }
 
@@ -157,8 +246,13 @@ export class SessionManager extends EventEmitter {
       this._shellSpawner.kill(sessionId);
     }
 
-    log.info('killing session');
-    ptyProc.kill();
+    if (this.remoteSessions.has(sessionId) && this._remotePtyBridge) {
+      log.info('killing remote session');
+      this._remotePtyBridge.kill(sessionId);
+    } else {
+      log.info('killing session');
+      ptyProc.kill();
+    }
     return true;
   }
 
@@ -168,7 +262,11 @@ export class SessionManager extends EventEmitter {
   sendInput(sessionId: string, data: string): boolean {
     const log = createSessionLogger(sessionId);
     log.info({ dataLen: data.length }, 'sending input to session');
-    this.ptySpawner.write(sessionId, data);
+    if (this.remoteSessions.has(sessionId) && this._remotePtyBridge) {
+      this._remotePtyBridge.write(sessionId, data);
+    } else {
+      this.ptySpawner.write(sessionId, data);
+    }
     // Clear needs_input since user is responding
     this.repo.setNeedsInput(sessionId, false);
     this.emit('needs_input_changed', sessionId, false);
@@ -179,7 +277,11 @@ export class SessionManager extends EventEmitter {
    * Resize an active session's terminal.
    */
   resizeSession(sessionId: string, cols: number, rows: number): void {
-    this.ptySpawner.resize(sessionId, cols, rows);
+    if (this.remoteSessions.has(sessionId) && this._remotePtyBridge) {
+      this._remotePtyBridge.resize(sessionId, cols, rows);
+    } else {
+      this.ptySpawner.resize(sessionId, cols, rows);
+    }
   }
 
   /**
@@ -368,7 +470,11 @@ export class SessionManager extends EventEmitter {
         : `[Code Review — ${pending.length} comments] ${items.join(' ')}. Please address all comments.\n`;
 
       try {
-        this.ptySpawner.write(sessionId, message);
+        if (this.remoteSessions.has(sessionId) && this._remotePtyBridge) {
+          this._remotePtyBridge.write(sessionId, message);
+        } else {
+          this.ptySpawner.write(sessionId, message);
+        }
         for (const comment of pending) {
           this.repo.markCommentSent(comment.id);
         }
@@ -378,9 +484,77 @@ export class SessionManager extends EventEmitter {
     }, 3000); // Wait 3s for Claude to initialize
   }
 
+  private setupRemotePtyListeners(): void {
+    const bridge = this._remotePtyBridge!;
+
+    bridge.on('exit', (sessionId: string, exitCode: number, claudeSessionId: string | null) => {
+      const log = createSessionLogger(sessionId);
+
+      this.activePtys.delete(sessionId);
+      this.remoteSessions.delete(sessionId);
+      const wasSuspended = this.suspendingIds.delete(sessionId);
+
+      if (wasSuspended) {
+        log.info({ claudeSessionId }, 'remote session auto-suspended → back to queue');
+        if (claudeSessionId) {
+          this.repo.setClaudeSessionId(sessionId, claudeSessionId);
+        }
+        this.repo.queueSessionForContinue(sessionId);
+        this.emit('session_suspended', sessionId);
+      } else if (exitCode === 0) {
+        log.info({ claudeSessionId }, 'remote session completed');
+        this.repo.completeSession(sessionId, claudeSessionId);
+        this.emit('session_completed', sessionId, claudeSessionId);
+      } else {
+        log.warn({ exitCode }, 'remote session failed');
+        this.repo.failSession(sessionId);
+        this.emit('session_failed', sessionId);
+      }
+
+      this.queueManager.onSessionCompleted();
+    });
+
+    bridge.on('input_sent', (sessionId: string) => {
+      const log = createSessionLogger(sessionId);
+      const session = this.repo.getSession(sessionId);
+      if (session?.needsInput) {
+        log.info('user sent input to remote session — clearing needs_input');
+        this.repo.setNeedsInput(sessionId, false);
+        this.emit('needs_input_changed', sessionId, false);
+      }
+      if (this.suspendGuardIds.delete(sessionId)) {
+        log.info('user sent input to remote session — clearing suspend guard');
+      }
+    });
+
+    bridge.on('session_idle', (sessionId: string) => {
+      const session = this.repo.getSession(sessionId);
+      if (!session || session.status !== 'active') return;
+
+      const log = createSessionLogger(sessionId);
+
+      if (!session.needsInput) {
+        log.info('remote session idle — marking needs_input');
+        this.repo.setNeedsInput(sessionId, true);
+        this.emit('needs_input_changed', sessionId, true);
+      }
+
+      if (
+        !session.lock &&
+        this.queueManager.hasQueuedSessions() &&
+        !this.suspendGuardIds.has(sessionId)
+      ) {
+        log.info('auto-suspending idle remote session — queue has waiting items');
+        this.autoSuspendSession(sessionId);
+      }
+    });
+  }
+
   private setupQueueListeners(): void {
     this.queueManager.on('dispatch', (session: Session) => {
-      this.activateSession(session.id);
+      this.activateSession(session.id).catch((err) => {
+        createSessionLogger(session.id).error({ err }, 'failed to activate dispatched session');
+      });
     });
   }
 
@@ -406,7 +580,12 @@ export class SessionManager extends EventEmitter {
 
   destroy(): void {
     this._shellSpawner?.destroy();
+    this._remotePtyBridge?.destroy();
     this.ptySpawner.destroy();
     this.queueManager.stopAutoDispatch();
   }
+}
+
+function escapeShellArg(arg: string): string {
+  return `'${arg.replace(/'/g, "'\\''")}'`;
 }

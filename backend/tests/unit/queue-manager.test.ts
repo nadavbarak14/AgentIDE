@@ -10,6 +10,10 @@ describe('QueueManager', () => {
   beforeEach(() => {
     const db = createTestDb();
     repo = new Repository(db);
+    // Ensure a local worker exists (hasAvailableSlot checks per-worker capacity)
+    if (!repo.getLocalWorker()) {
+      repo.createLocalWorker('Local', 4);
+    }
     queueManager = new QueueManager(repo);
   });
 
@@ -74,6 +78,75 @@ describe('QueueManager', () => {
     const s1 = repo.createSession({ workingDirectory: '/p1', title: 'S1' });
     repo.activateSession(s1.id, 1234);
     expect(queueManager.hasAvailableSlot()).toBe(false);
+  });
+
+  describe('per-worker capacity', () => {
+    it('hasAvailableSlot returns true when any worker has capacity', () => {
+      const local = repo.getLocalWorker()!;
+      // Local worker has maxSessions=4, no active sessions
+      expect(queueManager.hasAvailableSlot()).toBe(true);
+      expect(queueManager.hasAvailableSlot(local.id)).toBe(true);
+    });
+
+    it('hasAvailableSlot returns false when all workers are full', () => {
+      // Create a fresh QueueManager with a 1-slot local worker
+      closeDb();
+      const db2 = createTestDb();
+      const repo2 = new Repository(db2);
+      repo2.createLocalWorker('Local', 1); // maxSessions=1
+      repo2.updateSettings({ maxConcurrentSessions: 10 }); // global ceiling high
+      const qm2 = new QueueManager(repo2);
+
+      const local = repo2.getLocalWorker()!;
+      // Create session targeting the local worker
+      const s1 = repo2.createSession({ workingDirectory: '/p1', title: 'S1', targetWorker: local.id });
+      repo2.activateSession(s1.id, 1234);
+
+      // Worker is full (1/1)
+      expect(qm2.hasAvailableSlot(local.id)).toBe(false);
+      // No worker has capacity → overall false
+      expect(qm2.hasAvailableSlot()).toBe(false);
+
+      qm2.stopAutoDispatch();
+      // Reassign for afterEach cleanup
+      repo = repo2;
+      queueManager = qm2;
+    });
+
+    it('global ceiling still enforced even if workers have capacity', () => {
+      repo.updateSettings({ maxConcurrentSessions: 1 });
+
+      const s1 = repo.createSession({ workingDirectory: '/p1', title: 'S1' });
+      repo.activateSession(s1.id, 1234);
+
+      // Worker has capacity (local maxSessions=4) but global max=1 is reached
+      expect(queueManager.hasAvailableSlot()).toBe(false);
+    });
+
+    it('tryDispatch checks target worker capacity', () => {
+      // Create a fresh QueueManager with a 1-slot local worker
+      closeDb();
+      const db2 = createTestDb();
+      const repo2 = new Repository(db2);
+      repo2.createLocalWorker('Local', 1); // maxSessions=1
+      repo2.updateSettings({ maxConcurrentSessions: 10 });
+      const qm2 = new QueueManager(repo2);
+
+      const local = repo2.getLocalWorker()!;
+      const s1 = repo2.createSession({ workingDirectory: '/p1', title: 'S1', targetWorker: local.id });
+      repo2.activateSession(s1.id, 1234);
+
+      // Create a queued session targeting this full worker
+      repo2.createSession({ workingDirectory: '/p2', title: 'S2', targetWorker: local.id });
+
+      // Should not dispatch because target worker is at capacity
+      const dispatched = qm2.tryDispatch();
+      expect(dispatched).toBeNull();
+
+      qm2.stopAutoDispatch();
+      repo = repo2;
+      queueManager = qm2;
+    });
   });
 
   it('dispatches queued continues in order', () => {
