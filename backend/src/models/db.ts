@@ -177,6 +177,7 @@ export function getDb(dbPath?: string): Database.Database {
   }
 
   db = new Database(resolvedPath);
+  // WSL2: WAL mode works on ext4, path.join is platform-aware
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.pragma('busy_timeout = 5000');

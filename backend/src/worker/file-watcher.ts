@@ -55,6 +55,7 @@ export class FileWatcher extends EventEmitter {
 
     logger.info({ sessionId, directory }, 'starting file watcher');
 
+    // WSL2: inotify works on native filesystem; /mnt/c/ may have delayed events
     const watcher = watch(directory, {
       ignored: IGNORED_PATTERNS,
       persistent: true,

@@ -28,6 +28,7 @@ import { requestLogger, errorHandler, createAuthMiddleware } from './api/middlew
 import { loadTlsConfig, generateSelfSignedCert } from './auth/tls.js';
 import { validateLicense, loadLicenseFromDisk } from './auth/license.js';
 import { logger } from './services/logger.js';
+import { checkPrerequisites, detectWSLVersion } from './services/prerequisites.js';
 
 export interface HubOptions {
   port?: number;
@@ -243,6 +244,10 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
 
   // Start worker health checks
   workerManager.startHealthCheck();
+
+  // Check platform prerequisites (non-blocking warnings)
+  detectWSLVersion();
+  checkPrerequisites();
 
   // Graceful shutdown
   const shutdown = () => {

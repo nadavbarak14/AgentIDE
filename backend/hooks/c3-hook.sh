@@ -5,6 +5,14 @@
 # Read JSON from stdin
 INPUT=$(cat)
 
+# Check required tools (WSL2 may not have these by default)
+for cmd in python3 curl; do
+  if ! command -v "$cmd" &>/dev/null; then
+    echo "WARN [c3-hook]: Required tool '$cmd' not found. Install with: sudo apt-get install -y $cmd" >&2
+    exit 0
+  fi
+done
+
 # Extract fields from JSON
 EVENT=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('hook_event_name',''))" 2>/dev/null)
 CLAUDE_SID=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('session_id',''))" 2>/dev/null)
