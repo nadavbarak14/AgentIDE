@@ -195,7 +195,6 @@ describe('ShellSpawner', () => {
 
   describe('concurrent shells', () => {
     it('manages multiple shells for different sessions', () => {
-      const firstFakeProc = lastFakeProc;
       spawner.spawn('session-a', tmpDir);
       const procA = lastFakeProc;
 
