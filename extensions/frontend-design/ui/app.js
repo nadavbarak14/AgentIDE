@@ -1,27 +1,23 @@
 /**
  * Frontend Design Extension — app.js
- * Manages screens, inspect mode, commenting, pins, and text selection.
+ * Gallery view of agent-generated screens with inspect & comment.
  */
 
 // ── State ───────────────────────────────────────────────────────────────
 const state = {
   screens: [],          // { name, html, updatedAt }
-  activeScreen: null,   // screen name or null
+  openScreen: null,     // name of currently opened screen (full view) or null (gallery)
   inspectMode: false,
-  textSelectMode: false,
-  comments: [],         // { id, screen, element, elementSelector, rect, text, stale }
+  comments: [],         // { id, screen, element, elementDesc, rect, text, stale }
   nextCommentId: 1,
 };
 
 // ── DOM refs ────────────────────────────────────────────────────────────
 const $ = (sel) => document.querySelector(sel);
-const tabBar = () => $('#tab-bar');
-const viewport = () => $('#viewport');
-const inspectOverlay = () => $('#inspect-overlay');
-const inspectBtn = () => $('#btn-inspect');
-const textSelectBtn = () => $('#btn-text-select');
 
 // ── postMessage bridge ──────────────────────────────────────────────────
+let initialized = false;
+
 function sendToHost(msg) {
   window.parent.postMessage(msg, '*');
 }
@@ -30,40 +26,31 @@ window.addEventListener('message', (e) => {
   if (!e.data || typeof e.data !== 'object' || !e.data.type) return;
   const { type, command, params } = e.data;
 
-  if (type === 'init') {
-    // Host acknowledged us
-    return;
-  }
-
-  if (type === 'board-command') {
-    handleBoardCommand(command, params || {});
-  }
+  if (type === 'init') { initialized = true; return; }
+  if (type === 'ping') { sendToHost({ type: 'ready' }); return; }
+  if (type === 'board-command') handleBoardCommand(command, params || {});
 });
 
-// Signal ready
-sendToHost({ type: 'ready' });
+// Signal ready (retry until host responds with init)
+function sendReady() { if (!initialized) sendToHost({ type: 'ready' }); }
+sendReady();
+const readyInterval = setInterval(() => {
+  if (initialized) { clearInterval(readyInterval); return; }
+  sendReady();
+}, 500);
 
 // ── Board command handlers ──────────────────────────────────────────────
 function handleBoardCommand(command, params) {
   switch (command) {
-    case 'design.add_screen':
-      addScreen(params.name, params.html);
-      break;
-    case 'design.update_screen':
-      updateScreen(params.name, params.html);
-      break;
-    case 'design.remove_screen':
-      removeScreen(params.name);
-      break;
+    case 'design.add_screen': addScreen(params.name, params.html); break;
+    case 'design.update_screen': updateScreen(params.name, params.html); break;
+    case 'design.remove_screen': removeScreen(params.name); break;
     case 'enable-inspect':
-      if (params.screen) switchToScreen(params.screen);
+      if (params.screen) openScreen(params.screen);
       setInspectMode(true);
       break;
     case 'enable-text-select':
-      if (params.screen) switchToScreen(params.screen);
-      setTextSelectMode(true);
-      break;
-    default:
+      if (params.screen) openScreen(params.screen);
       break;
   }
 }
@@ -73,15 +60,11 @@ function addScreen(name, html) {
   if (!name || !html) return;
   const existing = state.screens.find((s) => s.name === name);
   if (existing) {
-    // Overwrite existing screen
     existing.html = html;
     existing.updatedAt = Date.now();
-    checkStaleComments(name, html);
+    markStaleComments(name);
   } else {
     state.screens.push({ name, html, updatedAt: Date.now() });
-  }
-  if (!state.activeScreen || state.screens.length === 1) {
-    state.activeScreen = name;
   }
   render();
 }
@@ -91,7 +74,7 @@ function updateScreen(name, html) {
   if (!screen) return;
   screen.html = html;
   screen.updatedAt = Date.now();
-  checkStaleComments(name, html);
+  markStaleComments(name);
   render();
 }
 
@@ -99,450 +82,434 @@ function removeScreen(name) {
   const idx = state.screens.findIndex((s) => s.name === name);
   if (idx === -1) return;
   state.screens.splice(idx, 1);
-  // Remove comments for this screen
   state.comments = state.comments.filter((c) => c.screen !== name);
-  // Select next screen
-  if (state.activeScreen === name) {
-    state.activeScreen = state.screens.length > 0
-      ? state.screens[Math.min(idx, state.screens.length - 1)].name
-      : null;
-  }
+  if (state.openScreen === name) state.openScreen = null;
   render();
 }
 
-function switchToScreen(name) {
+function openScreen(name) {
   if (state.screens.find((s) => s.name === name)) {
-    state.activeScreen = name;
+    state.openScreen = name;
+    state.inspectMode = false;
     render();
   }
 }
 
+function backToGallery() {
+  state.openScreen = null;
+  state.inspectMode = false;
+  clearInspectState();
+  render();
+}
+
 // ── Inspect mode ────────────────────────────────────────────────────────
+let highlightEl = null;
+let hoveredEl = null;
+let popoverEl = null;
+
 function setInspectMode(on) {
   state.inspectMode = on;
-  if (on) state.textSelectMode = false;
-  const overlay = inspectOverlay();
-  if (overlay) overlay.classList.toggle('active', on);
-  const btn = inspectBtn();
-  if (btn) btn.classList.toggle('active', on);
-  const tsBtn = textSelectBtn();
-  if (tsBtn) tsBtn.classList.toggle('active', false);
-  if (!on) clearHighlight();
+  if (!on) clearInspectState();
+  render();
 }
 
-function setTextSelectMode(on) {
-  state.textSelectMode = on;
-  if (on) state.inspectMode = false;
-  const overlay = inspectOverlay();
-  if (overlay) overlay.classList.toggle('active', false); // text select doesn't use overlay
-  const btn = textSelectBtn();
-  if (btn) btn.classList.toggle('active', on);
-  const iBtn = inspectBtn();
-  if (iBtn) iBtn.classList.toggle('active', false);
-  if (!on) clearHighlight();
-}
-
-// ── Highlight ───────────────────────────────────────────────────────────
-let highlightBox = null;
-let hoveredElement = null;
-
-function clearHighlight() {
-  if (highlightBox) {
-    highlightBox.remove();
-    highlightBox = null;
-  }
-  hoveredElement = null;
-}
-
-function showHighlight(rect) {
-  if (!highlightBox) {
-    highlightBox = document.createElement('div');
-    highlightBox.className = 'highlight-box';
-    inspectOverlay().appendChild(highlightBox);
-  }
-  highlightBox.style.left = rect.left + 'px';
-  highlightBox.style.top = rect.top + 'px';
-  highlightBox.style.width = rect.width + 'px';
-  highlightBox.style.height = rect.height + 'px';
-}
-
-// ── Element targeting via overlay → iframe coordinates ──────────────────
-function getIframeElementAt(clientX, clientY) {
-  const frame = viewport()?.querySelector('.screen-frame');
-  if (!frame || !frame.contentDocument) return null;
-
-  const frameRect = frame.getBoundingClientRect();
-  const x = clientX - frameRect.left;
-  const y = clientY - frameRect.top;
-
-  try {
-    const el = frame.contentDocument.elementFromPoint(x, y);
-    if (el && el !== frame.contentDocument.documentElement && el !== frame.contentDocument.body) {
-      return { element: el, frameRect };
-    }
-    return null;
-  } catch {
-    return null;
-  }
+function clearInspectState() {
+  if (highlightEl) { highlightEl.remove(); highlightEl = null; }
+  if (popoverEl) { popoverEl.remove(); popoverEl = null; }
+  hoveredEl = null;
 }
 
 function describeElement(el) {
   const tag = el.tagName.toLowerCase();
-  const text = (el.textContent || '').trim().slice(0, 50);
+  const text = (el.textContent || '').trim().slice(0, 40);
   const role = el.getAttribute('role') || '';
-  let desc = `[${tag}]`;
+  let desc = `<${tag}>`;
+  if (el.id) desc += `#${el.id}`;
+  if (el.className && typeof el.className === 'string') desc += `.${el.className.trim().split(/\s+/).join('.')}`;
   if (text) desc += ` "${text}"`;
   if (role) desc += ` (role: ${role})`;
   return desc;
 }
 
-function getElementSelector(el) {
-  // Simple CSS-like selector for re-querying
-  const tag = el.tagName.toLowerCase();
-  const id = el.id ? `#${el.id}` : '';
-  const cls = el.className && typeof el.className === 'string'
-    ? '.' + el.className.trim().split(/\s+/).join('.')
-    : '';
-  const nthChild = Array.from(el.parentElement?.children || []).indexOf(el);
-  return `${tag}${id}${cls}:nth-child(${nthChild + 1})`;
+function setupInspectHandlers(container) {
+  if (!container) return;
+
+  container.addEventListener('mousemove', (e) => {
+    if (!state.inspectMode) return;
+    const target = e.target;
+    if (!target || target === container || target.classList?.contains('comment-pin')) return;
+    hoveredEl = target;
+
+    // Draw highlight
+    if (!highlightEl) {
+      highlightEl = document.createElement('div');
+      highlightEl.className = 'highlight-box';
+      container.style.position = 'relative';
+      container.appendChild(highlightEl);
+    }
+    const containerRect = container.getBoundingClientRect();
+    const elRect = target.getBoundingClientRect();
+    highlightEl.style.left = (elRect.left - containerRect.left) + 'px';
+    highlightEl.style.top = (elRect.top - containerRect.top) + 'px';
+    highlightEl.style.width = elRect.width + 'px';
+    highlightEl.style.height = elRect.height + 'px';
+    highlightEl.style.display = 'block';
+  });
+
+  container.addEventListener('mouseleave', () => {
+    if (highlightEl) highlightEl.style.display = 'none';
+    hoveredEl = null;
+  });
+
+  container.addEventListener('click', (e) => {
+    if (!state.inspectMode || !hoveredEl) return;
+    if (e.target.closest('.comment-popover') || e.target.closest('.comment-pin')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    showCommentPopover(hoveredEl, container);
+  });
+
+  // Text selection → send
+  container.addEventListener('mouseup', () => {
+    if (state.inspectMode) return;
+    const sel = window.getSelection();
+    const text = sel?.toString().trim();
+    // Remove old selection button
+    container.querySelectorAll('.selection-btn').forEach(b => b.remove());
+    if (text && text.length > 0) {
+      const range = sel.getRangeAt(0);
+      const rect = range.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+      const btn = document.createElement('button');
+      btn.className = 'selection-btn';
+      btn.textContent = 'Send Selection';
+      btn.style.left = (rect.left - containerRect.left) + 'px';
+      btn.style.top = (rect.bottom - containerRect.top + 4) + 'px';
+      btn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        sendToHost({
+          type: 'send-comment',
+          text: `[Design Review — Screen: "${state.openScreen}"] Selected text: "${text}"`,
+          context: { source: 'frontend-design', screen: state.openScreen, selectedText: text },
+        });
+        btn.remove();
+      });
+      container.appendChild(btn);
+    }
+  });
 }
 
-function getElementRect(el, frameRect) {
-  const r = el.getBoundingClientRect();
-  return {
-    left: r.left + frameRect.left,
-    top: r.top + frameRect.top,
-    width: r.width,
-    height: r.height,
-  };
-}
-
-// ── Overlay event handlers ──────────────────────────────────────────────
-function handleOverlayMouseMove(e) {
-  if (!state.inspectMode) return;
-  const result = getIframeElementAt(e.clientX, e.clientY);
-  if (result) {
-    hoveredElement = result.element;
-    const rect = getElementRect(result.element, result.frameRect);
-    // Adjust rect relative to overlay (which is positioned over viewport)
-    const overlayRect = inspectOverlay().getBoundingClientRect();
-    showHighlight({
-      left: rect.left - overlayRect.left,
-      top: rect.top - overlayRect.top,
-      width: rect.width,
-      height: rect.height,
-    });
-  } else {
-    clearHighlight();
-  }
-}
-
-function handleOverlayClick(e) {
-  if (!state.inspectMode || !hoveredElement) return;
-  e.preventDefault();
-  e.stopPropagation();
-
-  const frame = viewport()?.querySelector('.screen-frame');
-  if (!frame) return;
-  const frameRect = frame.getBoundingClientRect();
-  const rect = getElementRect(hoveredElement, frameRect);
-  const overlayRect = inspectOverlay().getBoundingClientRect();
-
-  showCommentPopover(
-    hoveredElement,
-    {
-      left: rect.left - overlayRect.left,
-      top: rect.top - overlayRect.top + rect.height + 4,
-      width: rect.width,
-      height: rect.height,
-    },
-    frameRect
-  );
-}
-
-// ── Comment popover ─────────────────────────────────────────────────────
-let activePopover = null;
-
-function showCommentPopover(element, position, frameRect) {
-  closeCommentPopover();
-
-  const overlay = inspectOverlay();
+function showCommentPopover(element, container) {
+  if (popoverEl) popoverEl.remove();
   const desc = describeElement(element);
-  const selector = getElementSelector(element);
+  const containerRect = container.getBoundingClientRect();
+  const elRect = element.getBoundingClientRect();
 
-  const popover = document.createElement('div');
-  popover.className = 'comment-popover';
-  popover.style.left = Math.max(4, Math.min(position.left, overlay.offsetWidth - 270)) + 'px';
-  popover.style.top = position.top + 'px';
-
-  popover.innerHTML = `
-    <div class="comment-element-label">${escapeHtml(desc)}</div>
+  popoverEl = document.createElement('div');
+  popoverEl.className = 'comment-popover';
+  const left = Math.max(4, Math.min(elRect.left - containerRect.left, container.offsetWidth - 270));
+  popoverEl.style.left = left + 'px';
+  popoverEl.style.top = (elRect.bottom - containerRect.top + 4) + 'px';
+  popoverEl.innerHTML = `
+    <div class="comment-element-label">${esc(desc)}</div>
     <textarea placeholder="Add your comment..." autofocus></textarea>
     <div class="comment-popover-actions">
       <button class="comment-popover-btn cancel">Cancel</button>
       <button class="comment-popover-btn primary send">Send</button>
     </div>
   `;
-
-  popover.querySelector('.cancel').addEventListener('click', closeCommentPopover);
-  popover.querySelector('.send').addEventListener('click', () => {
-    const text = popover.querySelector('textarea').value.trim();
+  popoverEl.querySelector('.cancel').onclick = () => { popoverEl.remove(); popoverEl = null; };
+  popoverEl.querySelector('.send').onclick = () => {
+    const text = popoverEl.querySelector('textarea').value.trim();
     if (!text) return;
 
-    // Save comment locally
-    const rect = getElementRect(element, frameRect);
-    const overlayRect = overlay.getBoundingClientRect();
-    const comment = {
+    const rect = element.getBoundingClientRect();
+    state.comments.push({
       id: state.nextCommentId++,
-      screen: state.activeScreen,
-      element: desc,
-      elementSelector: selector,
-      rect: {
-        left: rect.left - overlayRect.left,
-        top: rect.top - overlayRect.top,
-        width: rect.width,
-        height: rect.height,
-      },
+      screen: state.openScreen,
+      element: element,
+      elementDesc: desc,
+      rect: { left: rect.left - containerRect.left, top: rect.top - containerRect.top, width: rect.width, height: rect.height },
       text,
       stale: false,
-    };
-    state.comments.push(comment);
-
-    // Send to host
-    sendToHost({
-      type: 'send-comment',
-      text: `[Design Review — Screen: "${state.activeScreen}"] Element: ${desc}\nComment: ${text}`,
-      context: {
-        source: 'frontend-design',
-        screen: state.activeScreen,
-        element: desc,
-      },
     });
 
-    closeCommentPopover();
-    renderPins();
-  });
-
-  // Focus textarea next tick
-  setTimeout(() => popover.querySelector('textarea')?.focus(), 0);
-
-  overlay.appendChild(popover);
-  activePopover = popover;
-}
-
-function closeCommentPopover() {
-  if (activePopover) {
-    activePopover.remove();
-    activePopover = null;
-  }
+    sendToHost({
+      type: 'send-comment',
+      text: `[Design Review — Screen: "${state.openScreen}"] Element: ${desc}\nComment: ${text}`,
+      context: { source: 'frontend-design', screen: state.openScreen, element: desc },
+    });
+    popoverEl.remove();
+    popoverEl = null;
+    renderPins(container);
+  };
+  setTimeout(() => popoverEl?.querySelector('textarea')?.focus(), 0);
+  container.appendChild(popoverEl);
 }
 
 // ── Comment pins ────────────────────────────────────────────────────────
-let pinTooltip = null;
+function renderPins(container) {
+  if (!container) return;
+  container.querySelectorAll('.comment-pin, .pin-tooltip').forEach(p => p.remove());
+  const screenComments = state.comments.filter(c => c.screen === state.openScreen);
+  const containerRect = container.getBoundingClientRect();
 
-function renderPins() {
-  // Remove existing pins
-  document.querySelectorAll('.comment-pin').forEach((p) => p.remove());
-  if (pinTooltip) { pinTooltip.remove(); pinTooltip = null; }
-
-  const overlay = inspectOverlay();
-  if (!overlay) return;
-
-  const screenComments = state.comments.filter((c) => c.screen === state.activeScreen);
   screenComments.forEach((comment, i) => {
+    // Try to re-query the element position
+    let rect = comment.rect;
+    if (comment.element && document.contains(comment.element)) {
+      const r = comment.element.getBoundingClientRect();
+      rect = { left: r.left - containerRect.left, top: r.top - containerRect.top, width: r.width, height: r.height };
+    }
+
     const pin = document.createElement('div');
     pin.className = 'comment-pin' + (comment.stale ? ' stale' : '');
     pin.textContent = String(i + 1);
-    pin.style.left = (comment.rect.left + comment.rect.width / 2 - 10) + 'px';
-    pin.style.top = (comment.rect.top - 10) + 'px';
+    pin.style.left = (rect.left + rect.width / 2 - 10) + 'px';
+    pin.style.top = (rect.top - 10) + 'px';
     pin.addEventListener('click', (e) => {
       e.stopPropagation();
-      showPinTooltip(comment, pin);
+      // Toggle tooltip
+      const existing = container.querySelector('.pin-tooltip');
+      if (existing) existing.remove();
+      const tip = document.createElement('div');
+      tip.className = 'pin-tooltip';
+      tip.style.left = (parseInt(pin.style.left) + 24) + 'px';
+      tip.style.top = pin.style.top;
+      tip.innerHTML = `
+        <div class="pin-element">${esc(comment.elementDesc)}</div>
+        <div class="pin-text">${esc(comment.text)}</div>
+        ${comment.stale ? '<div class="pin-stale-notice">Element may have changed</div>' : ''}
+      `;
+      container.appendChild(tip);
+      setTimeout(() => document.addEventListener('click', () => tip.remove(), { once: true }), 0);
     });
-    overlay.appendChild(pin);
+    container.appendChild(pin);
   });
 }
 
-function showPinTooltip(comment, pinEl) {
-  if (pinTooltip) { pinTooltip.remove(); pinTooltip = null; }
-
-  const tooltip = document.createElement('div');
-  tooltip.className = 'pin-tooltip';
-  tooltip.style.left = (parseInt(pinEl.style.left) + 24) + 'px';
-  tooltip.style.top = pinEl.style.top;
-
-  tooltip.innerHTML = `
-    <div class="pin-element">${escapeHtml(comment.element)}</div>
-    <div class="pin-text">${escapeHtml(comment.text)}</div>
-    ${comment.stale ? '<div class="pin-stale-notice">Element may have changed</div>' : ''}
-  `;
-
-  tooltip.addEventListener('click', (e) => e.stopPropagation());
-  document.addEventListener('click', () => { tooltip.remove(); pinTooltip = null; }, { once: true });
-
-  inspectOverlay().appendChild(tooltip);
-  pinTooltip = tooltip;
-}
-
-// ── Stale comment detection ─────────────────────────────────────────────
-function checkStaleComments(screenName, newHtml) {
-  const screenComments = state.comments.filter((c) => c.screen === screenName);
-  if (screenComments.length === 0) return;
-
-  // Create temp iframe to query elements in new HTML
-  const temp = document.createElement('iframe');
-  temp.style.display = 'none';
-  document.body.appendChild(temp);
-  try {
-    temp.contentDocument.open();
-    temp.contentDocument.write(newHtml);
-    temp.contentDocument.close();
-
-    for (const comment of screenComments) {
-      try {
-        const found = temp.contentDocument.querySelector(comment.elementSelector);
-        comment.stale = !found;
-      } catch {
-        comment.stale = true;
-      }
-    }
-  } finally {
-    temp.remove();
-  }
-}
-
-// ── Text selection feedback ─────────────────────────────────────────────
-let selectionBtn = null;
-
-function setupTextSelection(frame) {
-  if (!frame || !frame.contentDocument) return;
-
-  frame.contentDocument.addEventListener('mouseup', () => {
-    if (!state.textSelectMode) return;
-    const sel = frame.contentWindow.getSelection();
-    const text = sel?.toString().trim();
-
-    removeSelectionBtn();
-
-    if (text && text.length > 0) {
-      const range = sel.getRangeAt(0);
-      const rect = range.getBoundingClientRect();
-      const frameRect = frame.getBoundingClientRect();
-      const overlayRect = inspectOverlay().getBoundingClientRect();
-
-      selectionBtn = document.createElement('button');
-      selectionBtn.className = 'selection-btn';
-      selectionBtn.textContent = 'Send Selection';
-      selectionBtn.style.left = (rect.left + frameRect.left - overlayRect.left) + 'px';
-      selectionBtn.style.top = (rect.bottom + frameRect.top - overlayRect.top + 4) + 'px';
-
-      selectionBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        sendToHost({
-          type: 'send-comment',
-          text: `[Design Review — Screen: "${state.activeScreen}"] Selected text: "${text}"`,
-          context: {
-            source: 'frontend-design',
-            screen: state.activeScreen,
-            selectedText: text,
-          },
-        });
-        removeSelectionBtn();
-      });
-
-      inspectOverlay().appendChild(selectionBtn);
-    }
+function markStaleComments(screenName) {
+  state.comments.filter(c => c.screen === screenName).forEach(c => {
+    if (c.element && !document.contains(c.element)) c.stale = true;
   });
-}
-
-function removeSelectionBtn() {
-  if (selectionBtn) { selectionBtn.remove(); selectionBtn = null; }
 }
 
 // ── Render ──────────────────────────────────────────────────────────────
 function render() {
-  renderTabBar();
-  renderViewport();
-  renderPins();
-}
+  const app = $('#app');
+  if (!app) return;
+  app.innerHTML = '';
 
-function renderTabBar() {
-  const bar = tabBar();
-  if (!bar) return;
-  bar.innerHTML = '';
-
-  for (const screen of state.screens) {
-    const tab = document.createElement('button');
-    tab.className = 'tab' + (screen.name === state.activeScreen ? ' active' : '');
-
-    const label = document.createElement('span');
-    label.textContent = screen.name;
-    tab.appendChild(label);
-
-    tab.addEventListener('click', () => switchToScreen(screen.name));
-    bar.appendChild(tab);
+  if (state.openScreen) {
+    renderFullView(app);
+  } else {
+    renderGallery(app);
   }
 }
 
-function renderViewport() {
-  const vp = viewport();
-  if (!vp) return;
+function renderGallery(app) {
+  // Header
+  const header = el('div', 'gallery-header');
+  header.innerHTML = `<span class="gallery-title">Screens</span><span class="gallery-count">${state.screens.length}</span>`;
+  app.appendChild(header);
 
-  // Remove existing frame
-  const oldFrame = vp.querySelector('.screen-frame');
-  if (oldFrame) oldFrame.remove();
-
-  // Remove placeholder
-  const oldPlaceholder = vp.querySelector('.placeholder');
-  if (oldPlaceholder) oldPlaceholder.remove();
-
-  const screen = state.screens.find((s) => s.name === state.activeScreen);
-
-  if (!screen) {
-    const ph = document.createElement('div');
-    ph.className = 'placeholder';
+  if (state.screens.length === 0) {
+    const ph = el('div', 'placeholder');
     ph.innerHTML = `
       <div class="placeholder-icon">&#x1f3a8;</div>
       <div class="placeholder-text">Waiting for designs...</div>
-      <div class="placeholder-hint">Use /design-add-screen to add a screen</div>
+      <div class="placeholder-hint">Use /design-add-screen to add screens</div>
     `;
-    vp.appendChild(ph);
+    app.appendChild(ph);
     return;
   }
 
-  const frame = document.createElement('iframe');
-  frame.className = 'screen-frame';
-  frame.sandbox = 'allow-scripts';
-  frame.srcdoc = screen.html;
+  const grid = el('div', 'gallery-grid');
+  for (const screen of state.screens) {
+    const card = el('div', 'gallery-card');
+    const commentCount = state.comments.filter(c => c.screen === screen.name).length;
 
-  frame.addEventListener('load', () => {
-    // Setup text selection listener on the iframe's document
-    setupTextSelection(frame);
+    // Preview thumbnail (info bar is overlaid inside preview)
+    const preview = el('div', 'card-preview');
+    const frame = document.createElement('iframe');
+    frame.srcdoc = screen.html;
+    frame.sandbox = 'allow-scripts';
+    frame.className = 'card-frame';
+    frame.setAttribute('scrolling', 'no');
+    preview.appendChild(frame);
+    // Name/badge overlay at bottom of preview
+    const info = el('div', 'card-info');
+    info.innerHTML = `
+      <span class="card-name">${esc(screen.name)}</span>
+      ${commentCount > 0 ? `<span class="card-badge">${commentCount} comment${commentCount > 1 ? 's' : ''}</span>` : ''}
+    `;
+    preview.appendChild(info);
+    // Click overlay
+    const overlay = el('div', 'card-overlay');
+    overlay.innerHTML = '<span>Click to open</span>';
+    overlay.addEventListener('click', () => openScreen(screen.name));
+    preview.appendChild(overlay);
+    card.appendChild(preview);
+
+    grid.appendChild(card);
+  }
+  app.appendChild(grid);
+}
+
+function renderFullView(app) {
+  const screen = state.screens.find(s => s.name === state.openScreen);
+  if (!screen) { backToGallery(); return; }
+
+  // Toolbar
+  const toolbar = el('div', 'toolbar');
+  toolbar.innerHTML = `
+    <button class="toolbar-btn back-btn" id="btn-back">&#x2190; Back</button>
+    <span class="toolbar-label">${esc(screen.name)}</span>
+    <div class="toolbar-spacer"></div>
+    <button id="btn-inspect" class="toolbar-btn ${state.inspectMode ? 'active' : ''}">&#x1f50d; Inspect</button>
+  `;
+  app.appendChild(toolbar);
+
+  toolbar.querySelector('#btn-back').addEventListener('click', backToGallery);
+  toolbar.querySelector('#btn-inspect').addEventListener('click', () => setInspectMode(!state.inspectMode));
+
+  // Content container — render HTML directly for inspect access
+  const content = el('div', 'full-view');
+  if (state.inspectMode) content.classList.add('inspect-active');
+  content.style.position = 'relative';
+
+  // Render screen HTML into shadow DOM for style isolation
+  const wrapper = el('div', 'screen-content');
+  const shadow = wrapper.attachShadow({ mode: 'open' });
+  shadow.innerHTML = `<style>:host { display: block; width: 100%; min-height: 100%; background: white; color: black; }</style>${screen.html}`;
+  content.appendChild(wrapper);
+  app.appendChild(content);
+
+  // Setup inspect handlers on shadow root content
+  if (state.inspectMode) {
+    // We need to intercept events on the shadow content
+    // Shadow DOM events retarget, so we listen on the wrapper
+    setupShadowInspect(shadow, content, wrapper);
+  }
+
+  // Render comment pins
+  setTimeout(() => renderShadowPins(shadow, content), 50);
+}
+
+function setupShadowInspect(shadow, container, wrapper) {
+  let localHighlight = null;
+  let localHovered = null;
+
+  shadow.addEventListener('mousemove', (e) => {
+    if (!state.inspectMode) return;
+    const target = e.composedPath()[0];
+    if (!target || target === shadow || target.nodeType !== 1) return;
+    localHovered = target;
+
+    if (!localHighlight) {
+      localHighlight = document.createElement('div');
+      localHighlight.className = 'highlight-box';
+      container.appendChild(localHighlight);
+    }
+    const containerRect = container.getBoundingClientRect();
+    const elRect = target.getBoundingClientRect();
+    localHighlight.style.left = (elRect.left - containerRect.left) + 'px';
+    localHighlight.style.top = (elRect.top - containerRect.top) + 'px';
+    localHighlight.style.width = elRect.width + 'px';
+    localHighlight.style.height = elRect.height + 'px';
+    localHighlight.style.display = 'block';
   });
 
-  vp.appendChild(frame);
+  wrapper.addEventListener('mouseleave', () => {
+    if (localHighlight) localHighlight.style.display = 'none';
+    localHovered = null;
+  });
+
+  shadow.addEventListener('click', (e) => {
+    if (!state.inspectMode || !localHovered) return;
+    if (e.composedPath()[0].closest?.('.comment-popover')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    showCommentPopover(localHovered, container);
+  });
+
+  // Text selection
+  shadow.addEventListener('mouseup', () => {
+    if (state.inspectMode) return;
+    const sel = shadow.getSelection ? shadow.getSelection() : window.getSelection();
+    const text = sel?.toString().trim();
+    container.querySelectorAll('.selection-btn').forEach(b => b.remove());
+    if (text && text.length > 0) {
+      const range = sel.getRangeAt(0);
+      const rect = range.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+      const btn = document.createElement('button');
+      btn.className = 'selection-btn';
+      btn.textContent = 'Send Selection';
+      btn.style.left = (rect.left - containerRect.left) + 'px';
+      btn.style.top = (rect.bottom - containerRect.top + 4) + 'px';
+      btn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        sendToHost({
+          type: 'send-comment',
+          text: `[Design Review — Screen: "${state.openScreen}"] Selected text: "${text}"`,
+          context: { source: 'frontend-design', screen: state.openScreen, selectedText: text },
+        });
+        btn.remove();
+      });
+      container.appendChild(btn);
+    }
+  });
+}
+
+function renderShadowPins(shadow, container) {
+  container.querySelectorAll('.comment-pin, .pin-tooltip').forEach(p => p.remove());
+  const screenComments = state.comments.filter(c => c.screen === state.openScreen);
+  const containerRect = container.getBoundingClientRect();
+
+  screenComments.forEach((comment, i) => {
+    let rect = comment.rect;
+    if (comment.element && shadow.contains ? false : document.contains(comment.element)) {
+      const r = comment.element.getBoundingClientRect();
+      rect = { left: r.left - containerRect.left, top: r.top - containerRect.top, width: r.width, height: r.height };
+    }
+
+    const pin = document.createElement('div');
+    pin.className = 'comment-pin' + (comment.stale ? ' stale' : '');
+    pin.textContent = String(i + 1);
+    pin.style.left = (rect.left + rect.width / 2 - 10) + 'px';
+    pin.style.top = (rect.top - 10) + 'px';
+    pin.addEventListener('click', (e) => {
+      e.stopPropagation();
+      container.querySelectorAll('.pin-tooltip').forEach(t => t.remove());
+      const tip = document.createElement('div');
+      tip.className = 'pin-tooltip';
+      tip.style.left = (parseInt(pin.style.left) + 24) + 'px';
+      tip.style.top = pin.style.top;
+      tip.innerHTML = `
+        <div class="pin-element">${esc(comment.elementDesc)}</div>
+        <div class="pin-text">${esc(comment.text)}</div>
+        ${comment.stale ? '<div class="pin-stale-notice">Element may have changed</div>' : ''}
+      `;
+      container.appendChild(tip);
+      setTimeout(() => document.addEventListener('click', () => tip.remove(), { once: true }), 0);
+    });
+    container.appendChild(pin);
+  });
 }
 
 // ── Utilities ───────────────────────────────────────────────────────────
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
+function esc(str) {
+  const d = document.createElement('div');
+  d.textContent = str;
+  return d.innerHTML;
+}
+
+function el(tag, cls) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  return e;
 }
 
 // ── Init ────────────────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => {
-  // Toolbar button handlers
-  inspectBtn()?.addEventListener('click', () => setInspectMode(!state.inspectMode));
-  textSelectBtn()?.addEventListener('click', () => setTextSelectMode(!state.textSelectMode));
-
-  // Overlay handlers
-  const overlay = inspectOverlay();
-  if (overlay) {
-    overlay.addEventListener('mousemove', handleOverlayMouseMove);
-    overlay.addEventListener('click', handleOverlayClick);
-  }
-
-  // Initial render
-  render();
-});
+document.addEventListener('DOMContentLoaded', () => render());

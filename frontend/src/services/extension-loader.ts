@@ -70,15 +70,17 @@ function manifestToLoaded(manifest: ExtensionManifest): LoadedExtension {
 export async function loadExtensions(): Promise<LoadedExtension[]> {
   let extensionNames: string[];
   try {
-    const res = await fetch('/extensions/index.json');
+    // Use dynamic API endpoint (scans disk at runtime, no rebuild needed)
+    const res = await fetch('/api/extensions');
     if (!res.ok) {
-      console.warn('[extensions] Could not fetch extensions/index.json — no extensions loaded');
+      console.warn('[extensions] Could not fetch /api/extensions — status:', res.status);
       return [];
     }
     const index: ExtensionIndex = await res.json();
     extensionNames = index.extensions ?? [];
-  } catch {
-    console.warn('[extensions] Failed to load extensions index');
+    console.log('[extensions] Found extensions:', extensionNames);
+  } catch (err) {
+    console.warn('[extensions] Failed to load extensions index:', err);
     return [];
   }
 

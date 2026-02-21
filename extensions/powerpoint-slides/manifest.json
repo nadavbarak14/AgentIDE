@@ -1,0 +1,22 @@
+{
+  "name": "powerpoint-slides",
+  "displayName": "Slide Deck",
+  "panel": {
+    "entry": "ui/index.html",
+    "defaultPosition": "right",
+    "icon": "presentation"
+  },
+  "skills": [
+    "skills/slides-add-slide",
+    "skills/slides-update-slide",
+    "skills/slides-remove-slide",
+    "skills/slides-export-pptx"
+  ],
+  "boardCommands": [
+    "slides.add_slide",
+    "slides.update_slide",
+    "slides.remove_slide",
+    "slides.reorder_slides",
+    "slides.export_pptx"
+  ]
+}

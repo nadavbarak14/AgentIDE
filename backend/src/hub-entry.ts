@@ -115,7 +115,8 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
   app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     const isProxyRoute = req.path.includes('/proxy/') || req.path.includes('/proxy-url/') || req.path.includes('/serve/');
-    if (!isProxyRoute) {
+    const isExtensionRoute = req.path.startsWith('/extensions/');
+    if (!isProxyRoute && !isExtensionRoute) {
       res.setHeader('X-Frame-Options', 'DENY');
       res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-eval' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: blob:; media-src 'self' data: blob:; connect-src 'self' ws: wss: https://cdn.jsdelivr.net; font-src 'self' data: https://cdn.jsdelivr.net");
     }
@@ -147,6 +148,74 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
     res.setHeader('Content-Type', 'application/javascript');
     res.setHeader('Cache-Control', 'no-cache');
     res.sendFile(bridgePath);
+  });
+
+  // Dynamic extensions index — scans extensions/ directory at runtime (no rebuild needed)
+  app.get('/api/extensions', (_req, res) => {
+    const extensionsDir = path.join(import.meta.dirname, '../../extensions');
+    if (!fs.existsSync(extensionsDir)) {
+      res.json({ extensions: [] });
+      return;
+    }
+    try {
+      const entries = fs.readdirSync(extensionsDir, { withFileTypes: true });
+      const names: string[] = [];
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const manifestPath = path.join(extensionsDir, entry.name, 'manifest.json');
+        if (fs.existsSync(manifestPath)) {
+          names.push(entry.name);
+        }
+      }
+      res.json({ extensions: names.sort() });
+    } catch {
+      res.json({ extensions: [] });
+    }
+  });
+
+  // Serve extension files dynamically from extensions/ directory (not build)
+  app.use('/extensions', (req, res, next) => {
+    const extensionsDir = path.join(import.meta.dirname, '../../extensions');
+    if (!req.url) return next();
+    const filePath = path.join(extensionsDir, req.url);
+    // Prevent path traversal
+    if (!filePath.startsWith(extensionsDir)) {
+      res.status(403).end('Forbidden');
+      return;
+    }
+    if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+      const ext = path.extname(filePath).toLowerCase();
+      const mimeTypes: Record<string, string> = {
+        '.html': 'text/html',
+        '.js': 'application/javascript',
+        '.css': 'text/css',
+        '.json': 'application/json',
+        '.png': 'image/png',
+        '.svg': 'image/svg+xml',
+      };
+      res.setHeader('Content-Type', mimeTypes[ext] || 'application/octet-stream');
+      res.sendFile(filePath);
+    } else {
+      next();
+    }
+  });
+
+  // Register extension skills (runs the register script and returns output)
+  app.post('/api/register-extensions', (_req, res) => {
+    const scriptPath = path.join(import.meta.dirname, '../../scripts/register-extension-skills.js');
+    if (!fs.existsSync(scriptPath)) {
+      res.status(404).json({ error: 'Register script not found' });
+      return;
+    }
+    import('node:child_process').then(({ execFile }) => {
+      execFile('node', [scriptPath], { timeout: 10000 }, (err, stdout, stderr) => {
+        if (err) {
+          res.status(500).json({ error: stderr || err.message, output: stdout });
+          return;
+        }
+        res.json({ ok: true, output: stdout + stderr });
+      });
+    });
   });
 
   // ── Board command system ─────────────────────────────────────────────────
