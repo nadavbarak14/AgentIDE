@@ -12,7 +12,7 @@ import { listDirectory, readFile, writeFile, searchFiles } from '../../worker/fi
 import { getDiff } from '../../worker/git-operations.js';
 import { logger } from '../../services/logger.js';
 
-const BRIDGE_VERSION = '5';
+const BRIDGE_VERSION = '6';
 const BRIDGE_SCRIPT_TAG = `<script src="/api/inspect-bridge.js?v=${BRIDGE_VERSION}" data-c3-bridge></script>`;
 
 /** Decompress a buffer based on content-encoding */
@@ -31,34 +31,18 @@ function decompressBuffer(buf: Buffer, encoding: string): Buffer {
  * Each proxy-scoped cookie gets a name prefix (__c3p_) so we can identify
  * which cookies belong to the proxied app vs the dashboard when forwarding.
  */
-/**
- * Rewrite Set-Cookie headers from the upstream server:
- * - Scope Path to the proxy base so cookies don't leak to other routes
- * - Remove Domain (we're proxying through the dashboard host)
- * - Remove Secure (proxy may be HTTP)
- * - Normalize SameSite to Lax
- */
-function rewriteSetCookieHeaders(
-  setCookieHeaders: string | string[] | undefined,
-  proxyBase: string,
-): string[] {
+/** Clean Set-Cookie headers — only strip Domain and Secure so cookies work over HTTP proxy */
+function cleanSetCookieHeaders(setCookieHeaders: string | string[] | undefined): string[] {
   if (!setCookieHeaders) return [];
   const headers = Array.isArray(setCookieHeaders) ? setCookieHeaders : [setCookieHeaders];
   return headers.map((cookie) => {
-    let rewritten = cookie;
-    // Set Path to the proxy base (replace any existing Path)
-    if (/;\s*path\s*=/i.test(rewritten)) {
-      rewritten = rewritten.replace(/;\s*path\s*=\s*[^;]*/i, `; Path=${proxyBase}/`);
-    } else {
-      rewritten += `; Path=${proxyBase}/`;
+    let c = cookie;
+    c = c.replace(/;\s*domain\s*=[^;]*/i, '');
+    c = c.replace(/;\s*secure/i, '');
+    if (/samesite\s*=\s*none/i.test(c)) {
+      c = c.replace(/;\s*samesite\s*=\s*[^;]*/i, '; SameSite=Lax');
     }
-    // Remove Domain= since we're proxying through the dashboard host
-    rewritten = rewritten.replace(/;\s*domain\s*=[^;]*/i, '');
-    // Remove Secure flag since proxy may be HTTP
-    rewritten = rewritten.replace(/;\s*secure/i, '');
-    // Remove SameSite=None (needs Secure) — set to Lax instead
-    rewritten = rewritten.replace(/;\s*samesite\s*=\s*[^;]*/i, '; SameSite=Lax');
-    return rewritten;
+    return c;
   });
 }
 
@@ -81,11 +65,17 @@ function rewriteHtmlForProxy(html: string, proxyBase: string): string {
     `["${proxyBase}/$1"`,
   );
 
-  // Inject a URL rewriter script that intercepts fetch, XHR, and dynamic elements
-  const urlRewriter = `<script>(function(){var b="${proxyBase}";var oF=window.fetch;window.fetch=function(u,o){if(typeof u==="string"&&u.startsWith("/")&&!u.startsWith(b))u=b+u;return oF.call(this,u,o)};var oX=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,u){if(typeof u==="string"&&u.startsWith("/")&&!u.startsWith(b))u=b+u;return oX.apply(this,arguments)};new MutationObserver(function(ms){ms.forEach(function(m){m.addedNodes.forEach(function(n){if(n.nodeType===1){if(n.hasAttribute&&n.hasAttribute("data-c3-bridge"))return;["src","href"].forEach(function(a){var v=n.getAttribute&&n.getAttribute(a);if(v&&v.startsWith("/")&&!v.startsWith(b)&&!v.startsWith("//"))n.setAttribute(a,b+v)})}})})}).observe(document.documentElement,{childList:true,subtree:true})})()</script>`;
+  // Inject a URL rewriter script that intercepts fetch, XHR, navigation, and dynamic elements
+  const urlRewriter = `<script>(function(){var b="${proxyBase}";function rw(u){if(typeof u==="string"&&u.startsWith("/")&&!u.startsWith(b)&&!u.startsWith("//"))return b+u;return u}var oF=window.fetch;window.fetch=function(u,o){return oF.call(this,rw(u),o)};var oX=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,u){return oX.apply(this,[m,rw(u)].concat([].slice.call(arguments,2)))};var oPS=history.pushState.bind(history);history.pushState=function(s,t,u){return oPS(s,t,u?rw(u):u)};var oRS=history.replaceState.bind(history);history.replaceState=function(s,t,u){return oRS(s,t,u?rw(u):u)};var lDesc=Object.getOwnPropertyDescriptor(window.HTMLAnchorElement.prototype,"href")||Object.getOwnPropertyDescriptor(HTMLAnchorElement.prototype,"href");new MutationObserver(function(ms){ms.forEach(function(m){m.addedNodes.forEach(function(n){if(n.nodeType===1){if(n.hasAttribute&&n.hasAttribute("data-c3-bridge"))return;["src","href","action"].forEach(function(a){var v=n.getAttribute&&n.getAttribute(a);if(v&&v.startsWith("/")&&!v.startsWith(b)&&!v.startsWith("//"))n.setAttribute(a,b+v)})}})})}).observe(document.documentElement,{childList:true,subtree:true})})()</script>`;
 
   // Strip <meta> CSP tags from proxied HTML — they'd block our injected scripts
   rewritten = rewritten.replace(/<meta[^>]*http-equiv\s*=\s*["']Content-Security-Policy["'][^>]*>/gi, '');
+
+  // Strip HMR/dev client scripts — they try WebSocket connections that fail
+  // through the proxy, causing constant page reloads
+  rewritten = rewritten.replace(/<script[^>]*hmr-client[^>]*><\/script>/gi, '');
+  rewritten = rewritten.replace(/<script[^>]*webpack-hmr[^>]*><\/script>/gi, '');
+  rewritten = rewritten.replace(/<link[^>]*hmr-client[^>]*\/?>/gi, '');
 
   rewritten = injectBridgeScript(rewritten);
   // Insert URL rewriter right after <head> so it runs before any resources load
@@ -432,11 +422,10 @@ export function createFilesRouter(repo: Repository): Router {
         delete responseHeaders['x-frame-options'];
         delete responseHeaders['content-security-policy'];
         // Rewrite Set-Cookie headers to scope cookies to the proxy path
-        const rewrittenCookies = rewriteSetCookieHeaders(proxyRes.headers['set-cookie'], proxyBase);
-        if (rewrittenCookies.length > 0) {
-          responseHeaders['set-cookie'] = rewrittenCookies;
-        } else {
-          delete responseHeaders['set-cookie'];
+        // Pass through cookies — only strip Domain/Secure so they work over HTTP
+        const cleanedCookies = cleanSetCookieHeaders(proxyRes.headers['set-cookie']);
+        if (cleanedCookies.length > 0) {
+          responseHeaders['set-cookie'] = cleanedCookies;
         }
         // Allow cross-origin access for fonts/scripts loaded by the iframe
         responseHeaders['access-control-allow-origin'] = '*';
@@ -460,7 +449,13 @@ export function createFilesRouter(repo: Repository): Router {
         }
 
         const contentType = (proxyRes.headers['content-type'] || '').toLowerCase();
-        if (contentType.includes('text/html')) {
+        // Only rewrite full HTML documents (navigation requests).
+        // Skip rewriting for fetch/XHR responses (RSC, server actions, API calls)
+        // which may also come back as text/html but contain non-HTML payloads.
+        const isNavigationRequest = req.method === 'GET' && !req.headers['rsc'] && !req.headers['next-action'] &&
+          req.headers['accept']?.includes('text/html') && !req.headers['x-requested-with'];
+        const shouldRewriteHtml = contentType.includes('text/html') && isNavigationRequest;
+        if (shouldRewriteHtml) {
           // Buffer HTML to decompress, rewrite absolute paths, and inject scripts
           const chunks: Buffer[] = [];
           proxyRes.on('data', (chunk: Buffer) => chunks.push(chunk));
