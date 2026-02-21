@@ -120,28 +120,9 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
     }
   }, [navCounter]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Handle file changes — reload iframe with debounce.
-  // Debounces rapid refreshKey increments (file changes come in bursts)
-  // and replaces any existing _t= param instead of appending.
-  const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-    if (refreshKey === 0) return;
-    // Debounce: wait 2s of no new file changes before reloading
-    if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
-    reloadTimerRef.current = setTimeout(() => {
-      reloadTimerRef.current = null;
-      const url = iframeUrlRef.current;
-      if (url && iframeRef.current) {
-        // Replace existing _t= or append new one (never accumulate)
-        const cleanUrl = url.replace(/[?&]_t=\d+/g, '');
-        const separator = cleanUrl.includes('?') ? '&' : '?';
-        iframeRef.current.src = `${cleanUrl}${separator}_t=${Date.now()}`;
-      }
-    }, 2000);
-    return () => {
-      if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
-    };
-  }, [refreshKey]);
+  // File change auto-reload disabled — use the reload button instead.
+  // Auto-reload was causing constant refreshing during active development,
+  // breaking login sessions and user interactions inside the preview.
 
   // When the iframe navigates (internal link clicks, redirects), update the address bar.
   // Uses functional state updates to avoid unnecessary re-renders.

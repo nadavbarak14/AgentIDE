@@ -3,7 +3,7 @@
 (function () {
   'use strict';
 
-  console.log('[c3-inspect-bridge] v5 loaded');
+  console.log('[c3-inspect-bridge] v6 loaded');
 
   // --- State ---
   var overlay = null;
@@ -726,21 +726,33 @@
     el.focus();
 
     if (isContentEditable) {
-      el.textContent = text;
+      el.textContent = '';
+      document.execCommand('insertText', false, text);
     } else {
-      // Use native setter to work with React controlled components
-      var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
-      var nativeTextareaValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value');
-      var setter = tag === 'textarea' ? nativeTextareaValueSetter : nativeInputValueSetter;
-      if (setter && setter.set) {
-        setter.set.call(el, text);
-      } else {
-        el.value = text;
+      // Clear existing value first
+      el.select();
+      // Use execCommand('insertText') which goes through the browser's native
+      // text input pipeline, firing beforeinput/input/change events naturally.
+      // This works with React controlled inputs (all versions) because it
+      // triggers the same event path as real keyboard input.
+      if (!document.execCommand('insertText', false, text)) {
+        // Fallback: native setter + _valueTracker reset for older browsers
+        var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
+        var nativeTextareaValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value');
+        var setter = tag === 'textarea' ? nativeTextareaValueSetter : nativeInputValueSetter;
+        if (setter && setter.set) {
+          setter.set.call(el, text);
+        } else {
+          el.value = text;
+        }
+        var tracker = el._valueTracker;
+        if (tracker) {
+          tracker.setValue('');
+        }
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
       }
     }
-
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-    el.dispatchEvent(new Event('change', { bubbles: true }));
 
     postToParent({
       type: 'c3:bridge:elementTyped',
