@@ -48,7 +48,7 @@ function toProxyUrl(sessionId: string, displayUrl: string): string {
   return displayUrl;
 }
 
-export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose, refreshKey = 0, viewportMode = 'desktop', onViewportChange, customViewportWidth, customViewportHeight, onCustomViewport, bridgeRef, requestedUrl, navCounter = 0 }: LivePreviewProps) {
+export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose, refreshKey: _refreshKey = 0, viewportMode = 'desktop', onViewportChange, customViewportWidth, customViewportHeight, onCustomViewport, bridgeRef, requestedUrl, navCounter = 0 }: LivePreviewProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [stopped, setStopped] = useState(false);
@@ -118,7 +118,7 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
     if (requestedUrl && navCounter > 0) {
       navigateTo(requestedUrl);
     }
-  }, [navCounter]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [navCounter]);
 
   // File change auto-reload disabled — use the reload button instead.
   // Auto-reload was causing constant refreshing during active development,

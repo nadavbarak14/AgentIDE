@@ -430,7 +430,7 @@
       });
   }
 
-  function stopRecording(msgId) {
+  function stopRecording(_msgId) {
     if (recordingInterval) {
       clearInterval(recordingInterval);
       recordingInterval = null;
@@ -735,7 +735,13 @@
       // text input pipeline, firing beforeinput/input/change events naturally.
       // This works with React controlled inputs (all versions) because it
       // triggers the same event path as real keyboard input.
-      if (!document.execCommand('insertText', false, text)) {
+      var execCommandWorked = false;
+      try {
+        if (typeof document.execCommand === 'function') {
+          execCommandWorked = document.execCommand('insertText', false, text);
+        }
+      } catch (ex) { /* execCommand not available (e.g. in JSDOM) */ }
+      if (!execCommandWorked) {
         // Fallback: native setter + _valueTracker reset for older browsers
         var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
         var nativeTextareaValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value');
