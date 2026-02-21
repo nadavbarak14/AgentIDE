@@ -13,6 +13,7 @@ export interface DetectedPort {
  */
 export function scanPorts(filterPids?: number[]): DetectedPort[] {
   try {
+    // WSL2: lsof works when installed (apt install lsof), graceful fallback on missing
     const output = execSync('lsof -i -P -n -sTCP:LISTEN', {
       encoding: 'utf-8',
       timeout: 5000,

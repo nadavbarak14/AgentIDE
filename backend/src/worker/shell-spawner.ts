@@ -34,6 +34,7 @@ export class ShellSpawner extends EventEmitter {
   /**
    * Detect the user's default shell from $SHELL, falling back to /bin/bash.
    */
+  // WSL2: $SHELL is set by the Linux kernel, /bin/bash fallback is valid
   getDefaultShell(): string {
     return process.env.SHELL || '/bin/bash';
   }

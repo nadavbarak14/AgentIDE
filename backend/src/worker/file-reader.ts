@@ -264,6 +264,7 @@ export function searchFiles(
 
   let stdout: string;
   try {
+    // WSL2: grep is standard on Ubuntu, paths use forward slashes
     stdout = execFileSync('grep', args, {
       encoding: 'utf-8',
       maxBuffer: 10 * 1024 * 1024, // 10MB
