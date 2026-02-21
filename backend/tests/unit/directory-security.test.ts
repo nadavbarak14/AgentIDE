@@ -2,7 +2,8 @@ import { describe, it, expect, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { isWithinHomeDir } from '../../src/api/routes/directories.js';
+import { isWithinHomeDir, validateDirectoryForWorker } from '../../src/api/routes/directories.js';
+import type { Worker } from '../../src/models/types.js';
 
 describe('isWithinHomeDir', () => {
   const home = os.homedir();
@@ -70,5 +71,92 @@ describe('isWithinHomeDir', () => {
 
     const outsideNonExistent = '/nonexistent-dir-12345/abc';
     expect(isWithinHomeDir(outsideNonExistent)).toBe(false);
+  });
+});
+
+describe('validateDirectoryForWorker', () => {
+  const home = os.homedir();
+
+  // Mock workers
+  const localWorker: Worker = {
+    id: 'local-worker-id',
+    name: 'Local Worker',
+    type: 'local',
+    sshHost: null,
+    sshPort: 22,
+    sshUser: null,
+    sshKeyPath: null,
+    status: 'connected',
+    maxSessions: 5,
+    lastHeartbeat: null,
+    createdAt: new Date().toISOString(),
+  };
+
+  const remoteWorker: Worker = {
+    id: 'remote-worker-id',
+    name: 'Remote Worker',
+    type: 'remote',
+    sshHost: '192.168.1.100',
+    sshPort: 22,
+    sshUser: 'ubuntu',
+    sshKeyPath: '/home/user/.ssh/id_rsa',
+    status: 'connected',
+    maxSessions: 5,
+    lastHeartbeat: new Date().toISOString(),
+    createdAt: new Date().toISOString(),
+  };
+
+  describe('local worker validation', () => {
+    it('allows paths within home directory', () => {
+      const result = validateDirectoryForWorker(localWorker, path.join(home, 'projects'));
+      expect(result.valid).toBe(true);
+      expect(result.reason).toBeUndefined();
+    });
+
+    it('rejects paths outside home directory', () => {
+      const result = validateDirectoryForWorker(localWorker, '/opt/project');
+      expect(result.valid).toBe(false);
+      expect(result.reason).toBe('local_restriction');
+    });
+
+    it('allows home directory itself', () => {
+      const result = validateDirectoryForWorker(localWorker, home);
+      expect(result.valid).toBe(true);
+    });
+
+    it('rejects root directory', () => {
+      const result = validateDirectoryForWorker(localWorker, '/');
+      expect(result.valid).toBe(false);
+      expect(result.reason).toBe('local_restriction');
+    });
+  });
+
+  describe('remote worker validation', () => {
+    it('allows any path on remote server', () => {
+      const result = validateDirectoryForWorker(remoteWorker, '/opt/projects/myapp');
+      expect(result.valid).toBe(true);
+      expect(result.reason).toBeUndefined();
+    });
+
+    it('allows root directory on remote server', () => {
+      const result = validateDirectoryForWorker(remoteWorker, '/');
+      expect(result.valid).toBe(true);
+    });
+
+    it('allows home directory on remote server', () => {
+      const result = validateDirectoryForWorker(remoteWorker, '/home/ubuntu/project');
+      expect(result.valid).toBe(true);
+    });
+
+    it('allows system directories on remote server', () => {
+      const result = validateDirectoryForWorker(remoteWorker, '/var/www/app');
+      expect(result.valid).toBe(true);
+    });
+
+    it('does not enforce local home restriction', () => {
+      // Even if path is outside local home, remote worker should allow it
+      const result = validateDirectoryForWorker(remoteWorker, '/tmp/remote-project');
+      expect(result.valid).toBe(true);
+    });
   });
 });
