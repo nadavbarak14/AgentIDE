@@ -8,6 +8,8 @@
     "build": "tsc && chmod +x dist/cli.js && cp src/api/inspect-bridge.js dist/api/inspect-bridge.js",
     "start": "node dist/hub-entry.js",
     "start:worker": "node dist/worker-entry.js",
+    "start:agent": "tsx src/remote-agent-entry.ts",
+    "start:agent:prod": "node dist/remote-agent-entry.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
