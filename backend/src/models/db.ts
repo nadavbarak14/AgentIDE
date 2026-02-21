@@ -218,6 +218,13 @@ function migrate(database: Database.Database): void {
   // Migrate any leftover queued sessions to failed (queue feature removed)
   database.exec("UPDATE sessions SET status = 'failed' WHERE status = 'queued'");
 
+  // Add remote_agent_port column to workers table
+  const workerCols = database.pragma('table_info(workers)') as Array<{ name: string }>;
+  const workerColNames = new Set(workerCols.map((c) => c.name));
+  if (!workerColNames.has('remote_agent_port')) {
+    database.exec('ALTER TABLE workers ADD COLUMN remote_agent_port INTEGER');
+  }
+
   // Migrate video_recordings table for WebM format
   const videoCols = database.pragma('table_info(video_recordings)') as Array<{ name: string }>;
   const videoColNames = new Set(videoCols.map((c) => c.name));

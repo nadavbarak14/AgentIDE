@@ -102,6 +102,18 @@ export class TunnelManager extends EventEmitter {
     });
   }
 
+  forwardOut(workerId: string, remoteHost: string, remotePort: number): Promise<ClientChannel> {
+    const client = this.clients.get(workerId);
+    if (!client) throw new Error(`Worker ${workerId} not connected`);
+
+    return new Promise((resolve, reject) => {
+      client.forwardOut('127.0.0.1', 0, remoteHost, remotePort, (err, stream) => {
+        if (err) return reject(err);
+        resolve(stream);
+      });
+    });
+  }
+
   isConnected(workerId: string): boolean {
     return this.clients.has(workerId);
   }

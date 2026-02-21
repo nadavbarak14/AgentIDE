@@ -64,6 +64,7 @@ function rowToWorker(row: Record<string, unknown>): Worker {
     sshPort: row.ssh_port as number,
     sshUser: row.ssh_user as string | null,
     sshKeyPath: row.ssh_key_path as string | null,
+    remoteAgentPort: (row.remote_agent_port as number | null) ?? null,
     status: row.status as WorkerStatus,
     maxSessions: row.max_sessions as number,
     lastHeartbeat: row.last_heartbeat as string | null,
@@ -335,8 +336,8 @@ export class Repository {
     const id = uuid();
     this.db
       .prepare(
-        `INSERT INTO workers (id, name, type, ssh_host, ssh_port, ssh_user, ssh_key_path, max_sessions, status)
-         VALUES (?, ?, 'remote', ?, ?, ?, ?, ?, 'disconnected')`,
+        `INSERT INTO workers (id, name, type, ssh_host, ssh_port, ssh_user, ssh_key_path, remote_agent_port, max_sessions, status)
+         VALUES (?, ?, 'remote', ?, ?, ?, ?, ?, ?, 'disconnected')`,
       )
       .run(
         id,
@@ -345,6 +346,7 @@ export class Repository {
         input.sshPort ?? 22,
         input.sshUser,
         input.sshKeyPath,
+        input.remoteAgentPort ?? null,
         input.maxSessions ?? 2,
       );
     return this.getWorker(id)!;
@@ -404,6 +406,7 @@ export class Repository {
     if (input.sshPort !== undefined) { updates.push('ssh_port = ?'); params.push(input.sshPort); }
     if (input.sshUser !== undefined) { updates.push('ssh_user = ?'); params.push(input.sshUser); }
     if (input.sshKeyPath !== undefined) { updates.push('ssh_key_path = ?'); params.push(input.sshKeyPath); }
+    if (input.remoteAgentPort !== undefined) { updates.push('remote_agent_port = ?'); params.push(input.remoteAgentPort); }
     if (input.maxSessions !== undefined) { updates.push('max_sessions = ?'); params.push(input.maxSessions); }
     if (updates.length === 0) return this.getWorker(id);
     params.push(id);

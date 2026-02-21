@@ -46,6 +46,7 @@ export interface Worker {
   sshPort: number;
   sshUser: string | null;
   sshKeyPath: string | null;
+  remoteAgentPort: number | null;
   status: WorkerStatus;
   maxSessions: number;
   lastHeartbeat: string | null;
@@ -58,6 +59,7 @@ export interface CreateWorkerInput {
   sshPort?: number;
   sshUser: string;
   sshKeyPath: string;
+  remoteAgentPort?: number;
   maxSessions?: number;
 }
 
@@ -67,6 +69,7 @@ export interface UpdateWorkerInput {
   sshPort?: number;
   sshUser?: string;
   sshKeyPath?: string;
+  remoteAgentPort?: number | null;
   maxSessions?: number;
 }
 

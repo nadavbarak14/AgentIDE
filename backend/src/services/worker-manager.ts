@@ -3,11 +3,13 @@ import fs from 'node:fs';
 import type { Repository } from '../models/repository.js';
 import type { Worker } from '../models/types.js';
 import { TunnelManager, type TunnelConfig } from '../hub/tunnel.js';
+import { AgentTunnelManager } from '../hub/agent-tunnel.js';
 import { WorkerClient } from '../hub/worker-client.js';
 import { logger } from './logger.js';
 
 export class WorkerManager extends EventEmitter {
   private tunnelManager = new TunnelManager();
+  private agentTunnelManager = new AgentTunnelManager(this.tunnelManager);
   private workerClient = new WorkerClient(this.tunnelManager);
   private healthCheckInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -76,6 +78,24 @@ export class WorkerManager extends EventEmitter {
       await this.tunnelManager.connect(worker.id, config);
       this.repo.updateWorkerStatus(worker.id, 'connected');
       logger.info({ workerId: worker.id }, 'remote worker connected');
+
+      // If worker has a remote agent port, establish agent tunnel
+      if (worker.remoteAgentPort) {
+        try {
+          const localPort = await this.agentTunnelManager.connect(worker.id, worker.remoteAgentPort);
+          logger.info({ workerId: worker.id, remoteAgentPort: worker.remoteAgentPort, localPort }, 'agent tunnel established');
+
+          // Verify agent health
+          const healthy = await this.agentTunnelManager.checkHealth(worker.id);
+          if (!healthy) {
+            logger.warn({ workerId: worker.id, remoteAgentPort: worker.remoteAgentPort }, 'remote agent not responding on configured port');
+          } else {
+            logger.info({ workerId: worker.id }, 'remote agent health check passed');
+          }
+        } catch (err) {
+          logger.warn({ workerId: worker.id, err: (err as Error).message }, 'failed to establish agent tunnel (SSH connected but agent unreachable)');
+        }
+      }
     } catch (err) {
       logger.error({ workerId: worker.id, err }, 'failed to connect to remote worker');
       this.repo.updateWorkerStatus(worker.id, 'error');
@@ -85,11 +105,12 @@ export class WorkerManager extends EventEmitter {
 
   disconnectWorker(workerId: string): void {
     logger.info({ workerId }, 'disconnecting worker');
+    this.agentTunnelManager.disconnect(workerId);
     this.tunnelManager.disconnect(workerId);
     this.repo.updateWorkerStatus(workerId, 'disconnected');
   }
 
-  async testConnection(worker: Worker): Promise<{ ok: boolean; latency_ms: number }> {
+  async testConnection(worker: Worker): Promise<{ ok: boolean; latency_ms: number; error?: string; claudeAvailable?: boolean; claudeVersion?: string }> {
     if (worker.type === 'local') {
       return { ok: true, latency_ms: 0 };
     }
@@ -148,6 +169,10 @@ export class WorkerManager extends EventEmitter {
     return this.tunnelManager;
   }
 
+  getAgentTunnelManager(): AgentTunnelManager {
+    return this.agentTunnelManager;
+  }
+
   startHealthCheck(intervalMs = 30000): void {
     this.healthCheckInterval = setInterval(() => {
       const workers = this.repo.listWorkers();
@@ -185,6 +210,7 @@ export class WorkerManager extends EventEmitter {
 
   destroy(): void {
     this.stopHealthCheck();
+    this.agentTunnelManager.destroy();
     this.tunnelManager.destroy();
   }
 }

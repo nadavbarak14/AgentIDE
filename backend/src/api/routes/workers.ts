@@ -33,6 +33,16 @@ export function createWorkersRouter(repo: Repository, workerManager: WorkerManag
       return;
     }
 
+    // Validate remote_agent_port if provided
+    if (req.body.remoteAgentPort !== undefined && req.body.remoteAgentPort !== null) {
+      const port = Number(req.body.remoteAgentPort);
+      if (!Number.isInteger(port) || port < 1 || port > 65535) {
+        res.status(400).json({ error: 'remoteAgentPort must be an integer between 1 and 65535' });
+        return;
+      }
+      req.body.remoteAgentPort = port;
+    }
+
     try {
       const worker = repo.createWorker(req.body);
       await workerManager.connectWorker(worker);
@@ -64,6 +74,16 @@ export function createWorkersRouter(repo: Repository, workerManager: WorkerManag
         res.status(400).json({ error: message });
         return;
       }
+    }
+
+    // Validate remote_agent_port if provided
+    if (req.body.remoteAgentPort !== undefined && req.body.remoteAgentPort !== null) {
+      const port = Number(req.body.remoteAgentPort);
+      if (!Number.isInteger(port) || port < 1 || port > 65535) {
+        res.status(400).json({ error: 'remoteAgentPort must be an integer between 1 and 65535' });
+        return;
+      }
+      req.body.remoteAgentPort = port;
     }
 
     try {

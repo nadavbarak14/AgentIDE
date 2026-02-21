@@ -27,6 +27,7 @@ import { FileWatcher } from './worker/file-watcher.js';
 import { requestLogger, errorHandler } from './api/middleware.js';
 import { logger } from './services/logger.js';
 import { checkPrerequisites, detectWSLVersion } from './services/prerequisites.js';
+import { WebSocket as WsClient } from 'ws';
 
 export interface HubOptions {
   port?: number;
@@ -55,6 +56,7 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
   const shellSpawner = new ShellSpawner();
   const workerManager = new WorkerManager(repo);
   const tunnelManager = workerManager.getTunnelManager();
+  const agentTunnelManager = workerManager.getAgentTunnelManager();
   const remotePtyBridge = new RemotePtyBridge(tunnelManager, { hubPort: port });
   const sessionManager = new SessionManager(repo, ptySpawner, shellSpawner, remotePtyBridge, tunnelManager);
   const projectService = new ProjectService(repo);
@@ -82,16 +84,129 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
     });
   });
 
+  // Track agent WebSocket connections per worker
+  const agentWsConnections = new Map<string, WsClient>();
+
+  /** Register a session with the remote agent and connect WebSocket for events */
+  function registerWithAgent(sessionId: string, workingDirectory: string, pid: number | null, workerId: string): void {
+    const agentPort = agentTunnelManager.getLocalPort(workerId);
+    if (!agentPort) {
+      logger.warn({ sessionId, workerId }, 'cannot register session with agent: no tunnel');
+      return;
+    }
+
+    // POST /api/sessions/:id/register
+    const postData = JSON.stringify({ workingDirectory, pid });
+    const req = http.request({
+      hostname: '127.0.0.1',
+      port: agentPort,
+      path: `/api/sessions/${sessionId}/register`,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) },
+    }, (res) => {
+      res.resume(); // Drain response
+      res.on('end', () => {
+        logger.info({ sessionId, workerId, status: res.statusCode }, 'session registered with remote agent');
+      });
+    });
+    req.on('error', (err) => {
+      logger.warn({ sessionId, workerId, error: err.message }, 'failed to register session with agent');
+    });
+    req.end(postData);
+
+    // Connect WebSocket to agent for file/port events (if not already connected)
+    if (!agentWsConnections.has(workerId)) {
+      const ws = new WsClient(`ws://127.0.0.1:${agentPort}/ws/events`);
+      ws.on('open', () => {
+        logger.info({ workerId }, 'connected to agent WebSocket');
+      });
+      ws.on('message', (data: Buffer) => {
+        try {
+          const msg = JSON.parse(data.toString());
+          if (msg.type === 'file_changed' && msg.sessionId) {
+            broadcastToSession(msg.sessionId, {
+              type: 'file_changed',
+              paths: msg.paths,
+              timestamp: msg.timestamp,
+            });
+          } else if (msg.type === 'port_change' && msg.sessionId) {
+            broadcastToSession(msg.sessionId, {
+              type: 'port_change',
+              port: msg.port,
+              pid: msg.pid,
+              process: msg.process,
+              action: msg.action,
+            });
+          }
+        } catch {
+          // Ignore malformed messages
+        }
+      });
+      ws.on('close', () => {
+        logger.info({ workerId }, 'agent WebSocket closed');
+        agentWsConnections.delete(workerId);
+      });
+      ws.on('error', (err) => {
+        logger.warn({ workerId, error: err.message }, 'agent WebSocket error');
+      });
+      agentWsConnections.set(workerId, ws);
+    }
+  }
+
+  /** Unregister a session from the remote agent */
+  function unregisterFromAgent(sessionId: string, workerId: string): void {
+    const agentPort = agentTunnelManager.getLocalPort(workerId);
+    if (!agentPort) return;
+
+    const req = http.request({
+      hostname: '127.0.0.1',
+      port: agentPort,
+      path: `/api/sessions/${sessionId}/register`,
+      method: 'DELETE',
+    }, () => {
+      logger.info({ sessionId, workerId }, 'session unregistered from remote agent');
+    });
+    req.on('error', (err) => {
+      logger.warn({ sessionId, workerId, error: err.message }, 'failed to unregister session from agent');
+    });
+    req.end();
+  }
+
   // Start/stop watching when sessions activate/complete
-  sessionManager.on('session_activated', (session: { id: string; workingDirectory: string; pid: number | null }) => {
+  sessionManager.on('session_activated', (session: { id: string; workingDirectory: string; pid: number | null; workerId: string | null }) => {
+    if (session.workerId) {
+      const worker = repo.getWorker(session.workerId);
+      if (worker?.type === 'remote' && worker.remoteAgentPort && agentTunnelManager.isConnected(worker.id)) {
+        // Remote session with agent — register with agent (agent handles watching + port scanning)
+        registerWithAgent(session.id, session.workingDirectory, session.pid, worker.id);
+        return;
+      }
+    }
+    // Local session — use local file watcher
     fileWatcher.startWatching(session.id, session.workingDirectory, session.pid || undefined);
   });
 
   sessionManager.on('session_completed', (sessionId: string) => {
+    const session = repo.getSession(sessionId);
+    if (session?.workerId) {
+      const worker = repo.getWorker(session.workerId);
+      if (worker?.type === 'remote' && worker.remoteAgentPort) {
+        unregisterFromAgent(sessionId, worker.id);
+        return;
+      }
+    }
     fileWatcher.stopWatching(sessionId);
   });
 
   sessionManager.on('session_failed', (sessionId: string) => {
+    const session = repo.getSession(sessionId);
+    if (session?.workerId) {
+      const worker = repo.getWorker(session.workerId);
+      if (worker?.type === 'remote' && worker.remoteAgentPort) {
+        unregisterFromAgent(sessionId, worker.id);
+        return;
+      }
+    }
     fileWatcher.stopWatching(sessionId);
   });
 
@@ -131,7 +246,7 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
 
   // API routes
   app.use('/api/settings', createSettingsRouter(repo));
-  app.use('/api/sessions', createFilesRouter(repo));
+  app.use('/api/sessions', createFilesRouter(repo, agentTunnelManager));
   app.use('/api/sessions', createSessionsRouter(repo, sessionManager, projectService, tunnelManager));
   app.use('/api/workers', createWorkersRouter(repo, workerManager, tunnelManager));
   app.use('/api/directories', createDirectoriesRouter());
@@ -523,6 +638,11 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
   // Graceful shutdown
   const shutdown = () => {
     logger.info('shutting down...');
+    queueManager.stopAutoDispatch();
+    for (const [, ws] of agentWsConnections) {
+      ws.close();
+    }
+    agentWsConnections.clear();
     workerManager.destroy();
     fileWatcher.destroy();
     ptySpawner.destroy();
