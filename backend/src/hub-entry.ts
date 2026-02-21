@@ -26,6 +26,7 @@ import { setupWebSocket, broadcastToSession } from './api/websocket.js';
 import { FileWatcher } from './worker/file-watcher.js';
 import { requestLogger, errorHandler } from './api/middleware.js';
 import { logger } from './services/logger.js';
+import { checkPrerequisites, detectWSLVersion } from './services/prerequisites.js';
 
 export interface HubOptions {
   port?: number;
@@ -514,6 +515,10 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
 
   // Start worker health checks
   workerManager.startHealthCheck();
+
+  // Check platform prerequisites (non-blocking warnings)
+  detectWSLVersion();
+  checkPrerequisites();
 
   // Graceful shutdown
   const shutdown = () => {

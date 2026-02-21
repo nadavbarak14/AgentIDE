@@ -254,6 +254,7 @@ export class PtySpawner extends EventEmitter {
     const proc = this.processes.get(sessionId);
     if (proc) {
       try {
+        // WSL2: Process groups supported via real Linux kernel
         // Kill process group to catch claude subprocesses
         if (proc.pid) {
           process.kill(-proc.pid, 'SIGTERM');
