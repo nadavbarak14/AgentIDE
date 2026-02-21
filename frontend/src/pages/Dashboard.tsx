@@ -7,7 +7,8 @@ import { SessionSwitcher } from '../components/SessionSwitcher';
 import { useSessionQueue } from '../hooks/useSessionQueue';
 import { useSession } from '../hooks/useSession';
 import { useKeyboardShortcuts, type ShortcutAction } from '../hooks/useKeyboardShortcuts';
-import { settings as settingsApi, type Settings, type Session } from '../services/api';
+import { settings as settingsApi, workers as workersApi, type Settings, type Session, type Worker } from '../services/api';
+import { WorkerHealth } from '../components/WorkerHealth';
 
 export function Dashboard() {
   const {
@@ -32,11 +33,14 @@ export function Dashboard() {
   } = useSession(sessions);
 
   const [appSettings, setAppSettings] = useState<Settings | null>(null);
+  const [workersList, setWorkersList] = useState<Worker[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem('c3-sidebar-open') !== 'false');
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(() => localStorage.getItem('c3-current-session'));
+  const [addMachineTrigger, setAddMachineTrigger] = useState(0);
 
   useEffect(() => {
     settingsApi.get().then(setAppSettings).catch(() => {});
+    workersApi.list().then(setWorkersList).catch(() => {});
   }, []);
 
   // Persist currentSessionId to localStorage
@@ -382,6 +386,9 @@ export function Dashboard() {
             </span>
           </div>
           <div className="flex items-center gap-3">
+            {workersList.length > 1 && (
+              <WorkerHealth workers={workersList} />
+            )}
             <button
               onClick={() => {
                 setSidebarOpen((prev) => {
@@ -399,6 +406,9 @@ export function Dashboard() {
               <SettingsPanel
                 settings={appSettings}
                 onSettingsChange={handleSettingsChange}
+                workers={workersList}
+                onWorkersChange={setWorkersList}
+                autoOpenAddForm={addMachineTrigger}
               />
             )}
           </div>
@@ -409,6 +419,7 @@ export function Dashboard() {
           displayedSessions={displayedSessions}
           overflowSessions={overflowSessions}
           currentSessionId={currentSessionId}
+          workers={workersList}
           onContinue={(id) => continueSession(id).catch(() => {})}
           onKill={(id) => killSession(id).catch(() => {})}
           onToggleLock={(id, lock) => toggleLock(id, lock).catch(() => {})}
@@ -445,6 +456,8 @@ export function Dashboard() {
           queuedSessions={queuedSessions}
           completedSessions={completedSessions}
           failedSessions={failedSessions}
+          workers={workersList}
+          onRequestAddMachine={() => setAddMachineTrigger((n) => n + 1)}
           onCreateSession={createSession}
           onDeleteSession={deleteSession}
           onContinueSession={continueSession}

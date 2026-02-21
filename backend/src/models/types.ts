@@ -61,6 +61,40 @@ export interface CreateWorkerInput {
   maxSessions?: number;
 }
 
+export interface UpdateWorkerInput {
+  name?: string;
+  sshHost?: string;
+  sshPort?: number;
+  sshUser?: string;
+  sshKeyPath?: string;
+  maxSessions?: number;
+}
+
+// Project
+export interface Project {
+  id: string;
+  workerId: string;
+  directoryPath: string;
+  displayName: string;
+  bookmarked: boolean;
+  position: number | null;
+  lastUsedAt: string;
+  createdAt: string;
+}
+
+export interface CreateProjectInput {
+  workerId: string;
+  directoryPath: string;
+  displayName?: string;
+  bookmarked?: boolean;
+}
+
+export interface UpdateProjectInput {
+  displayName?: string;
+  bookmarked?: boolean;
+  position?: number | null;
+}
+
 // Artifact
 export type ArtifactType = 'image' | 'pdf' | 'diff' | 'file';
 

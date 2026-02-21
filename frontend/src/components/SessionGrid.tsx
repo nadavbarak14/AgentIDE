@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { SessionCard } from './SessionCard';
-import type { Session } from '../services/api';
+import type { Session, Worker } from '../services/api';
 
 interface SessionGridProps {
   displayedSessions: Session[];
   overflowSessions: Session[];
   currentSessionId?: string | null;
+  workers?: Worker[];
   onContinue: (id: string) => void;
   onKill: (id: string) => void;
   onToggleLock: (id: string, lock: boolean) => void;
@@ -18,6 +19,7 @@ export function SessionGrid({
   displayedSessions,
   overflowSessions,
   currentSessionId,
+  workers,
   onContinue,
   onKill,
   onToggleLock,
@@ -114,6 +116,7 @@ export function SessionGrid({
           <SessionCard
             key={session.id}
             session={session}
+            workers={workers}
             focused={true}
             isCurrent={currentSessionId === session.id}
             isSingleView={displayedSessions.length === 1}

@@ -111,6 +111,10 @@ export class WorkerManager extends EventEmitter {
     return this.workerClient;
   }
 
+  getTunnelManager(): TunnelManager {
+    return this.tunnelManager;
+  }
+
   startHealthCheck(intervalMs = 30000): void {
     this.healthCheckInterval = setInterval(() => {
       const workers = this.repo.listWorkers();

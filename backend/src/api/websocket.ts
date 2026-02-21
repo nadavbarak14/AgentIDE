@@ -3,6 +3,7 @@ import type { Server } from 'node:http';
 import type { Repository } from '../models/repository.js';
 import type { SessionManager } from '../services/session-manager.js';
 import type { PtySpawner } from '../worker/pty-spawner.js';
+import type { RemotePtyBridge } from '../worker/remote-pty-bridge.js';
 import type { ShellSpawner } from '../worker/shell-spawner.js';
 import type { FileWatcher } from '../worker/file-watcher.js';
 import type { WsClientMessage, BoardCommand } from '../models/types.js';
@@ -23,6 +24,7 @@ export function setupWebSocket(
   jwtSecret?: string,
   authRequired?: boolean,
   shellSpawner?: ShellSpawner,
+  remotePtyBridge?: RemotePtyBridge,
 ): void {
   const wss = new WebSocketServer({ noServer: true });
   const shellWss = new WebSocketServer({ noServer: true });
@@ -129,11 +131,15 @@ export function setupWebSocket(
       ptySpawner.resize(sessionId, cols, rows);
     }
 
-    // Handle incoming messages
+    // Handle incoming messages — route to local PTY or remote bridge
     ws.on('message', (data, isBinary) => {
       if (isBinary) {
-        // Binary: raw keyboard input → PTY
-        ptySpawner.write(sessionId, data.toString());
+        // Binary: raw keyboard input → PTY (local or remote)
+        if (sessionManager.isRemoteSession(sessionId) && remotePtyBridge) {
+          remotePtyBridge.write(sessionId, data.toString());
+        } else {
+          ptySpawner.write(sessionId, data.toString());
+        }
         return;
       }
 
@@ -273,6 +279,20 @@ export function setupWebSocket(
       }
     }
   });
+
+  // Forward remote PTY output to connected WebSocket clients
+  if (remotePtyBridge) {
+    remotePtyBridge.on('data', (sessionId: string, data: string) => {
+      const clients = sessionClients.get(sessionId);
+      if (!clients) return;
+      const buf = Buffer.from(data);
+      for (const ws of clients) {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(buf, { binary: true });
+        }
+      }
+    });
+  }
 
   // Forward board commands from terminal parser to connected clients
   ptySpawner.on('board_command', (sessionId: string, command: BoardCommand) => {

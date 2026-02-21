@@ -70,6 +70,10 @@ describe('Session Lifecycle — Auto-suspend only after user interaction', () =>
   beforeEach(() => {
     const db = createTestDb();
     repo = new Repository(db);
+    // Ensure a local worker exists (hasAvailableSlot checks per-worker capacity)
+    if (!repo.getLocalWorker()) {
+      repo.createLocalWorker('Local', 4);
+    }
     repo.updateSettings({ maxConcurrentSessions: 2 });
     queueManager = new QueueManager(repo, { dispatchDelayMs: 0 });
     fakeSpawner = new FakePtySpawner();

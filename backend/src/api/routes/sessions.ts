@@ -1,13 +1,16 @@
 import { Router } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
+import { execSync } from 'node:child_process';
 import type { Repository } from '../../models/repository.js';
 import type { SessionManager } from '../../services/session-manager.js';
+import type { ProjectService } from '../../services/project-service.js';
 import type { SessionStatus } from '../../models/types.js';
 import { validateUuid, validateBody } from '../middleware.js';
+import { isWithinHomeDir } from './directories.js';
 import { logger } from '../../services/logger.js';
 
-export function createSessionsRouter(repo: Repository, sessionManager: SessionManager): Router {
+export function createSessionsRouter(repo: Repository, sessionManager: SessionManager, projectService?: ProjectService): Router {
   const router = Router();
 
   // GET /api/sessions — list all sessions
@@ -29,14 +32,37 @@ export function createSessionsRouter(repo: Repository, sessionManager: SessionMa
       return;
     }
 
-    // Auto-create directory if it doesn't exist (FR-027)
+    // Enforce $HOME restriction (FR-005)
     const resolvedDir = path.resolve(workingDirectory);
+    if (!isWithinHomeDir(resolvedDir)) {
+      logger.warn({ path: resolvedDir }, 'session creation rejected: directory outside $HOME');
+      res.status(403).json({ error: 'Directory not allowed: path must be within home directory' });
+      return;
+    }
+
+    // Auto-create directory if it doesn't exist (FR-027)
     if (!fs.existsSync(resolvedDir)) {
       try {
         fs.mkdirSync(resolvedDir, { recursive: true });
       } catch {
         res.status(400).json({ error: `Cannot create directory: ${resolvedDir}` });
         return;
+      }
+    }
+
+    // Git auto-init for worktree sessions (FR-009)
+    if (worktree) {
+      const gitDir = path.join(resolvedDir, '.git');
+      if (!fs.existsSync(gitDir)) {
+        try {
+          execSync('git init', { cwd: resolvedDir, stdio: 'pipe' });
+          logger.info({ dir: resolvedDir }, 'auto-initialized git repository for worktree session');
+        } catch (err) {
+          const stderr = err instanceof Error ? (err as Error & { stderr?: Buffer }).stderr?.toString() : '';
+          logger.error({ dir: resolvedDir, err }, 'git auto-init failed');
+          res.status(422).json({ error: 'Failed to initialize git repository', details: stderr });
+          return;
+        }
       }
     }
 
@@ -67,13 +93,26 @@ export function createSessionsRouter(repo: Repository, sessionManager: SessionMa
       logger.info({ dir: resolvedDir }, 'startFresh=true — creating new session');
     }
 
+    // Default targetWorker to local worker if not specified
+    const effectiveWorker = targetWorker || repo.getLocalWorker()?.id || null;
+
     const session = sessionManager.createSession({
       workingDirectory: resolvedDir,
       title,
-      targetWorker: targetWorker || null,
+      targetWorker: effectiveWorker,
       worktree: !!worktree,
     }, !!startFresh);
     logger.info({ sessionId: session.id, status: session.status }, 'new session created');
+
+    // Auto-track project (FR-003)
+    if (projectService && effectiveWorker) {
+      try {
+        projectService.touchProject(effectiveWorker, resolvedDir);
+      } catch (err) {
+        logger.warn({ err, workerId: effectiveWorker, dir: resolvedDir }, 'failed to auto-track project');
+      }
+    }
+
     res.status(201).json(session);
   });
 

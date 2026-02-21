@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
-import { Client } from 'ssh2';
+import { Client, type ClientChannel } from 'ssh2';
 import { createWorkerLogger } from '../services/logger.js';
 
 export interface TunnelConfig {
@@ -81,6 +81,24 @@ export class TunnelManager extends EventEmitter {
         stream.stderr.on('data', (data: Buffer) => { output += data.toString(); });
         stream.on('close', () => resolve(output));
       });
+    });
+  }
+
+  shell(workerId: string, options: { cols?: number; rows?: number } = {}): Promise<ClientChannel> {
+    const client = this.clients.get(workerId);
+    if (!client) throw new Error(`Worker ${workerId} not connected`);
+
+    const cols = options.cols || 120;
+    const rows = options.rows || 40;
+
+    return new Promise((resolve, reject) => {
+      client.shell(
+        { term: 'xterm-256color', cols, rows },
+        (err: Error | undefined, stream: ClientChannel) => {
+          if (err) return reject(err);
+          resolve(stream);
+        },
+      );
     });
   }
 

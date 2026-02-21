@@ -40,9 +40,14 @@ describe('Sessions API', () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'c3-test-'));
+    // Use $HOME for tmp dirs so they pass $HOME restriction checks
+    tmpDir = fs.mkdtempSync(path.join(os.homedir(), '.c3-test-'));
     const db = createTestDb();
     repo = new Repository(db);
+    // Ensure a local worker exists (hasAvailableSlot checks per-worker capacity)
+    if (!repo.getLocalWorker()) {
+      repo.createLocalWorker('Local', 4);
+    }
     ptySpawner = createMockPtySpawner();
     const queueManager = new QueueManager(repo);
     sessionManager = new SessionManager(repo, ptySpawner, queueManager);

@@ -15,19 +15,40 @@ export class QueueManager extends EventEmitter {
   }
 
   /**
+   * Check if a specific worker has capacity for another session.
+   */
+  private workerHasCapacity(workerId: string): boolean {
+    const worker = this.repo.getWorker(workerId);
+    if (!worker) return false;
+    const active = this.repo.getActiveSessionsOnWorker(workerId);
+    return active < worker.maxSessions;
+  }
+
+  /**
    * Try to dispatch the next queued session if a slot is available.
    * Returns the session to activate, or null if no slot or no queued session.
    */
   tryDispatch(): Session | null {
+    // Check global ceiling
     const settings = this.repo.getSettings();
     const activeCount = this.repo.countActiveSessions();
-
     if (activeCount >= settings.maxConcurrentSessions) {
       return null;
     }
 
     const next = this.repo.getNextQueuedSession();
     if (!next) return null;
+
+    // Check per-worker capacity for the session's target worker
+    if (next.workerId) {
+      if (!this.workerHasCapacity(next.workerId)) {
+        logger.debug(
+          { sessionId: next.id, workerId: next.workerId },
+          'target worker at capacity, skipping dispatch',
+        );
+        return null;
+      }
+    }
 
     // Enforce minimum gap between dispatches
     const now = Date.now();
@@ -48,7 +69,7 @@ export class QueueManager extends EventEmitter {
     this.lastDispatchTime = now;
 
     logger.info(
-      { sessionId: next.id, activeCount, maxSessions: settings.maxConcurrentSessions },
+      { sessionId: next.id, workerId: next.workerId, activeCount, maxSessions: settings.maxConcurrentSessions },
       'dispatching queued session',
     );
 
@@ -89,11 +110,25 @@ export class QueueManager extends EventEmitter {
 
   /**
    * Check if there's capacity to activate immediately (used when creating sessions).
+   * Checks both global ceiling and per-worker capacity.
    */
-  hasAvailableSlot(): boolean {
+  hasAvailableSlot(workerId?: string | null): boolean {
+    // Global ceiling check
     const settings = this.repo.getSettings();
     const activeCount = this.repo.countActiveSessions();
-    return activeCount < settings.maxConcurrentSessions;
+    if (activeCount >= settings.maxConcurrentSessions) return false;
+
+    // If a specific worker is specified, check that worker's capacity
+    if (workerId) {
+      return this.workerHasCapacity(workerId);
+    }
+
+    // No specific worker — check if ANY worker has capacity
+    const allWorkers = this.repo.listWorkers();
+    return allWorkers.some((w) => {
+      const active = this.repo.getActiveSessionsOnWorker(w.id);
+      return active < w.maxSessions;
+    });
   }
 
   /**

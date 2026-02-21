@@ -4,6 +4,31 @@ import path from 'node:path';
 import os from 'node:os';
 import { logger } from '../../services/logger.js';
 
+/**
+ * Check if a path is within the user's home directory.
+ * Uses realpathSync to prevent symlink traversal outside $HOME.
+ * Falls back to path.resolve if the path doesn't exist yet.
+ */
+export function isWithinHomeDir(dirPath: string): boolean {
+  const home = os.homedir();
+  let resolvedHome: string;
+  try {
+    resolvedHome = fs.realpathSync(home);
+  } catch {
+    resolvedHome = path.resolve(home);
+  }
+
+  let resolvedPath: string;
+  try {
+    resolvedPath = fs.realpathSync(dirPath);
+  } catch {
+    resolvedPath = path.resolve(dirPath);
+  }
+
+  // Ensure the resolved path starts with home dir (with trailing separator to avoid prefix attacks)
+  return resolvedPath === resolvedHome || resolvedPath.startsWith(resolvedHome + path.sep);
+}
+
 export function createDirectoriesRouter(): Router {
   const router = Router();
 
@@ -15,6 +40,13 @@ export function createDirectoriesRouter(): Router {
     // Reject path traversal
     if (basePath.includes('..') || basePath.includes('\0')) {
       res.status(400).json({ error: 'Invalid path' });
+      return;
+    }
+
+    // Enforce $HOME restriction (FR-005)
+    if (!isWithinHomeDir(basePath)) {
+      logger.warn({ path: basePath }, 'directory browse rejected: outside $HOME');
+      res.status(403).json({ error: 'Directory not allowed: path must be within home directory' });
       return;
     }
 
@@ -71,6 +103,48 @@ export function createDirectoriesRouter(): Router {
     } catch (err) {
       logger.error({ err, resolved }, 'failed to list directories');
       res.status(500).json({ error: 'Unable to list directories' });
+    }
+  });
+
+  // GET /api/directories/files?path= — list files in a directory (for SSH key picker)
+  // No $HOME restriction — SSH keys may be anywhere on the hub server
+  router.get('/files', (req, res) => {
+    const basePath = String(req.query.path || os.homedir());
+
+    if (basePath.includes('..') || basePath.includes('\0')) {
+      res.status(400).json({ error: 'Invalid path' });
+      return;
+    }
+
+    const resolved = path.resolve(basePath);
+
+    try {
+      const stat = fs.statSync(resolved);
+      if (!stat.isDirectory()) {
+        res.json({ path: resolved, entries: [], dirs: [], exists: false });
+        return;
+      }
+    } catch {
+      res.json({ path: resolved, entries: [], dirs: [], exists: false });
+      return;
+    }
+
+    try {
+      const rawEntries = fs.readdirSync(resolved, { withFileTypes: true });
+      const dirs = rawEntries
+        .filter((e) => e.isDirectory() && (!e.name.startsWith('.') || e.name === '.ssh'))
+        .map((e) => ({ name: e.name, path: path.join(resolved, e.name), type: 'directory' as const }))
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .slice(0, 30);
+      const files = rawEntries
+        .filter((e) => e.isFile())
+        .map((e) => ({ name: e.name, path: path.join(resolved, e.name), type: 'file' as const }))
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .slice(0, 30);
+      res.json({ path: resolved, entries: [...dirs, ...files], exists: true });
+    } catch (err) {
+      logger.error({ err, resolved }, 'failed to list files');
+      res.status(500).json({ error: 'Unable to list files' });
     }
   });
 

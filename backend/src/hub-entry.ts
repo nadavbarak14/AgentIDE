@@ -7,15 +7,18 @@ import cookieParser from 'cookie-parser';
 import { initDb } from './models/db.js';
 import { Repository } from './models/repository.js';
 import { PtySpawner } from './worker/pty-spawner.js';
+import { RemotePtyBridge } from './worker/remote-pty-bridge.js';
 import { ShellSpawner } from './worker/shell-spawner.js';
 import { QueueManager } from './services/queue-manager.js';
 import { SessionManager } from './services/session-manager.js';
 import { WorkerManager } from './services/worker-manager.js';
+import { ProjectService } from './services/project-service.js';
 import { createSettingsRouter } from './api/routes/settings.js';
 import { createSessionsRouter } from './api/routes/sessions.js';
 import { createFilesRouter } from './api/routes/files.js';
 import { createWorkersRouter } from './api/routes/workers.js';
 import { createDirectoriesRouter } from './api/routes/directories.js';
+import { createProjectsRouter } from './api/routes/projects.js';
 import { createHooksRouter } from './api/routes/hooks.js';
 import { createAuthRouter } from './api/routes/auth.js';
 import { createGitHubRouter } from './api/routes/github.js';
@@ -87,8 +90,11 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
   const ptySpawner = new PtySpawner({ hubPort: port });
   const shellSpawner = new ShellSpawner();
   const queueManager = new QueueManager(repo);
-  const sessionManager = new SessionManager(repo, ptySpawner, queueManager, shellSpawner);
   const workerManager = new WorkerManager(repo);
+  const tunnelManager = workerManager.getTunnelManager();
+  const remotePtyBridge = new RemotePtyBridge(tunnelManager, { hubPort: port });
+  const sessionManager = new SessionManager(repo, ptySpawner, queueManager, shellSpawner, remotePtyBridge, tunnelManager);
+  const projectService = new ProjectService(repo);
 
   // File watcher — watches session working directories for changes
   const fileWatcher = new FileWatcher();
@@ -162,9 +168,10 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
   // Protected API routes
   app.use('/api/settings', createSettingsRouter(repo));
   app.use('/api/sessions', createFilesRouter(repo));
-  app.use('/api/sessions', createSessionsRouter(repo, sessionManager));
-  app.use('/api/workers', createWorkersRouter(repo, workerManager));
+  app.use('/api/sessions', createSessionsRouter(repo, sessionManager, projectService));
+  app.use('/api/workers', createWorkersRouter(repo, workerManager, tunnelManager));
   app.use('/api/directories', createDirectoriesRouter());
+  app.use('/api/projects', createProjectsRouter(repo, projectService));
   app.use('/api/sessions', createGitHubRouter(repo));
 
   // Board command endpoint — skills POST here via curl to control the IDE view
@@ -218,7 +225,7 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
   } else {
     server = http.createServer(app);
   }
-  setupWebSocket(server, repo, sessionManager, ptySpawner, fileWatcher, authConfig.jwtSecret, authRequired, shellSpawner);
+  setupWebSocket(server, repo, sessionManager, ptySpawner, fileWatcher, authConfig.jwtSecret, authRequired, shellSpawner, remotePtyBridge);
 
   // Start auto-dispatch
   queueManager.startAutoDispatch();
