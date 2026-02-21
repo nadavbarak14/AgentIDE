@@ -298,45 +298,6 @@ export interface WsAutoApproveMessage {
   enabled: boolean;
 }
 
-// ─── Auth & Licensing ───
-
-export interface LicensePayload {
-  email: string;
-  plan: string;
-  maxSessions: number;
-  expiresAt: string;   // ISO-8601
-  issuedAt: string;    // ISO-8601
-}
-
-export interface AuthConfig {
-  jwtSecret: string;
-  licenseKeyHash: string | null;
-  licenseEmail: string | null;
-  licensePlan: string | null;
-  licenseMaxSessions: number | null;
-  licenseExpiresAt: string | null;
-  licenseIssuedAt: string | null;
-  authRequired: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface JwtPayload {
-  email: string;
-  plan: string;
-  licenseExpiresAt: string;
-  iat: number;  // issued-at (Unix seconds)
-  exp: number;  // expiry (Unix seconds, iat + 30 days)
-}
-
-export interface AuthStatusResponse {
-  authRequired: boolean;
-  authenticated: boolean;
-  email: string | null;
-  plan: string | null;
-  licenseExpiresAt: string | null;
-}
-
 // GitHub Issues (fetched from gh CLI, not persisted)
 export interface GitHubLabel {
   name: string;

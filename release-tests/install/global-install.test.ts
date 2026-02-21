@@ -33,7 +33,6 @@ describe('Install: Global npm install', { timeout: 120_000 }, () => {
       timeout: 10_000,
     });
     expect(output).toContain('start');
-    expect(output).toContain('activate');
   });
 
   it('agentide --version matches package version', () => {
@@ -50,7 +49,7 @@ describe('Install: Global npm install', { timeout: 120_000 }, () => {
     try {
       server = await startServer({ env, binaryPath: artifact.binaryPath });
       await waitForHealth(server.baseUrl);
-      const res = await fetch(`${server.baseUrl}/api/auth/status`);
+      const res = await fetch(`${server.baseUrl}/api/health`);
       expect(res.status).toBe(200);
     } finally {
       if (server) await server.stop();

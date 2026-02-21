@@ -35,10 +35,10 @@ describe('Release Smoke Test', { timeout: 300_000 }, () => {
   });
 
   it('server health endpoint responds 200', async () => {
-    const res = await fetch(`${server.baseUrl}/api/auth/status`);
+    const res = await fetch(`${server.baseUrl}/api/health`);
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.authRequired).toBeDefined();
+    expect(body.status).toBe('ok');
   });
 
   it('GET /api/sessions returns 200 with array', async () => {

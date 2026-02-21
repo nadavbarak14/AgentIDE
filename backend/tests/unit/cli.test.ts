@@ -34,7 +34,6 @@ describe('CLI', () => {
     expect(status).toBe(0);
     expect(stdout).toContain('agentide');
     expect(stdout).toContain('start');
-    expect(stdout).toContain('activate');
   });
 
   it('shows start command help', () => {
@@ -42,28 +41,5 @@ describe('CLI', () => {
     expect(status).toBe(0);
     expect(stdout).toContain('--port');
     expect(stdout).toContain('--host');
-    expect(stdout).toContain('--tls');
-    expect(stdout).toContain('--self-signed');
-  });
-
-  it('activate rejects invalid license key', () => {
-    const { stderr, status } = runCli('activate invalid-key');
-    expect(status).not.toBe(0);
-    expect(stderr).toContain('Invalid license key');
-  });
-
-  it('activate accepts valid license key', async () => {
-    const { generateTestLicenseKey } = await import('../helpers/license-helper.js');
-    const licenseKey = generateTestLicenseKey({
-      email: 'cli-test@example.com',
-      plan: 'pro',
-      maxSessions: 5,
-      expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
-    });
-
-    const { stdout, status } = runCli(`activate ${licenseKey}`);
-    expect(status).toBe(0);
-    expect(stdout).toContain('cli-test@example.com');
-    expect(stdout).toContain('pro');
   });
 });

@@ -22,7 +22,6 @@ import type {
   Comment,
   CommentStatus,
   CommentSide,
-  AuthConfig,
   Project,
   CreateProjectInput,
   UpdateProjectInput,
@@ -126,21 +125,6 @@ function rowToProject(row: Record<string, unknown>): Project {
     position: row.position as number | null,
     lastUsedAt: row.last_used_at as string,
     createdAt: row.created_at as string,
-  };
-}
-
-function rowToAuthConfig(row: Record<string, unknown>): AuthConfig {
-  return {
-    jwtSecret: row.jwt_secret as string,
-    licenseKeyHash: row.license_key_hash as string | null,
-    licenseEmail: row.license_email as string | null,
-    licensePlan: row.license_plan as string | null,
-    licenseMaxSessions: row.license_max_sessions as number | null,
-    licenseExpiresAt: row.license_expires_at as string | null,
-    licenseIssuedAt: row.license_issued_at as string | null,
-    authRequired: Boolean(row.auth_required),
-    createdAt: row.created_at as string,
-    updatedAt: row.updated_at as string,
   };
 }
 
@@ -666,74 +650,6 @@ export class Repository {
       .prepare(`DELETE FROM comments WHERE id IN (${placeholders})`)
       .run(...ids);
     return result.changes;
-  }
-
-  // ─── Auth Config ───
-
-  getAuthConfig(): AuthConfig {
-    const row = this.db.prepare('SELECT * FROM auth_config WHERE id = 1').get() as Record<
-      string,
-      unknown
-    >;
-    return rowToAuthConfig(row);
-  }
-
-  updateAuthConfig(input: Partial<Omit<AuthConfig, 'createdAt' | 'updatedAt'>>): AuthConfig {
-    const updates: string[] = [];
-    const params: unknown[] = [];
-    if (input.jwtSecret !== undefined) {
-      updates.push('jwt_secret = ?');
-      params.push(input.jwtSecret);
-    }
-    if (input.licenseKeyHash !== undefined) {
-      updates.push('license_key_hash = ?');
-      params.push(input.licenseKeyHash);
-    }
-    if (input.licenseEmail !== undefined) {
-      updates.push('license_email = ?');
-      params.push(input.licenseEmail);
-    }
-    if (input.licensePlan !== undefined) {
-      updates.push('license_plan = ?');
-      params.push(input.licensePlan);
-    }
-    if (input.licenseMaxSessions !== undefined) {
-      updates.push('license_max_sessions = ?');
-      params.push(input.licenseMaxSessions);
-    }
-    if (input.licenseExpiresAt !== undefined) {
-      updates.push('license_expires_at = ?');
-      params.push(input.licenseExpiresAt);
-    }
-    if (input.licenseIssuedAt !== undefined) {
-      updates.push('license_issued_at = ?');
-      params.push(input.licenseIssuedAt);
-    }
-    if (input.authRequired !== undefined) {
-      updates.push('auth_required = ?');
-      params.push(input.authRequired ? 1 : 0);
-    }
-    if (updates.length > 0) {
-      updates.push("updated_at = datetime('now')");
-      params.push(1);
-      this.db.prepare(`UPDATE auth_config SET ${updates.join(', ')} WHERE id = ?`).run(...params);
-    }
-    return this.getAuthConfig();
-  }
-
-  clearLicense(): AuthConfig {
-    this.db.prepare(
-      `UPDATE auth_config SET
-        license_key_hash = NULL,
-        license_email = NULL,
-        license_plan = NULL,
-        license_max_sessions = NULL,
-        license_expires_at = NULL,
-        license_issued_at = NULL,
-        updated_at = datetime('now')
-       WHERE id = 1`,
-    ).run();
-    return this.getAuthConfig();
   }
 
   // ─── Projects ───
