@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { logger } from '../../services/logger.js';
+import type { Worker } from '../../models/types.js';
 
 /**
  * Check if a path is within the user's home directory.
@@ -27,6 +28,35 @@ export function isWithinHomeDir(dirPath: string): boolean {
 
   // Ensure the resolved path starts with home dir (with trailing separator to avoid prefix attacks)
   return resolvedPath === resolvedHome || resolvedPath.startsWith(resolvedHome + path.sep);
+}
+
+/**
+ * Validation result for directory paths based on worker type.
+ */
+export interface DirectoryValidationResult {
+  valid: boolean;
+  reason?: 'local_restriction' | 'invalid_path';
+}
+
+/**
+ * Validate directory path based on worker type.
+ * Local workers: enforce home directory restriction (security)
+ * Remote workers: allow any path (SSH user permissions control access)
+ */
+export function validateDirectoryForWorker(
+  worker: Worker,
+  dirPath: string,
+): DirectoryValidationResult {
+  // For local workers, enforce home directory restriction
+  if (worker.type === 'local') {
+    if (!isWithinHomeDir(dirPath)) {
+      return { valid: false, reason: 'local_restriction' };
+    }
+  }
+
+  // For remote workers, allow any path
+  // Security is enforced by SSH user permissions on the remote server
+  return { valid: true };
 }
 
 export function createDirectoriesRouter(): Router {

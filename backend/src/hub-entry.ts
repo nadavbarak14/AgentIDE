@@ -132,7 +132,7 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
   // API routes
   app.use('/api/settings', createSettingsRouter(repo));
   app.use('/api/sessions', createFilesRouter(repo));
-  app.use('/api/sessions', createSessionsRouter(repo, sessionManager, projectService));
+  app.use('/api/sessions', createSessionsRouter(repo, sessionManager, projectService, tunnelManager));
   app.use('/api/workers', createWorkersRouter(repo, workerManager, tunnelManager));
   app.use('/api/directories', createDirectoriesRouter());
   app.use('/api/projects', createProjectsRouter(repo, projectService));
