@@ -150,23 +150,28 @@ export function usePreviewBridge(
           });
           break;
 
-        case 'c3:bridge:screenshotCaptured':
-          setScreenshotDataUrl(data.dataUrl);
-          callbacksRef.current?.onScreenshotCaptured?.({
-            dataUrl: data.dataUrl,
-            width: data.width,
-            height: data.height,
-          });
-          // Also resolve pending request if msgId present
-          if (data.msgId && pendingRequests.current.has(data.msgId)) {
+        case 'c3:bridge:screenshotCaptured': {
+          // If msgId is present AND matches a pending request, this is a programmatic
+          // capture (e.g. view-screenshot skill) — resolve silently without showing overlay.
+          const isProgrammatic = data.msgId && pendingRequests.current.has(data.msgId);
+          if (isProgrammatic) {
             pendingRequests.current.get(data.msgId)!.resolve({
               dataUrl: data.dataUrl,
               width: data.width,
               height: data.height,
             });
             pendingRequests.current.delete(data.msgId);
+          } else {
+            // User-initiated screenshot (toolbar button) — show annotation overlay
+            setScreenshotDataUrl(data.dataUrl);
+            callbacksRef.current?.onScreenshotCaptured?.({
+              dataUrl: data.dataUrl,
+              width: data.width,
+              height: data.height,
+            });
           }
           break;
+        }
 
         case 'c3:bridge:recordingStarted':
           setIsRecording(true);
@@ -317,7 +322,9 @@ export function usePreviewBridge(
   const sendCommandWithResult = useCallback(
     (message: Record<string, unknown>, timeoutMs = 30000): Promise<Record<string, unknown>> => {
       return new Promise((resolve, reject) => {
-        const msgId = crypto.randomUUID();
+        const msgId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
         const timer = setTimeout(() => {
           pendingRequests.current.delete(msgId);
           reject(new Error('Bridge command timed out'));

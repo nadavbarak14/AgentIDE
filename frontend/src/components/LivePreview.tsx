@@ -17,6 +17,10 @@ interface LivePreviewProps {
   customViewportHeight?: number | null;
   onCustomViewport?: (width: number, height: number) => void;
   bridgeRef?: React.MutableRefObject<UsePreviewBridgeReturn | null>;
+  /** URL requested externally (e.g. open-preview skill). Takes priority over detected port. */
+  requestedUrl?: string;
+  /** Bumped each time an external navigation is requested, to force re-nav even for same URL. */
+  navCounter?: number;
 }
 
 /** Convert a user-facing URL to a proxy URL that the backend can reach */
@@ -44,7 +48,7 @@ function toProxyUrl(sessionId: string, displayUrl: string): string {
   return displayUrl;
 }
 
-export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose, refreshKey = 0, viewportMode = 'desktop', onViewportChange, customViewportWidth, customViewportHeight, onCustomViewport, bridgeRef }: LivePreviewProps) {
+export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose, refreshKey = 0, viewportMode = 'desktop', onViewportChange, customViewportWidth, customViewportHeight, onCustomViewport, bridgeRef, requestedUrl, navCounter = 0 }: LivePreviewProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [stopped, setStopped] = useState(false);
@@ -82,6 +86,9 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
 
   // Compute the iframe URL from displayUrl
   const iframeUrl = displayUrl ? toProxyUrl(sessionId, displayUrl) : '';
+  // Keep a ref so effects/callbacks can read current value without re-triggering
+  const iframeUrlRef = useRef(iframeUrl);
+  iframeUrlRef.current = iframeUrl;
 
   // Navigate the iframe to a URL (sets both state and iframe.src directly)
   const navigateTo = useCallback((url: string) => {
@@ -105,15 +112,39 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
     }
   }, [port, localPort, navigateTo]);
 
-  // Handle file changes — reload iframe
+  // Navigate when requestedUrl changes (from open-preview skill or board command)
+  // navCounter is bumped each time to force navigation even for the same URL
   useEffect(() => {
-    if (refreshKey > 0 && iframeRef.current && iframeUrl) {
-      const separator = iframeUrl.includes('?') ? '&' : '?';
-      iframeRef.current.src = `${iframeUrl}${separator}_t=${Date.now()}`;
+    if (requestedUrl && navCounter > 0) {
+      navigateTo(requestedUrl);
     }
-  }, [refreshKey, iframeUrl]);
+  }, [navCounter]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // When the iframe navigates (internal link clicks, redirects), update the address bar
+  // Handle file changes — reload iframe with debounce.
+  // Debounces rapid refreshKey increments (file changes come in bursts)
+  // and replaces any existing _t= param instead of appending.
+  const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (refreshKey === 0) return;
+    // Debounce: wait 2s of no new file changes before reloading
+    if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
+    reloadTimerRef.current = setTimeout(() => {
+      reloadTimerRef.current = null;
+      const url = iframeUrlRef.current;
+      if (url && iframeRef.current) {
+        // Replace existing _t= or append new one (never accumulate)
+        const cleanUrl = url.replace(/[?&]_t=\d+/g, '');
+        const separator = cleanUrl.includes('?') ? '&' : '?';
+        iframeRef.current.src = `${cleanUrl}${separator}_t=${Date.now()}`;
+      }
+    }, 2000);
+    return () => {
+      if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
+    };
+  }, [refreshKey]);
+
+  // When the iframe navigates (internal link clicks, redirects), update the address bar.
+  // Uses functional state updates to avoid unnecessary re-renders.
   const handleIframeLoad = useCallback(() => {
     setLoading(false);
     try {
@@ -125,11 +156,15 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
       if (proxyMatch) {
         const proxyPort = proxyMatch[1];
         const pagePath = proxyMatch[2] || '/';
-        const search = iframeLoc.search || '';
+        // Strip cache-bust _t= params so they don't accumulate on reloads
+        const params = new URLSearchParams(iframeLoc.search || '');
+        params.delete('_t');
+        const cleanSearch = params.toString() ? `?${params.toString()}` : '';
         const hash = iframeLoc.hash || '';
-        const realUrl = `http://localhost:${proxyPort}${pagePath}${search}${hash}`;
-        setDisplayUrl(realUrl);
-        setAddressInput(realUrl);
+        const realUrl = `http://localhost:${proxyPort}${pagePath}${cleanSearch}${hash}`;
+        // Only update state if URL actually changed (prevents re-render loops)
+        setDisplayUrl((prev) => prev === realUrl ? prev : realUrl);
+        setAddressInput((prev) => prev === realUrl ? prev : realUrl);
       }
     } catch (_e) {
       // Cross-origin — can't read iframe location, ignore
@@ -137,13 +172,15 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
   }, []);
 
   const handleReload = useCallback(() => {
-    if (iframeRef.current && iframeUrl) {
+    const url = iframeUrlRef.current;
+    if (iframeRef.current && url) {
       setLoading(true);
       setError(false);
-      const separator = iframeUrl.includes('?') ? '&' : '?';
-      iframeRef.current.src = `${iframeUrl}${separator}_t=${Date.now()}`;
+      const cleanUrl = url.replace(/[?&]_t=\d+/g, '');
+      const separator = cleanUrl.includes('?') ? '&' : '?';
+      iframeRef.current.src = `${cleanUrl}${separator}_t=${Date.now()}`;
     }
-  }, [iframeUrl]);
+  }, []);
 
   const handleNavigate = useCallback(() => {
     if (!addressInput.trim()) return;
