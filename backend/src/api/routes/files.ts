@@ -48,9 +48,17 @@ function cleanSetCookieHeaders(setCookieHeaders: string | string[] | undefined):
 
 /** Rewrite absolute paths in HTML to go through the proxy, and inject a fetch/XHR interceptor */
 function rewriteHtmlForProxy(html: string, proxyBase: string): string {
-  // Rewrite src="/..." and href="/..." attributes (but not "//..." protocol-relative)
+  // Rewrite src="/..." and action="/..." attributes (but not "//..." protocol-relative)
+  // NOTE: We intentionally do NOT rewrite href on <a> tags — React hydration
+  // would see a mismatch between server HTML (rewritten) and client render (original).
+  // Next.js Link components handle navigation client-side via our URL/history patches.
   let rewritten = html.replace(
-    /((?:src|href|action)\s*=\s*)(["'])\/(?!\/)(.*?)\2/gi,
+    /((?:src|action)\s*=\s*)(["'])\/(?!\/)(.*?)\2/gi,
+    `$1$2${proxyBase}/$3$2`,
+  );
+  // Rewrite href only on <link> elements (CSS, preload, icons — need proxy paths to load)
+  rewritten = rewritten.replace(
+    /(<link\b[^>]*?\bhref\s*=\s*)(["'])\/(?!\/)(.*?)\2/gi,
     `$1$2${proxyBase}/$3$2`,
   );
 
@@ -65,17 +73,65 @@ function rewriteHtmlForProxy(html: string, proxyBase: string): string {
     `["${proxyBase}/$1"`,
   );
 
-  // Inject a URL rewriter script that intercepts fetch, XHR, navigation, and dynamic elements
-  const urlRewriter = `<script>(function(){var b="${proxyBase}";function rw(u){if(typeof u==="string"&&u.startsWith("/")&&!u.startsWith(b)&&!u.startsWith("//"))return b+u;return u}var oF=window.fetch;window.fetch=function(u,o){return oF.call(this,rw(u),o)};var oX=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,u){return oX.apply(this,[m,rw(u)].concat([].slice.call(arguments,2)))};var oPS=history.pushState.bind(history);history.pushState=function(s,t,u){return oPS(s,t,u?rw(u):u)};var oRS=history.replaceState.bind(history);history.replaceState=function(s,t,u){return oRS(s,t,u?rw(u):u)};var lDesc=Object.getOwnPropertyDescriptor(window.HTMLAnchorElement.prototype,"href")||Object.getOwnPropertyDescriptor(HTMLAnchorElement.prototype,"href");new MutationObserver(function(ms){ms.forEach(function(m){m.addedNodes.forEach(function(n){if(n.nodeType===1){if(n.hasAttribute&&n.hasAttribute("data-c3-bridge"))return;["src","href","action"].forEach(function(a){var v=n.getAttribute&&n.getAttribute(a);if(v&&v.startsWith("/")&&!v.startsWith(b)&&!v.startsWith("//"))n.setAttribute(a,b+v)})}})})}).observe(document.documentElement,{childList:true,subtree:true})})()</script>`;
+  // Inject a URL rewriter script that intercepts fetch, XHR, URL constructor,
+  // location.assign/replace, navigation, and dynamic elements
+  const urlRewriter = `<script>(function(){
+var b="${proxyBase}";
+function rw(u){if(typeof u==="string"&&u.startsWith("/")&&!u.startsWith(b)&&!u.startsWith("//"))return b+u;return u}
+try{var OU=window.URL;var proxyRe=/\\/api\\/sessions\\/[^\\/]+\\/proxy\\/\\d+/;
+window.URL=new Proxy(OU,{construct:function(T,args){
+if(args.length>=2&&typeof args[0]==="string"&&args[0].startsWith("/")&&!args[0].startsWith("//")){
+var s=args[1]!=null?(args[1] instanceof T?args[1].href:String(args[1])):"";
+var m=s.match(proxyRe);if(m&&!args[0].startsWith(m[0]))args[0]=m[0]+args[0]}
+return new T(args[0],args[1])},apply:function(T,t,args){return T.apply(t,args)}})}catch(e){}
+try{var oLA=location.assign.bind(location);location.assign=function(u){return oLA(rw(u))}}catch(e){}
+try{var oLR=location.replace.bind(location);location.replace=function(u){return oLR(rw(u))}}catch(e){}
+var oF=window.fetch;window.fetch=function(u,o){return oF.call(this,rw(u),o)};
+var oX=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,u){return oX.apply(this,[m,rw(u)].concat([].slice.call(arguments,2)))};
+var oPS=history.pushState.bind(history);history.pushState=function(s,t,u){return oPS(s,t,u?rw(u):u)};
+var oRS=history.replaceState.bind(history);history.replaceState=function(s,t,u){return oRS(s,t,u?rw(u):u)};
+function rwEl(el){if(!el||el.nodeType!==1)return;
+if(el.hasAttribute&&el.hasAttribute("data-c3-bridge"))return;
+var tag=el.tagName;if(!tag)return;
+var attrs=tag==="A"?["src","action"]:["src","href","action"];
+attrs.forEach(function(a){var v=el.getAttribute(a);
+if(v&&v.startsWith("/")&&!v.startsWith(b)&&!v.startsWith("//"))el.setAttribute(a,b+v)});
+if(el.children)for(var i=0;i<el.children.length;i++)rwEl(el.children[i])}
+var oAppend=Node.prototype.appendChild;
+Node.prototype.appendChild=function(c){rwEl(c);return oAppend.call(this,c)};
+var oInsert=Node.prototype.insertBefore;
+Node.prototype.insertBefore=function(c,r){rwEl(c);return oInsert.call(this,c,r)};
+var oAppendEl=Element.prototype.append;
+if(oAppendEl)Element.prototype.append=function(){for(var i=0;i<arguments.length;i++)if(arguments[i]&&arguments[i].nodeType)rwEl(arguments[i]);return oAppendEl.apply(this,arguments)};
+var oSetAttr=Element.prototype.setAttribute;
+Element.prototype.setAttribute=function(a,v){
+if((a==="src"||a==="action"||(a==="href"&&this.tagName!=="A"))&&typeof v==="string")return oSetAttr.call(this,a,rw(v));
+return oSetAttr.call(this,a,v)};
+document.addEventListener("click",function(e){if(e.defaultPrevented)return;
+var a=e.target&&e.target.closest?e.target.closest("a[href]"):null;if(!a)return;
+var h=a.getAttribute("href");
+if(h&&h.startsWith("/")&&!h.startsWith(b)&&!h.startsWith("//")){e.preventDefault();location.assign(b+h)}});
+new MutationObserver(function(ms){ms.forEach(function(m){m.addedNodes.forEach(function(n){rwEl(n)})})}).observe(document.documentElement,{childList:true,subtree:true});
+var OWS=window.WebSocket;
+window.WebSocket=new Proxy(OWS,{construct:function(T,args){
+var wu=args[0]||"";
+if(wu.indexOf("/_next/")!==-1||wu.indexOf("webpack-hmr")!==-1||wu.indexOf("turbopack")!==-1||wu.indexOf("__nextjs")!==-1){
+var dummy=new EventTarget();
+dummy.readyState=3;dummy.send=function(){};dummy.close=function(){};
+dummy.onopen=null;dummy.onclose=null;dummy.onerror=null;dummy.onmessage=null;
+dummy.url=wu;dummy.protocol="";dummy.extensions="";dummy.bufferedAmount=0;dummy.binaryType="blob";
+dummy.CONNECTING=0;dummy.OPEN=1;dummy.CLOSING=2;dummy.CLOSED=3;
+return dummy}
+return new T(args[0],args[1])}});
+})()</script>`;
 
   // Strip <meta> CSP tags from proxied HTML — they'd block our injected scripts
   rewritten = rewritten.replace(/<meta[^>]*http-equiv\s*=\s*["']Content-Security-Policy["'][^>]*>/gi, '');
 
-  // Strip HMR/dev client scripts — they try WebSocket connections that fail
-  // through the proxy, causing constant page reloads
-  rewritten = rewritten.replace(/<script[^>]*hmr-client[^>]*><\/script>/gi, '');
-  rewritten = rewritten.replace(/<script[^>]*webpack-hmr[^>]*><\/script>/gi, '');
-  rewritten = rewritten.replace(/<link[^>]*hmr-client[^>]*\/?>/gi, '');
+  // Note: we no longer strip HMR client scripts — Turbopack's HMR client
+  // doubles as the chunk loading runtime. Without it, client components
+  // can't load and React hydration fails. Instead, we patch WebSocket
+  // in the urlRewriter to silently drop HMR connections.
 
   rewritten = injectBridgeScript(rewritten);
   // Insert URL rewriter right after <head> so it runs before any resources load
@@ -392,6 +448,8 @@ export function createFilesRouter(repo: Repository): Router {
 
     const proxyBase = `/api/sessions/${sessionId}/proxy/${targetPort}`;
 
+    logger.debug({ method: req.method, targetPath }, `proxy ${req.method} ${targetPath}`);
+
     // Strip hop-by-hop headers; forward only proxy-scoped cookies
     const forwardHeaders: Record<string, string | string[] | undefined> = { ...req.headers };
     delete forwardHeaders['host'];
@@ -412,6 +470,8 @@ export function createFilesRouter(repo: Repository): Router {
         headers: forwardHeaders as http.OutgoingHttpHeaders,
       },
       (proxyRes) => {
+        logger.debug({ status: proxyRes.statusCode }, `proxy ${proxyRes.statusCode} ${req.method} ${targetPath}`);
+
         // Remove restrictive headers set by the global security middleware —
         // these would otherwise merge into writeHead() and block iframe embedding
         res.removeHeader('x-frame-options');
@@ -455,8 +515,10 @@ export function createFilesRouter(repo: Repository): Router {
         const isNavigationRequest = req.method === 'GET' && !req.headers['rsc'] && !req.headers['next-action'] &&
           req.headers['accept']?.includes('text/html') && !req.headers['x-requested-with'];
         const shouldRewriteHtml = contentType.includes('text/html') && isNavigationRequest;
-        if (shouldRewriteHtml) {
-          // Buffer HTML to decompress, rewrite absolute paths, and inject scripts
+        const isJavaScript = contentType.includes('javascript');
+        const shouldBuffer = shouldRewriteHtml || isJavaScript;
+        if (shouldBuffer) {
+          // Buffer response to rewrite paths
           const chunks: Buffer[] = [];
           proxyRes.on('data', (chunk: Buffer) => chunks.push(chunk));
           proxyRes.on('end', () => {
@@ -467,14 +529,21 @@ export function createFilesRouter(repo: Repository): Router {
                 raw = decompressBuffer(raw, encoding) as Buffer;
                 delete responseHeaders['content-encoding'];
               }
-              const body = raw.toString('utf-8');
-              const modified = rewriteHtmlForProxy(body, proxyBase);
+              let body = raw.toString('utf-8');
+              if (shouldRewriteHtml) {
+                body = rewriteHtmlForProxy(body, proxyBase);
+              } else if (isJavaScript) {
+                // Rewrite Turbopack/Webpack runtime chunk base paths so dynamic
+                // imports resolve through the proxy instead of the dashboard root
+                body = body.replaceAll('CHUNK_BASE_PATH = "/_next/"', `CHUNK_BASE_PATH = "${proxyBase}/_next/"`);
+                body = body.replaceAll('RUNTIME_PUBLIC_PATH = "/_next/"', `RUNTIME_PUBLIC_PATH = "${proxyBase}/_next/"`);
+              }
               delete responseHeaders['content-length'];
-              responseHeaders['content-length'] = String(Buffer.byteLength(modified));
+              responseHeaders['content-length'] = String(Buffer.byteLength(body));
               res.writeHead(proxyRes.statusCode || 200, responseHeaders);
-              res.end(modified);
+              res.end(body);
             } catch (err) {
-              logger.warn({ error: (err as Error).message }, 'Failed to process proxied HTML');
+              logger.warn({ error: (err as Error).message }, 'Failed to process proxied response');
               const raw = Buffer.concat(chunks);
               delete responseHeaders['content-length'];
               responseHeaders['content-length'] = String(raw.length);
