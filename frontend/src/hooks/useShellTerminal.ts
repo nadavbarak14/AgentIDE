@@ -25,8 +25,7 @@ export function useShellTerminal({ sessionId, enabled = true }: UseShellTerminal
     shellName: null,
   });
 
-  // Refs for terminal callbacks (avoid reconnections when callbacks change)
-  const sendBinaryRef = useRef<(data: ArrayBuffer | Uint8Array) => void>(() => {});
+  // Ref for terminal resize callback (avoid reconnections when callback changes)
   const sendResizeRef = useRef<(cols: number, rows: number) => void>(() => {});
 
   const { initTerminal, write, fit, clear, focus, setFontSize, terminal: terminalRef } = useTerminal({
