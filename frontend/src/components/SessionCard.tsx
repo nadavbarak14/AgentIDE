@@ -360,33 +360,6 @@ export function SessionCard({
     };
   }, []);
 
-  // Refresh Skills button state
-  const [refreshingSkills, setRefreshingSkills] = useState(false);
-  const [refreshResult, setRefreshResult] = useState<{ ok: boolean; msg: string } | null>(null);
-
-  const handleRefreshSkills = useCallback(async () => {
-    if (refreshingSkills) return;
-    setRefreshingSkills(true);
-    setRefreshResult(null);
-    try {
-      const res = await fetch('/api/register-extensions', { method: 'POST' });
-      const data = await res.json();
-      if (res.ok) {
-        const match = (data.output || '').match(/(\d+) extension\(s\) processed/);
-        setRefreshResult({ ok: true, msg: match ? `${match[1]} extension(s)` : 'Done' });
-      } else {
-        setRefreshResult({ ok: false, msg: data.error || 'Failed' });
-      }
-    } catch {
-      setRefreshResult({ ok: false, msg: 'Failed to refresh' });
-    } finally {
-      setRefreshingSkills(false);
-      // Re-fetch extensions list so toolbar buttons update
-      refreshExtensions();
-      setTimeout(() => setRefreshResult(null), 3000);
-    }
-  }, [refreshingSkills, refreshExtensions]);
-
   const showToolbar = session.status === 'active' || session.status === 'completed';
   const showLeftPanel = showToolbar && panel.leftPanel !== 'none';
   const showRightPanel = showToolbar && panel.rightPanel !== 'none';
