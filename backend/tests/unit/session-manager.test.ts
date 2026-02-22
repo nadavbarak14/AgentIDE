@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { SessionManager } from '../../src/services/session-manager.js';
 import { Repository } from '../../src/models/repository.js';
 import { createTestDb, closeDb } from '../../src/models/db.js';
-import { QueueManager } from '../../src/services/queue-manager.js';
 import { PtySpawner } from '../../src/worker/pty-spawner.js';
 import type { Worker, CreateSessionInput } from '../../src/models/types.js';
 
@@ -51,8 +50,7 @@ describe('SessionManager - Worker Lookup', () => {
     // Mock PtySpawner
     const ptySpawner = createMockPtySpawner();
 
-    const queueManager = new QueueManager(repo);
-    sessionManager = new SessionManager(repo, ptySpawner, queueManager);
+    sessionManager = new SessionManager(repo, ptySpawner);
   });
 
   afterEach(() => {
