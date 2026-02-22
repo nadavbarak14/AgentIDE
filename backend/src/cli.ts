@@ -18,14 +18,14 @@ function getVersion(): string {
 const program = new Command();
 
 program
-  .name('agentide')
-  .description('AgentIDE — Multi-session Claude Code command center')
+  .name('adyx')
+  .description('Adyx — Multi-session Claude Code command center')
   .version(getVersion());
 
-// agentide start
+// adyx start
 program
   .command('start')
-  .description('Start the AgentIDE hub server')
+  .description('Start the Adyx hub server')
   .option('-p, --port <port>', 'Port to listen on', '3000')
   .option('-H, --host <host>', 'Host to bind to (use 0.0.0.0 for remote access)', '127.0.0.1')
   .action(async (opts) => {

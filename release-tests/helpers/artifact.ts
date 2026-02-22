@@ -50,11 +50,11 @@ export function installArtifact(
     stdio: ['pipe', 'pipe', 'pipe'],
   });
 
-  const binaryPath = path.join(env.binDir, 'agentide');
+  const binaryPath = path.join(env.binDir, 'adyx');
   if (!fs.existsSync(binaryPath)) {
     // On some npm versions, bin goes to lib/node_modules/.bin/
     const altBinDir = path.join(env.npmPrefix, 'lib', 'node_modules', '.bin');
-    const altPath = path.join(altBinDir, 'agentide');
+    const altPath = path.join(altBinDir, 'adyx');
     if (fs.existsSync(altPath)) {
       return {
         tarballPath,
@@ -63,7 +63,7 @@ export function installArtifact(
       };
     }
     throw new Error(
-      `agentide binary not found at ${binaryPath}. Contents of binDir: ${fs.readdirSync(env.binDir).join(', ') || '(empty)'}`,
+      `adyx binary not found at ${binaryPath}. Contents of binDir: ${fs.readdirSync(env.binDir).join(', ') || '(empty)'}`,
     );
   }
 
@@ -79,7 +79,7 @@ function getInstalledVersion(env: ReleaseEnvironment): string {
     env.npmPrefix,
     'lib',
     'node_modules',
-    'c3-dashboard',
+    'adyx',
     'package.json',
   );
   if (fs.existsSync(pkgJsonPath)) {

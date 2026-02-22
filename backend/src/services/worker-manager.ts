@@ -41,8 +41,8 @@ export class WorkerManager extends EventEmitter {
     // Older PEM format: "Proc-Type: 4,ENCRYPTED" in header
     if (content.includes('ENCRYPTED')) {
       throw new Error(
-        'SSH key is passphrase-protected. AgentIDE requires a key without a passphrase. ' +
-        'Generate one with: ssh-keygen -t ed25519 -f ~/.ssh/agentide_key -N ""'
+        'SSH key is passphrase-protected. Adyx requires a key without a passphrase. ' +
+        'Generate one with: ssh-keygen -t ed25519 -f ~/.ssh/adyx_key -N ""'
       );
     }
 

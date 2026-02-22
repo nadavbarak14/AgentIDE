@@ -13,7 +13,7 @@ import path from 'node:path';
 
 const KEYS_DIR = path.join(
   process.env.HOME || process.env.USERPROFILE || '.',
-  '.agentide',
+  '.adyx',
 );
 const PRIVATE_KEY_PATH = path.join(KEYS_DIR, 'private.pem');
 const PUBLIC_KEY_PATH = path.join(KEYS_DIR, 'public.pem');

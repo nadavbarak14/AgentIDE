@@ -13,7 +13,7 @@ export interface ReleaseEnvironment {
 }
 
 export async function createReleaseEnvironment(): Promise<ReleaseEnvironment> {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentide-release-'));
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'adyx-release-'));
   const homeDir = path.join(tempDir, 'home');
   const npmPrefix = path.join(tempDir, 'npm-global');
   const binDir = path.join(npmPrefix, 'bin');

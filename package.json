@@ -1,15 +1,24 @@
 {
-  "name": "c3-dashboard",
+  "name": "adyx",
   "version": "0.1.0",
-  "private": true,
+  "description": "Adyx — Multi-session Claude Code command center",
   "type": "module",
   "workspaces": [
     "backend",
     "frontend"
   ],
   "bin": {
-    "agentide": "./backend/dist/cli.js"
+    "adyx": "./backend/dist/cli.js"
   },
+  "keywords": [
+    "claude",
+    "ai",
+    "terminal",
+    "ide",
+    "multi-session",
+    "command-center"
+  ],
+  "license": "MIT",
   "files": [
     "backend/dist/",
     "frontend/dist/",

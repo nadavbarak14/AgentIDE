@@ -22,11 +22,11 @@ describe('Install: Global npm install', { timeout: 120_000 }, () => {
     if (env) await env.cleanup();
   });
 
-  it('agentide binary exists in bin directory', () => {
+  it('adyx binary exists in bin directory', () => {
     expect(fs.existsSync(artifact.binaryPath)).toBe(true);
   });
 
-  it('agentide --help exits 0 and shows commands', () => {
+  it('adyx --help exits 0 and shows commands', () => {
     const output = execSync(`node "${artifact.binaryPath}" --help`, {
       env: env.env,
       encoding: 'utf-8',
@@ -35,7 +35,7 @@ describe('Install: Global npm install', { timeout: 120_000 }, () => {
     expect(output).toContain('start');
   });
 
-  it('agentide --version matches package version', () => {
+  it('adyx --version matches package version', () => {
     const output = execSync(`node "${artifact.binaryPath}" --version`, {
       env: env.env,
       encoding: 'utf-8',
