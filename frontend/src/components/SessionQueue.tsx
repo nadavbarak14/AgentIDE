@@ -10,7 +10,7 @@ interface SessionQueueProps {
   failedSessions: Session[];
   workers: Worker[];
   onRequestAddMachine?: () => void;
-  onCreateSession: (workingDirectory: string, title: string, targetWorker?: string | null, worktree?: boolean) => Promise<unknown>;
+  onCreateSession: (workingDirectory: string, title: string, targetWorker?: string | null, worktree?: boolean, startFresh?: boolean) => Promise<unknown>;
   onDeleteSession: (id: string) => Promise<void>;
   onFocusSession: (id: string) => void;
   onKillSession: (id: string) => void;
@@ -31,6 +31,7 @@ export function SessionQueue({
   const [title, setTitle] = useState('');
   const [targetWorker, setTargetWorker] = useState<string | null>(null);
   const [worktree, setWorktree] = useState(false);
+  const [startFresh, setStartFresh] = useState(false);
   const [creating, setCreating] = useState(false);
 
   const handleProjectSelect = (directoryPath: string, workerId: string | null) => {
@@ -50,11 +51,12 @@ export function SessionQueue({
     if (!directory.trim() || !title.trim()) return;
     setCreating(true);
     try {
-      await onCreateSession(directory.trim(), title.trim(), targetWorker, worktree);
+      await onCreateSession(directory.trim(), title.trim(), targetWorker, worktree, startFresh);
       setDirectory('');
       setTitle('');
       setTargetWorker(null);
       setWorktree(false);
+      setStartFresh(false);
     } finally {
       setCreating(false);
     }
@@ -94,6 +96,15 @@ export function SessionQueue({
               className="rounded border-gray-600 bg-gray-900 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
             />
             Use worktree (isolated git branch)
+          </label>
+          <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={startFresh}
+              onChange={(e) => setStartFresh(e.target.checked)}
+              className="rounded border-gray-600 bg-gray-900 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
+            />
+            Start fresh (don't continue last conversation)
           </label>
           <button
             type="submit"

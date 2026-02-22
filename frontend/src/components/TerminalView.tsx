@@ -23,7 +23,7 @@ export function TerminalView({ sessionId, active, fontSize = 14, onWsMessage }: 
       // Detect Enter key — triggers auto-switch in Dashboard
       if (data.includes('\r') || data.includes('\n')) {
         if (!inputDebounceRef.current) {
-          window.dispatchEvent(new CustomEvent('c3:input-sent'));
+          window.dispatchEvent(new CustomEvent('c3:input-sent', { detail: { sessionId } }));
           inputDebounceRef.current = setTimeout(() => {
             inputDebounceRef.current = null;
           }, 500);

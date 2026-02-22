@@ -54,7 +54,7 @@ export class SessionManager extends EventEmitter {
     log.info({ title: session.title, dir: session.workingDirectory }, 'session created');
 
     // Activate immediately
-    this.activateSession(session.id).catch((err) => {
+    this.activateSession(session.id, input.startFresh).catch((err) => {
       createSessionLogger(session.id).error({ err }, 'failed to activate session');
     });
 
@@ -73,7 +73,7 @@ export class SessionManager extends EventEmitter {
    * Activate a queued session — spawn the Claude process.
    * Routes to local PtySpawner or RemotePtyBridge based on worker type.
    */
-  async activateSession(sessionId: string): Promise<Session | null> {
+  async activateSession(sessionId: string, startFresh?: boolean): Promise<Session | null> {
     const session = this.repo.getSession(sessionId);
     if (!session) return null;
     const log = createSessionLogger(sessionId);
@@ -95,7 +95,7 @@ export class SessionManager extends EventEmitter {
         ptyProc = await this.activateRemoteSession(session, worker.id, log);
         this.remoteSessions.add(sessionId);
       } else {
-        ptyProc = this.activateLocalSession(session, log);
+        ptyProc = this.activateLocalSession(session, log, startFresh);
       }
 
       this.activePtys.set(sessionId, ptyProc);
@@ -116,14 +116,20 @@ export class SessionManager extends EventEmitter {
   private activateLocalSession(
     session: Session,
     log: ReturnType<typeof createSessionLogger>,
+    startFresh?: boolean,
   ): PtyProcess {
     // Get per-session enabled extensions for skill filtering
     const enabledExtensions = this.repo.getSessionExtensions(session.id);
     log.info({ enabledExtensions }, 'session enabled extensions');
 
-    const args = session.worktree ? ['--worktree'] : [];
-    log.info({ worktree: session.worktree }, 'spawning new claude process');
-    return this.ptySpawner.spawn(session.id, session.workingDirectory, args, enabledExtensions);
+    if (startFresh || session.worktree) {
+      const args = session.worktree ? ['--worktree'] : [];
+      log.info({ worktree: session.worktree, startFresh }, 'spawning new claude process');
+      return this.ptySpawner.spawn(session.id, session.workingDirectory, args, enabledExtensions);
+    } else {
+      log.info({ dir: session.workingDirectory }, 'spawning claude with --continue');
+      return this.ptySpawner.spawn(session.id, session.workingDirectory, ['--continue'], enabledExtensions);
+    }
   }
 
   private async activateRemoteSession(
