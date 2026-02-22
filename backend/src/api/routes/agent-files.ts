@@ -317,6 +317,11 @@ export function createAgentFilesRouter(fileWatcher: FileWatcher): Router {
         }
         responseHeaders['access-control-allow-origin'] = '*';
 
+        // Prevent Content-Length + Transfer-Encoding conflict
+        if (responseHeaders['transfer-encoding'] && responseHeaders['content-length']) {
+          delete responseHeaders['content-length'];
+        }
+
         if (responseHeaders['location']) {
           const loc = responseHeaders['location'] as string;
           if (loc.startsWith('/')) {
