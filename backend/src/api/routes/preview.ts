@@ -1,12 +1,64 @@
 import { Router } from 'express';
+import http from 'node:http';
 import fs from 'node:fs';
 import type { Repository } from '../../models/repository.js';
 import type { PreviewService } from '../../services/preview-service.js';
+import type { AgentTunnelManager } from '../../hub/agent-tunnel.js';
 import type { CreatePreviewCommentInput, PreviewCommentStatus } from '../../models/types.js';
 import { validateUuid } from '../middleware.js';
 import { logger } from '../../services/logger.js';
 
-export function createPreviewRouter(repo: Repository, previewService: PreviewService): Router {
+/**
+ * Proxy a JSON POST to the remote agent. Returns the parsed response body on success,
+ * or null if not a remote session / agent unavailable.
+ */
+function proxyJsonToAgent(
+  repo: Repository,
+  agentTunnelManager: AgentTunnelManager | undefined,
+  sessionId: string,
+  agentPath: string,
+  body: unknown,
+): Promise<{ status: number; body: unknown } | null> {
+  if (!agentTunnelManager) return Promise.resolve(null);
+  const session = repo.getSession(sessionId);
+  if (!session?.workerId) return Promise.resolve(null);
+  const worker = repo.getWorker(session.workerId);
+  if (!worker || worker.type !== 'remote' || !worker.remoteAgentPort) return Promise.resolve(null);
+  const agentPort = agentTunnelManager.getLocalPort(worker.id);
+  if (!agentPort) return Promise.resolve(null);
+
+  return new Promise((resolve) => {
+    const postData = JSON.stringify(body);
+    const req = http.request(
+      {
+        hostname: '127.0.0.1',
+        port: agentPort,
+        path: agentPath,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) },
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (c: Buffer) => chunks.push(c));
+        res.on('end', () => {
+          try {
+            const parsed = JSON.parse(Buffer.concat(chunks).toString());
+            resolve({ status: res.statusCode || 200, body: parsed });
+          } catch {
+            resolve({ status: res.statusCode || 200, body: {} });
+          }
+        });
+      },
+    );
+    req.on('error', (err) => {
+      logger.warn({ agentPath, error: err.message }, 'failed to proxy request to agent');
+      resolve(null);
+    });
+    req.end(postData);
+  });
+}
+
+export function createPreviewRouter(repo: Repository, previewService: PreviewService, agentTunnelManager?: AgentTunnelManager): Router {
   const router = Router();
 
   // POST /api/sessions/:id/preview-comments — create a preview comment
@@ -210,7 +262,7 @@ export function createPreviewRouter(repo: Repository, previewService: PreviewSer
   });
 
   // POST /api/sessions/:id/screenshots — save a screenshot
-  router.post('/:id/screenshots', validateUuid('id'), (req, res) => {
+  router.post('/:id/screenshots', validateUuid('id'), async (req, res) => {
     const sessionId = String(req.params.id);
     const session = repo.getSession(sessionId);
     if (!session) {
@@ -221,6 +273,18 @@ export function createPreviewRouter(repo: Repository, previewService: PreviewSer
     const { dataUrl, pageUrl } = req.body;
     if (typeof dataUrl !== 'string' || !dataUrl) {
       res.status(400).json({ error: 'dataUrl is required' });
+      return;
+    }
+
+    // For remote sessions, proxy to the agent which saves the file on the remote machine
+    const agentResult = await proxyJsonToAgent(
+      repo, agentTunnelManager, sessionId,
+      `/api/sessions/${sessionId}/screenshots`,
+      { dataUrl, pageUrl },
+    );
+    if (agentResult) {
+      logger.info({ sessionId, pageUrl }, 'screenshot saved via remote agent');
+      res.status(agentResult.status).json(agentResult.body);
       return;
     }
 
@@ -273,7 +337,7 @@ export function createPreviewRouter(repo: Repository, previewService: PreviewSer
   });
 
   // POST /api/sessions/:id/recordings — save a recording
-  router.post('/:id/recordings', validateUuid('id'), (req, res) => {
+  router.post('/:id/recordings', validateUuid('id'), async (req, res) => {
     const sessionId = String(req.params.id);
     const session = repo.getSession(sessionId);
     if (!session) {
@@ -284,6 +348,18 @@ export function createPreviewRouter(repo: Repository, previewService: PreviewSer
     const { events, durationMs, pageUrl, viewportWidth, viewportHeight, thumbnailDataUrl } = req.body;
     if (!Array.isArray(events)) {
       res.status(400).json({ error: 'events must be an array' });
+      return;
+    }
+
+    // For remote sessions, proxy to the agent which saves the file on the remote machine
+    const agentResult = await proxyJsonToAgent(
+      repo, agentTunnelManager, sessionId,
+      `/api/sessions/${sessionId}/recordings`,
+      { events, durationMs, pageUrl, viewportWidth, viewportHeight, thumbnailDataUrl },
+    );
+    if (agentResult) {
+      logger.info({ sessionId, pageUrl }, 'recording saved via remote agent');
+      res.status(agentResult.status).json(agentResult.body);
       return;
     }
 
