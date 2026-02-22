@@ -66,10 +66,11 @@ function proxyToAgent(
     (proxyRes) => {
       // Forward all response headers
       const responseHeaders = { ...proxyRes.headers };
-      // Prevent Content-Length + Transfer-Encoding conflict (Node parser rejects it)
-      if (responseHeaders['transfer-encoding'] && responseHeaders['content-length']) {
-        delete responseHeaders['content-length'];
-      }
+      // Always strip transfer-encoding — Node handles chunked encoding
+      // automatically when piping. Forwarding it causes double-encoding
+      // or Content-Length + Transfer-Encoding conflicts.
+      delete responseHeaders['transfer-encoding'];
+      delete responseHeaders['content-length'];
       // Remove restrictive headers for proxy/serve routes
       if (agentPath.includes('/proxy/') || agentPath.includes('/serve/')) {
         res.removeHeader('x-frame-options');
