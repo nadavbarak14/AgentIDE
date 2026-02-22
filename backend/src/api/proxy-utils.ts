@@ -27,6 +27,21 @@ export function cleanSetCookieHeaders(setCookieHeaders: string | string[] | unde
   });
 }
 
+/**
+ * Rewrite url() path references in CSS to go through the proxy.
+ * Handles url(/path), url('/path'), url("/path") — only rewrites absolute paths
+ * not already under the proxy base.
+ */
+export function rewriteCssForProxy(css: string, proxyBase: string): string {
+  return css.replace(
+    /url\(\s*(["']?)(\/(?!\/)[^)'"]*)\1\s*\)/gi,
+    (match, quote, url) => {
+      if (url.startsWith(proxyBase)) return match;
+      return `url(${quote}${proxyBase}${url}${quote})`;
+    },
+  );
+}
+
 /** Rewrite absolute paths in HTML to go through the proxy, and inject a fetch/XHR interceptor */
 export function rewriteHtmlForProxy(html: string, proxyBase: string): string {
   // Rewrite src="/..." and action="/..." attributes (but not "//..." protocol-relative)
@@ -58,7 +73,7 @@ export function rewriteHtmlForProxy(html: string, proxyBase: string): string {
   // location.assign/replace, navigation, and dynamic elements
   const urlRewriter = `<script>(function(){
 var b="${proxyBase}";
-function rw(u){if(typeof u==="string"&&u.startsWith("/")&&!u.startsWith(b)&&!u.startsWith("//"))return b+u;return u}
+function rw(u){if(typeof u!=="string")return u;if(u.startsWith("/")&&!u.startsWith(b)&&!u.startsWith("//"))return b+u;var o=window.location.origin;if(u.length>o.length+1&&u.startsWith(o+"/")&&!u.startsWith(o+b))return o+b+u.slice(o.length);return u}
 try{var OU=window.URL;var proxyRe=/\\/api\\/sessions\\/[^\\/]+\\/proxy\\/\\d+/;
 window.URL=new Proxy(OU,{construct:function(T,args){
 if(args.length>=2&&typeof args[0]==="string"&&args[0].startsWith("/")&&!args[0].startsWith("//")){
@@ -76,7 +91,7 @@ if(el.hasAttribute&&el.hasAttribute("data-c3-bridge"))return;
 var tag=el.tagName;if(!tag)return;
 var attrs=tag==="A"?["src","action"]:["src","href","action"];
 attrs.forEach(function(a){var v=el.getAttribute(a);
-if(v&&v.startsWith("/")&&!v.startsWith(b)&&!v.startsWith("//"))el.setAttribute(a,b+v)});
+if(!v)return;var rwd=rw(v);if(rwd!==v)el.setAttribute(a,rwd)});
 if(el.children)for(var i=0;i<el.children.length;i++)rwEl(el.children[i])}
 var oAppend=Node.prototype.appendChild;
 Node.prototype.appendChild=function(c){rwEl(c);return oAppend.call(this,c)};

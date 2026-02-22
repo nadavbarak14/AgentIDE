@@ -15,6 +15,7 @@ import {
   decompressBuffer,
   cleanSetCookieHeaders,
   rewriteHtmlForProxy,
+  rewriteCssForProxy,
   injectBridgeScript,
   isPrivateIp,
   MIME_TYPES,
@@ -435,7 +436,8 @@ export function createFilesRouter(repo: Repository, agentTunnelManager?: AgentTu
           req.headers['accept']?.includes('text/html') && !req.headers['x-requested-with'];
         const shouldRewriteHtml = contentType.includes('text/html') && isNavigationRequest;
         const isJavaScript = contentType.includes('javascript');
-        const shouldBuffer = shouldRewriteHtml || isJavaScript;
+        const isCss = contentType.includes('text/css');
+        const shouldBuffer = shouldRewriteHtml || isJavaScript || isCss;
         if (shouldBuffer) {
           // Buffer response to rewrite paths
           const chunks: Buffer[] = [];
@@ -456,6 +458,8 @@ export function createFilesRouter(repo: Repository, agentTunnelManager?: AgentTu
                 // imports resolve through the proxy instead of the dashboard root
                 body = body.replaceAll('CHUNK_BASE_PATH = "/_next/"', `CHUNK_BASE_PATH = "${proxyBase}/_next/"`);
                 body = body.replaceAll('RUNTIME_PUBLIC_PATH = "/_next/"', `RUNTIME_PUBLIC_PATH = "${proxyBase}/_next/"`);
+              } else if (isCss) {
+                body = rewriteCssForProxy(body, proxyBase);
               }
               delete responseHeaders['content-length'];
               responseHeaders['content-length'] = String(Buffer.byteLength(body));
