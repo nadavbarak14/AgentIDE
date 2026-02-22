@@ -83,8 +83,21 @@ function proxyToAgent(
     }
   });
 
-  // Pipe request body (for POST/PUT)
-  req.pipe(proxyReq);
+  // For POST/PUT: express.json() has already consumed the stream, so re-serialize req.body.
+  // For GET/DELETE: just end the request.
+  if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
+    if (req.body !== undefined && req.body !== null) {
+      const bodyStr = JSON.stringify(req.body);
+      proxyReq.setHeader('content-type', 'application/json');
+      proxyReq.setHeader('content-length', Buffer.byteLength(bodyStr));
+      proxyReq.end(bodyStr);
+    } else {
+      // Raw stream not yet consumed (e.g. proxy routes excluded from JSON parsing)
+      req.pipe(proxyReq);
+    }
+  } else {
+    proxyReq.end();
+  }
   return true;
 }
 
