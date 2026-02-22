@@ -101,7 +101,8 @@ export class RemotePtyBridge extends EventEmitter {
     // Source shell profile to load PATH where claude is installed
     const claudeArgs = ['claude', '--settings', `/tmp/.c3-hooks-${this.hubPort}/settings.json`];
     claudeArgs.push(...args);
-    const cmd = `source ~/.bashrc 2>/dev/null; source ~/.bash_profile 2>/dev/null; cd ${escapeShellArg(workingDirectory)} && ${claudeArgs.join(' ')}\n`;
+    const envVars = `C3_SESSION_ID=${escapeShellArg(sessionId)} C3_HUB_PORT=${this.hubPort}`;
+    const cmd = `source ~/.bashrc 2>/dev/null; source ~/.bash_profile 2>/dev/null; cd ${escapeShellArg(workingDirectory)} && ${envVars} ${claudeArgs.join(' ')}\n`;
 
     log.info({ cmd: cmd.trim() }, 'sending claude command to remote shell');
     stream.write(cmd);
