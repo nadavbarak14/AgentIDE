@@ -230,18 +230,6 @@ export class PtySpawner extends EventEmitter {
     };
   }
 
-  spawnContinue(sessionId: string, workingDirectory: string, enabledExtensions?: string[]): PtyProcess {
-    const log = createSessionLogger(sessionId);
-    log.info('spawning claude -c (continue) process');
-    return this.spawn(sessionId, workingDirectory, ['-c'], enabledExtensions);
-  }
-
-  spawnResume(sessionId: string, workingDirectory: string, claudeSessionId: string, enabledExtensions?: string[]): PtyProcess {
-    const log = createSessionLogger(sessionId);
-    log.info({ claudeSessionId }, 'spawning claude --resume (specific conversation) process');
-    return this.spawn(sessionId, workingDirectory, ['--resume', claudeSessionId], enabledExtensions);
-  }
-
   getProcess(sessionId: string): pty.IPty | undefined {
     return this.processes.get(sessionId);
   }

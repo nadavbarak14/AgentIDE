@@ -15,7 +15,6 @@ export function Dashboard() {
     sessions,
     createSession,
     deleteSession,
-    continueSession,
     killSession,
     toggleLock,
     refresh,
@@ -24,11 +23,9 @@ export function Dashboard() {
   const {
     activeSessions,
     focusSessions,
-    queuedSessions,
     completedSessions,
     failedSessions,
     activeCount,
-    queuedCount,
     totalCount,
   } = useSession(sessions);
 
@@ -388,7 +385,7 @@ export function Dashboard() {
           <div className="flex items-center gap-4">
             <h1 className="text-lg font-bold">Multy</h1>
             <span className="text-sm text-gray-400">
-              {activeCount} active / {queuedCount} queued / {totalCount} total
+              {activeCount} active / {totalCount} total
             </span>
           </div>
           <div className="flex items-center gap-3">
@@ -426,7 +423,6 @@ export function Dashboard() {
           overflowSessions={overflowSessions}
           currentSessionId={currentSessionId}
           workers={workersList}
-          onContinue={(id) => continueSession(id).catch(() => {})}
           onKill={(id) => killSession(id).catch(() => {})}
           onToggleLock={(id, lock) => toggleLock(id, lock).catch(() => {})}
           onDelete={(id) => deleteSession(id).catch(() => {})}
@@ -459,14 +455,12 @@ export function Dashboard() {
       <div className={`transition-all duration-200 flex-shrink-0 ${sidebarOpen ? 'w-80' : 'w-0 overflow-hidden'}`}>
         <SessionQueue
           activeSessions={activeSessions}
-          queuedSessions={queuedSessions}
           completedSessions={completedSessions}
           failedSessions={failedSessions}
           workers={workersList}
           onRequestAddMachine={() => setAddMachineTrigger((n) => n + 1)}
           onCreateSession={createSession}
           onDeleteSession={deleteSession}
-          onContinueSession={continueSession}
           onFocusSession={handleFocusSession}
           onKillSession={(id) => killSession(id).catch(() => {})}
         />

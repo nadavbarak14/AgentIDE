@@ -171,20 +171,6 @@ describe('RemotePtyBridge', () => {
     expect(bridge.hasProcess('session-1')).toBe(true);
   });
 
-  it('spawnContinue sends -c flag', async () => {
-    await bridge.spawnContinue('session-1', 'worker-1', '/home/remote/project');
-
-    const cmd = mockTm.mockChannel.written[0];
-    expect(cmd).toContain('-c');
-  });
-
-  it('spawnResume sends --resume flag with session ID', async () => {
-    await bridge.spawnResume('session-1', 'worker-1', '/home/remote/project', 'claude-abc-123');
-
-    const cmd = mockTm.mockChannel.written[0];
-    expect(cmd).toContain('--resume');
-    expect(cmd).toContain('claude-abc-123');
-  });
 });
 
 describe('TunnelManager.shell()', () => {

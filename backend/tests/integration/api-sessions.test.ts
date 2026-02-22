@@ -7,12 +7,10 @@ import path from 'node:path';
 import { createTestDb, closeDb } from '../../src/models/db.js';
 import { Repository } from '../../src/models/repository.js';
 import { createSessionsRouter } from '../../src/api/routes/sessions.js';
-import { QueueManager } from '../../src/services/queue-manager.js';
 import { PtySpawner } from '../../src/worker/pty-spawner.js';
 import { SessionManager } from '../../src/services/session-manager.js';
 
 // For integration tests, we mock the PtySpawner since we don't have a real `claude` binary in CI.
-// Constitution Principle I permits this — claude CLI is a genuine external dependency.
 function createMockPtySpawner(): PtySpawner {
   const spawner = new PtySpawner();
   // Override spawn to avoid actually calling `claude`
@@ -28,7 +26,6 @@ function createMockPtySpawner(): PtySpawner {
       },
     };
   };
-  spawner.spawnContinue = spawner.spawn;
   return spawner;
 }
 
@@ -44,13 +41,11 @@ describe('Sessions API', () => {
     tmpDir = fs.mkdtempSync(path.join(os.homedir(), '.c3-test-'));
     const db = createTestDb();
     repo = new Repository(db);
-    // Ensure a local worker exists (hasAvailableSlot checks per-worker capacity)
     if (!repo.getLocalWorker()) {
       repo.createLocalWorker('Local', 4);
     }
     ptySpawner = createMockPtySpawner();
-    const queueManager = new QueueManager(repo);
-    sessionManager = new SessionManager(repo, ptySpawner, queueManager);
+    sessionManager = new SessionManager(repo, ptySpawner);
     app = express();
     app.use(express.json());
     app.use('/api/sessions', createSessionsRouter(repo, sessionManager));
@@ -63,7 +58,7 @@ describe('Sessions API', () => {
   });
 
   describe('POST /api/sessions', () => {
-    it('creates a session and auto-activates if slot available', async () => {
+    it('creates a session and activates immediately', async () => {
       const dir = path.join(tmpDir, 'project');
       const res = await request(app)
         .post('/api/sessions')
@@ -71,25 +66,20 @@ describe('Sessions API', () => {
 
       expect(res.status).toBe(201);
       expect(res.body.title).toBe('Test Session');
-      // Should auto-activate since max_sessions=2 and no active sessions
       expect(res.body.status).toBe('active');
     });
 
-    it('queues session when max slots reached', async () => {
-      repo.updateSettings({ maxConcurrentSessions: 1 });
-
-      // First session auto-activates
-      await request(app)
+    it('creates multiple sessions — all activate (no capacity limit)', async () => {
+      const res1 = await request(app)
         .post('/api/sessions')
         .send({ workingDirectory: path.join(tmpDir, 'p1'), title: 'S1' });
 
-      // Second should queue
-      const res = await request(app)
+      const res2 = await request(app)
         .post('/api/sessions')
         .send({ workingDirectory: path.join(tmpDir, 'p2'), title: 'S2' });
 
-      expect(res.status).toBe(201);
-      expect(res.body.status).toBe('queued');
+      expect(res1.body.status).toBe('active');
+      expect(res2.body.status).toBe('active');
     });
 
     it('rejects missing required fields', async () => {
@@ -123,20 +113,12 @@ describe('Sessions API', () => {
     });
 
     it('filters by status', async () => {
-      repo.updateSettings({ maxConcurrentSessions: 1 });
-
       await request(app)
         .post('/api/sessions')
         .send({ workingDirectory: path.join(tmpDir, 'p1'), title: 'S1' });
-      await request(app)
-        .post('/api/sessions')
-        .send({ workingDirectory: path.join(tmpDir, 'p2'), title: 'S2' });
 
       const active = await request(app).get('/api/sessions?status=active');
       expect(active.body).toHaveLength(1);
-
-      const queued = await request(app).get('/api/sessions?status=queued');
-      expect(queued.body).toHaveLength(1);
     });
   });
 
@@ -157,10 +139,10 @@ describe('Sessions API', () => {
   });
 
   describe('DELETE /api/sessions/:id', () => {
-    it('deletes a queued session', async () => {
-      repo.updateSettings({ maxConcurrentSessions: 0 });
-      // Create session that will be queued (0 max sessions means nothing activates via auto)
+    it('deletes a completed session', async () => {
       const session = repo.createSession({ workingDirectory: path.join(tmpDir, 'p1'), title: 'S1' });
+      repo.activateSession(session.id, 1234);
+      repo.completeSession(session.id, null);
 
       const res = await request(app).delete(`/api/sessions/${session.id}`);
       expect(res.status).toBe(204);
@@ -188,6 +170,17 @@ describe('Sessions API', () => {
     });
   });
 
+  describe('POST /api/sessions/:id/continue', () => {
+    it('returns 404 — continue endpoint removed', async () => {
+      const createRes = await request(app)
+        .post('/api/sessions')
+        .send({ workingDirectory: path.join(tmpDir, 'p1'), title: 'S1' });
+
+      const res = await request(app).post(`/api/sessions/${createRes.body.id}/continue`);
+      expect(res.status).toBe(404);
+    });
+  });
+
   describe('POST /api/sessions/:id/input', () => {
     it('sends input to an active session', async () => {
       const createRes = await request(app)
@@ -201,19 +194,9 @@ describe('Sessions API', () => {
       expect(res.status).toBe(200);
       expect(res.body.ok).toBe(true);
     });
-
-    it('rejects input for non-active session', async () => {
-      const session = repo.createSession({ workingDirectory: path.join(tmpDir, 'p1'), title: 'S1' });
-
-      const res = await request(app)
-        .post(`/api/sessions/${session.id}/input`)
-        .send({ text: 'hello' });
-
-      expect(res.status).toBe(409);
-    });
   });
 
-  // ─── T005: POST comment with side field ───
+  // ─── Comment endpoints ───
 
   describe('POST /api/sessions/:id/comments with side', () => {
     it('creates comment with side=old', async () => {
@@ -270,8 +253,6 @@ describe('Sessions API', () => {
       expect(res.body.error).toContain('side');
     });
   });
-
-  // ─── T007: PUT and DELETE comment endpoints ───
 
   describe('PUT /api/sessions/:id/comments/:commentId', () => {
     it('updates a pending comment text', async () => {

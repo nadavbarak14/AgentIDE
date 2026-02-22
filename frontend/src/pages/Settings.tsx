@@ -34,12 +34,6 @@ export function Settings() {
             <h2 className="text-lg font-semibold">Dashboard</h2>
             <div className="grid grid-cols-2 gap-4">
               <label className="block">
-                <span className="text-sm text-gray-400">Max Concurrent Sessions</span>
-                <input type="number" min="1" max="20" value={appSettings.maxConcurrentSessions}
-                  onChange={(e) => handleChange('maxConcurrentSessions', parseInt(e.target.value))}
-                  className="mt-1 w-full px-2 py-1.5 bg-gray-800 border border-gray-600 rounded text-white" />
-              </label>
-              <label className="block">
                 <span className="text-sm text-gray-400">Max Visible Sessions (Focus)</span>
                 <input type="number" min="1" max="6" value={appSettings.maxVisibleSessions}
                   onChange={(e) => handleChange('maxVisibleSessions', parseInt(e.target.value))}

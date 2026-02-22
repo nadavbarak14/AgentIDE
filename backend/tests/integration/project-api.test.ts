@@ -10,7 +10,6 @@ import { ProjectService } from '../../src/services/project-service.js';
 import { createProjectsRouter } from '../../src/api/routes/projects.js';
 import { createSessionsRouter } from '../../src/api/routes/sessions.js';
 import { createDirectoriesRouter } from '../../src/api/routes/directories.js';
-import { QueueManager } from '../../src/services/queue-manager.js';
 import { PtySpawner } from '../../src/worker/pty-spawner.js';
 import { SessionManager } from '../../src/services/session-manager.js';
 
@@ -28,7 +27,6 @@ function createMockPtySpawner(): PtySpawner {
       },
     };
   };
-  spawner.spawnContinue = spawner.spawn;
   return spawner;
 }
 
@@ -229,8 +227,7 @@ describe('Session API — $HOME restriction', () => {
       repo.createLocalWorker('Local', 2);
     }
     const ptySpawner = createMockPtySpawner();
-    const queueManager = new QueueManager(repo);
-    sessionManager = new SessionManager(repo, ptySpawner, queueManager);
+    sessionManager = new SessionManager(repo, ptySpawner);
     projectService = new ProjectService(repo);
 
     app = express();

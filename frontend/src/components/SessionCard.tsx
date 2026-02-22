@@ -21,7 +21,6 @@ interface SessionCardProps {
   focused?: boolean;
   isCurrent?: boolean;
   isSingleView?: boolean;
-  onContinue?: (id: string) => void;
   onKill?: (id: string) => void;
   onToggleLock?: (id: string, lock: boolean) => void;
   onDelete?: (id: string) => void;
@@ -30,7 +29,6 @@ interface SessionCardProps {
 
 const STATUS_COLORS: Record<string, string> = {
   active: 'bg-green-500',
-  queued: 'bg-yellow-500',
   completed: 'bg-blue-500',
   failed: 'bg-red-500',
 };
@@ -41,7 +39,6 @@ export function SessionCard({
   focused = false,
   isCurrent = false,
   isSingleView: _isSingleView = false,
-  onContinue,
   onKill,
   onToggleLock,
   onDelete,
@@ -870,25 +867,12 @@ export function SessionCard({
         </div>
       );
     }
-    if (session.status === 'queued') {
-      return (
-        <div className="flex items-center justify-center h-full text-gray-500">
-          <div className="text-center">
-            <p className="text-lg">Queued</p>
-            <p className="text-sm">Position {session.position}</p>
-          </div>
-        </div>
-      );
-    }
     return (
       <div className="flex items-center justify-center h-full text-gray-500">
         <div className="text-center">
           <p className="text-lg capitalize">{session.status}</p>
           {session.claudeSessionId && (
             <p className="text-xs mt-1">Session: {session.claudeSessionId.slice(0, 12)}...</p>
-          )}
-          {session.continuationCount > 0 && (
-            <p className="text-xs">Continued {session.continuationCount}x</p>
           )}
         </div>
       </div>
@@ -1111,15 +1095,6 @@ export function SessionCard({
               title="Kill session"
             >
               Kill
-            </button>
-          )}
-          {session.status === 'completed' && session.claudeSessionId && (
-            <button
-              onClick={() => onContinue?.(session.id)}
-              className="px-1.5 py-0.5 text-xs text-blue-400 hover:bg-blue-500/20 rounded"
-              title="Continue with claude -c"
-            >
-              Continue
             </button>
           )}
           <button

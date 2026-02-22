@@ -6,35 +6,30 @@ import { WorkerBadge } from './WorkerBadge';
 
 interface SessionQueueProps {
   activeSessions: Session[];
-  queuedSessions: Session[];
   completedSessions: Session[];
   failedSessions: Session[];
   workers: Worker[];
   onRequestAddMachine?: () => void;
-  onCreateSession: (workingDirectory: string, title: string, targetWorker?: string | null, startFresh?: boolean, worktree?: boolean) => Promise<unknown>;
+  onCreateSession: (workingDirectory: string, title: string, targetWorker?: string | null, worktree?: boolean) => Promise<unknown>;
   onDeleteSession: (id: string) => Promise<void>;
-  onContinueSession: (id: string) => Promise<unknown>;
   onFocusSession: (id: string) => void;
   onKillSession: (id: string) => void;
 }
 
 export function SessionQueue({
   activeSessions,
-  queuedSessions,
   completedSessions,
   failedSessions,
   workers: workersList,
   onRequestAddMachine,
   onCreateSession,
   onDeleteSession,
-  onContinueSession,
   onFocusSession,
   onKillSession,
 }: SessionQueueProps) {
   const [directory, setDirectory] = useState('');
   const [title, setTitle] = useState('');
   const [targetWorker, setTargetWorker] = useState<string | null>(null);
-  const [startFresh, setStartFresh] = useState(false);
   const [worktree, setWorktree] = useState(false);
   const [creating, setCreating] = useState(false);
 
@@ -55,11 +50,10 @@ export function SessionQueue({
     if (!directory.trim() || !title.trim()) return;
     setCreating(true);
     try {
-      await onCreateSession(directory.trim(), title.trim(), targetWorker, startFresh, worktree);
+      await onCreateSession(directory.trim(), title.trim(), targetWorker, worktree);
       setDirectory('');
       setTitle('');
       setTargetWorker(null);
-      setStartFresh(false);
       setWorktree(false);
     } finally {
       setCreating(false);
@@ -92,15 +86,6 @@ export function SessionQueue({
             onChange={handleWorkerChange}
             onRequestAddMachine={onRequestAddMachine}
           />
-          <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={startFresh}
-              onChange={(e) => setStartFresh(e.target.checked)}
-              className="rounded border-gray-600 bg-gray-900 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
-            />
-            Start fresh (ignore previous session)
-          </label>
           <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer">
             <input
               type="checkbox"
@@ -142,22 +127,6 @@ export function SessionQueue({
           </div>
         )}
 
-        {queuedSessions.length > 0 && (
-          <div className="p-3 border-t border-gray-700">
-            <h4 className="text-xs font-semibold text-yellow-400 uppercase tracking-wide mb-2">
-              Queued ({queuedSessions.length})
-            </h4>
-            {queuedSessions.map((session) => (
-              <SessionItem
-                key={session.id}
-                session={session}
-                onDelete={() => onDeleteSession(session.id)}
-                workers={workersList}
-              />
-            ))}
-          </div>
-        )}
-
         {completedSessions.length > 0 && (
           <div className="p-3 border-t border-gray-700">
             <h4 className="text-xs font-semibold text-blue-400 uppercase tracking-wide mb-2">
@@ -169,9 +138,6 @@ export function SessionQueue({
                 session={session}
                 workers={workersList}
                 onDelete={() => onDeleteSession(session.id)}
-                onAction={() => onContinueSession(session.id)}
-                actionLabel="Restart"
-                actionColor="text-green-400 hover:bg-green-500/20"
               />
             ))}
           </div>
@@ -188,9 +154,6 @@ export function SessionQueue({
                 session={session}
                 workers={workersList}
                 onDelete={() => onDeleteSession(session.id)}
-                onAction={() => onContinueSession(session.id)}
-                actionLabel="Restart"
-                actionColor="text-green-400 hover:bg-green-500/20"
               />
             ))}
           </div>

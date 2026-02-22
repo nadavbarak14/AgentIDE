@@ -185,7 +185,6 @@ function rowToVideoRecording(row: Record<string, unknown>): VideoRecording {
 
 function rowToSettings(row: Record<string, unknown>): Settings {
   return {
-    maxConcurrentSessions: row.max_concurrent_sessions as number,
     maxVisibleSessions: row.max_visible_sessions as number,
     autoApprove: Boolean(row.auto_approve),
     gridLayout: row.grid_layout as GridLayout,
@@ -201,18 +200,13 @@ export class Repository {
   createSession(input: CreateSessionInput): Session {
     const id = uuid();
     const now = new Date().toISOString();
-    // Get next queue position
-    const maxPos = this.db
-      .prepare('SELECT MAX(position) as max_pos FROM sessions WHERE status = ?')
-      .get('queued') as { max_pos: number | null } | undefined;
-    const position = (maxPos?.max_pos ?? 0) + 1;
 
     this.db
       .prepare(
-        `INSERT INTO sessions (id, worker_id, status, working_directory, title, position, worktree, created_at, updated_at)
-         VALUES (?, ?, 'queued', ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO sessions (id, worker_id, status, working_directory, title, worktree, created_at, updated_at)
+         VALUES (?, ?, 'active', ?, ?, ?, ?, ?)`,
       )
-      .run(id, input.targetWorker || null, input.workingDirectory, input.title, position, input.worktree ? 1 : 0, now, now);
+      .run(id, input.targetWorker || null, input.workingDirectory, input.title, input.worktree ? 1 : 0, now, now);
 
     return this.getSession(id)!;
   }
@@ -234,11 +228,9 @@ export class Repository {
     sql += ` ORDER BY
       CASE status
         WHEN 'active' THEN 0
-        WHEN 'queued' THEN 1
-        WHEN 'completed' THEN 2
-        WHEN 'failed' THEN 3
+        WHEN 'completed' THEN 1
+        WHEN 'failed' THEN 2
       END,
-      CASE WHEN status = 'queued' THEN position ELSE NULL END ASC,
       updated_at DESC`;
     const rows = this.db.prepare(sql).all(...params) as Record<string, unknown>[];
     return rows.map(rowToSession);
@@ -247,10 +239,6 @@ export class Repository {
   updateSession(id: string, input: UpdateSessionInput): Session | null {
     const updates: string[] = [];
     const params: unknown[] = [];
-    if (input.position !== undefined) {
-      updates.push('position = ?');
-      params.push(input.position);
-    }
     if (input.title !== undefined) {
       updates.push('title = ?');
       params.push(input.title);
@@ -275,7 +263,7 @@ export class Repository {
   activateSession(id: string, pid: number): Session | null {
     this.db
       .prepare(
-        `UPDATE sessions SET status = 'active', pid = ?, position = NULL,
+        `UPDATE sessions SET status = 'active', pid = ?,
          started_at = COALESCE(started_at, datetime('now')),
          updated_at = datetime('now'), needs_input = 0
          WHERE id = ?`,
@@ -309,22 +297,6 @@ export class Repository {
     return this.getSession(id);
   }
 
-  queueSessionForContinue(id: string): Session | null {
-    const maxPos = this.db
-      .prepare('SELECT MAX(position) as max_pos FROM sessions WHERE status = ?')
-      .get('queued') as { max_pos: number | null } | undefined;
-    const position = (maxPos?.max_pos ?? 0) + 1;
-    this.db
-      .prepare(
-        `UPDATE sessions SET status = 'queued', position = ?,
-         continuation_count = continuation_count + 1,
-         updated_at = datetime('now')
-         WHERE id = ?`,
-      )
-      .run(position, id);
-    return this.getSession(id);
-  }
-
   setClaudeSessionId(id: string, claudeSessionId: string): void {
     this.db
       .prepare("UPDATE sessions SET claude_session_id = ?, updated_at = datetime('now') WHERE id = ?")
@@ -335,13 +307,6 @@ export class Repository {
     this.db
       .prepare("UPDATE sessions SET needs_input = ?, updated_at = datetime('now') WHERE id = ?")
       .run(needsInput ? 1 : 0, id);
-  }
-
-  getNextQueuedSession(): Session | null {
-    const row = this.db
-      .prepare("SELECT * FROM sessions WHERE status = 'queued' ORDER BY position ASC LIMIT 1")
-      .get() as Record<string, unknown> | undefined;
-    return row ? rowToSession(row) : null;
   }
 
   countActiveSessions(): number {
@@ -356,21 +321,6 @@ export class Repository {
       .prepare("SELECT COUNT(*) as count FROM sessions WHERE status = 'active' AND worker_id = ?")
       .get(workerId) as { count: number };
     return result.count;
-  }
-
-  /**
-   * Find the most recent completed session in a directory that has a Claude session ID
-   * (i.e., can be continued via claude -c).
-   */
-  findLatestContinuableSession(workingDirectory: string): Session | null {
-    const row = this.db
-      .prepare(
-        `SELECT * FROM sessions
-         WHERE working_directory = ? AND status = 'completed' AND claude_session_id IS NOT NULL
-         ORDER BY completed_at DESC LIMIT 1`,
-      )
-      .get(workingDirectory) as Record<string, unknown> | undefined;
-    return row ? rowToSession(row) : null;
   }
 
   setSessionScrollback(id: string, scrollbackPath: string): void {
@@ -498,10 +448,6 @@ export class Repository {
   updateSettings(input: UpdateSettingsInput): Settings {
     const updates: string[] = [];
     const params: unknown[] = [];
-    if (input.maxConcurrentSessions !== undefined) {
-      updates.push('max_concurrent_sessions = ?');
-      params.push(input.maxConcurrentSessions);
-    }
     if (input.maxVisibleSessions !== undefined) {
       updates.push('max_visible_sessions = ?');
       params.push(input.maxVisibleSessions);

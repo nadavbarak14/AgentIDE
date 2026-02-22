@@ -25,9 +25,8 @@ export function useSessionQueue(pollInterval = 2000) {
   }, [fetchSessions, pollInterval]);
 
   const createSession = useCallback(
-    async (workingDirectory: string, title: string, targetWorker?: string | null, startFresh?: boolean, worktree?: boolean) => {
-      const session = await sessionsApi.create({ workingDirectory, title, targetWorker, startFresh, worktree });
-      // If continued an existing session, update it in place; otherwise append
+    async (workingDirectory: string, title: string, targetWorker?: string | null, worktree?: boolean) => {
+      const session = await sessionsApi.create({ workingDirectory, title, targetWorker, worktree });
       setSessions((prev) => {
         const exists = prev.find((s) => s.id === session.id);
         if (exists) return prev.map((s) => (s.id === session.id ? session : s));
@@ -42,18 +41,6 @@ export function useSessionQueue(pollInterval = 2000) {
     await sessionsApi.delete(id);
     setSessions((prev) => prev.filter((s) => s.id !== id));
   }, []);
-
-  const reorderSession = useCallback(async (id: string, position: number) => {
-    const updated = await sessionsApi.update(id, { position });
-    setSessions((prev) => prev.map((s) => (s.id === id ? updated : s)));
-  }, []);
-
-  const continueSession = useCallback(async (id: string) => {
-    const result = await sessionsApi.continue(id);
-    // Refresh session list to pick up status change
-    await fetchSessions();
-    return result;
-  }, [fetchSessions]);
 
   const killSession = useCallback(async (id: string) => {
     return sessionsApi.kill(id);
@@ -70,8 +57,6 @@ export function useSessionQueue(pollInterval = 2000) {
     error,
     createSession,
     deleteSession,
-    reorderSession,
-    continueSession,
     killSession,
     toggleLock,
     refresh: fetchSessions,

@@ -24,8 +24,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
   claude_session_id TEXT,
   worker_id TEXT REFERENCES workers(id),
-  status TEXT NOT NULL DEFAULT 'queued'
-    CHECK(status IN ('queued', 'active', 'completed', 'failed')),
+  status TEXT NOT NULL DEFAULT 'active'
+    CHECK(status IN ('active', 'completed', 'failed')),
   working_directory TEXT NOT NULL,
   title TEXT NOT NULL DEFAULT '',
   position INTEGER,
@@ -214,6 +214,9 @@ function migrate(database: Database.Database): void {
   if (!colNames.has('enabled_extensions')) {
     database.exec("ALTER TABLE panel_states ADD COLUMN enabled_extensions TEXT NOT NULL DEFAULT '[]'");
   }
+
+  // Migrate any leftover queued sessions to failed (queue feature removed)
+  database.exec("UPDATE sessions SET status = 'failed' WHERE status = 'queued'");
 
   // Migrate video_recordings table for WebM format
   const videoCols = database.pragma('table_info(video_recordings)') as Array<{ name: string }>;

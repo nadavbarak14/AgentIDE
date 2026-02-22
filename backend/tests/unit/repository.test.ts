@@ -15,13 +15,12 @@ describe('Repository', () => {
   });
 
   describe('Sessions', () => {
-    it('creates a session in queued state with auto-incremented position', () => {
+    it('creates a session in active state', () => {
       const session = repo.createSession({
         workingDirectory: '/home/user/project',
         title: 'Test Session',
       });
-      expect(session.status).toBe('queued');
-      expect(session.position).toBe(1);
+      expect(session.status).toBe('active');
       expect(session.title).toBe('Test Session');
       expect(session.workingDirectory).toBe('/home/user/project');
       expect(session.needsInput).toBe(false);
@@ -29,44 +28,40 @@ describe('Repository', () => {
       expect(session.pid).toBeNull();
     });
 
-    it('auto-increments queue position for new sessions', () => {
+    it('creates multiple sessions all in active state', () => {
       const s1 = repo.createSession({ workingDirectory: '/p1', title: 'S1' });
       const s2 = repo.createSession({ workingDirectory: '/p2', title: 'S2' });
       const s3 = repo.createSession({ workingDirectory: '/p3', title: 'S3' });
-      expect(s1.position).toBe(1);
-      expect(s2.position).toBe(2);
-      expect(s3.position).toBe(3);
+      expect(s1.status).toBe('active');
+      expect(s2.status).toBe('active');
+      expect(s3.status).toBe('active');
     });
 
-    it('lists sessions ordered by status then position', () => {
-      const s1 = repo.createSession({ workingDirectory: '/p1', title: 'S1' });
-      const s2 = repo.createSession({ workingDirectory: '/p2', title: 'S2' });
-      repo.activateSession(s1.id, 1234);
+    it('lists sessions', () => {
+      repo.createSession({ workingDirectory: '/p1', title: 'S1' });
+      repo.createSession({ workingDirectory: '/p2', title: 'S2' });
 
       const sessions = repo.listSessions();
-      expect(sessions[0].id).toBe(s1.id);
-      expect(sessions[0].status).toBe('active');
-      expect(sessions[1].id).toBe(s2.id);
-      expect(sessions[1].status).toBe('queued');
+      expect(sessions).toHaveLength(2);
     });
 
     it('filters sessions by status', () => {
-      repo.createSession({ workingDirectory: '/p1', title: 'S1' });
-      const s2 = repo.createSession({ workingDirectory: '/p2', title: 'S2' });
-      repo.activateSession(s2.id, 1234);
+      const s1 = repo.createSession({ workingDirectory: '/p1', title: 'S1' });
+      repo.createSession({ workingDirectory: '/p2', title: 'S2' });
+      repo.activateSession(s1.id, 1234);
+      repo.completeSession(s1.id, null);
 
-      const queued = repo.listSessions('queued');
-      expect(queued).toHaveLength(1);
       const active = repo.listSessions('active');
       expect(active).toHaveLength(1);
+      const completed = repo.listSessions('completed');
+      expect(completed).toHaveLength(1);
     });
 
-    it('activates a session and clears position', () => {
+    it('activates a session', () => {
       const session = repo.createSession({ workingDirectory: '/p1', title: 'S1' });
       const activated = repo.activateSession(session.id, 5678);
       expect(activated!.status).toBe('active');
       expect(activated!.pid).toBe(5678);
-      expect(activated!.position).toBeNull();
       expect(activated!.startedAt).not.toBeNull();
     });
 
@@ -88,16 +83,6 @@ describe('Repository', () => {
       expect(failed!.pid).toBeNull();
     });
 
-    it('queues a session for continue with incremented count', () => {
-      const session = repo.createSession({ workingDirectory: '/p1', title: 'S1' });
-      repo.activateSession(session.id, 5678);
-      repo.completeSession(session.id, 'claude-abc');
-      const queued = repo.queueSessionForContinue(session.id);
-      expect(queued!.status).toBe('queued');
-      expect(queued!.continuationCount).toBe(1);
-      expect(queued!.position).toBeGreaterThan(0);
-    });
-
     it('sets and clears needs_input flag', () => {
       const session = repo.createSession({ workingDirectory: '/p1', title: 'S1' });
       repo.activateSession(session.id, 5678);
@@ -111,22 +96,10 @@ describe('Repository', () => {
       expect(cleared!.needsInput).toBe(false);
     });
 
-    it('gets next queued session by position order', () => {
-      repo.createSession({ workingDirectory: '/p1', title: 'S1' });
-      repo.createSession({ workingDirectory: '/p2', title: 'S2' });
-      const next = repo.getNextQueuedSession();
-      expect(next!.title).toBe('S1');
-      expect(next!.position).toBe(1);
-    });
-
     it('counts active sessions correctly', () => {
       const s1 = repo.createSession({ workingDirectory: '/p1', title: 'S1' });
       const s2 = repo.createSession({ workingDirectory: '/p2', title: 'S2' });
-      expect(repo.countActiveSessions()).toBe(0);
-
       repo.activateSession(s1.id, 1234);
-      expect(repo.countActiveSessions()).toBe(1);
-
       repo.activateSession(s2.id, 5678);
       expect(repo.countActiveSessions()).toBe(2);
 
@@ -134,8 +107,10 @@ describe('Repository', () => {
       expect(repo.countActiveSessions()).toBe(1);
     });
 
-    it('deletes a queued session', () => {
+    it('deletes a non-active session', () => {
       const session = repo.createSession({ workingDirectory: '/p1', title: 'S1' });
+      repo.activateSession(session.id, 5678);
+      repo.completeSession(session.id, null);
       const deleted = repo.deleteSession(session.id);
       expect(deleted).toBe(true);
       expect(repo.getSession(session.id)).toBeNull();
@@ -231,7 +206,6 @@ describe('Repository', () => {
   describe('Settings', () => {
     it('returns default settings', () => {
       const settings = repo.getSettings();
-      expect(settings.maxConcurrentSessions).toBe(2);
       expect(settings.maxVisibleSessions).toBe(4);
       expect(settings.autoApprove).toBe(false);
       expect(settings.gridLayout).toBe('auto');
@@ -239,8 +213,7 @@ describe('Repository', () => {
     });
 
     it('updates settings partially', () => {
-      const updated = repo.updateSettings({ maxConcurrentSessions: 8, theme: 'light' });
-      expect(updated.maxConcurrentSessions).toBe(8);
+      const updated = repo.updateSettings({ theme: 'light' });
       expect(updated.theme).toBe('light');
       expect(updated.maxVisibleSessions).toBe(4); // unchanged
     });

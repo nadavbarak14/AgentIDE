@@ -91,14 +91,6 @@ export class RemotePtyBridge extends EventEmitter {
     };
   }
 
-  async spawnContinue(sessionId: string, workerId: string, workingDirectory: string): Promise<PtyProcess> {
-    return this.spawn(sessionId, workerId, workingDirectory, ['-c']);
-  }
-
-  async spawnResume(sessionId: string, workerId: string, workingDirectory: string, claudeSessionId: string): Promise<PtyProcess> {
-    return this.spawn(sessionId, workerId, workingDirectory, ['--resume', claudeSessionId]);
-  }
-
   write(sessionId: string, data: string): void {
     const stream = this.channels.get(sessionId);
     if (stream) {
