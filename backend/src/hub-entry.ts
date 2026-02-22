@@ -29,6 +29,46 @@ import { logger } from './services/logger.js';
 import { checkPrerequisites, detectWSLVersion } from './services/prerequisites.js';
 import { WebSocket as WsClient } from 'ws';
 
+// ── Widget types (dynamic skill UI) ────────────────────────────────────────
+interface Widget {
+  name: string;
+  html: string;
+  sessionId: string;
+  createdAt: number;
+  result: Record<string, unknown> | null;
+  resultAt: number | null;
+}
+
+const WIDGET_NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+const WIDGET_HTML_MAX_BYTES = 512 * 1024; // 512 KB
+const WIDGET_RESULT_MAX_BYTES = 1024 * 1024; // 1 MB
+
+// In-memory widget store: sessionId → Map<widgetName, Widget>
+const widgetStore = new Map<string, Map<string, Widget>>();
+
+function getSessionWidgets(sessionId: string): Map<string, Widget> {
+  let session = widgetStore.get(sessionId);
+  if (!session) {
+    session = new Map();
+    widgetStore.set(sessionId, session);
+  }
+  return session;
+}
+
+function getWidget(sessionId: string, name: string): Widget | undefined {
+  return widgetStore.get(sessionId)?.get(name);
+}
+
+function setWidget(sessionId: string, name: string, widget: Widget): void {
+  getSessionWidgets(sessionId).set(name, widget);
+}
+
+function deleteWidget(sessionId: string, name: string): boolean {
+  const session = widgetStore.get(sessionId);
+  if (!session) return false;
+  return session.delete(name);
+}
+
 export interface HubOptions {
   port?: number;
   host?: string;
@@ -249,7 +289,7 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
     const isExtensionRoute = req.path.startsWith('/extensions/');
     if (!isProxyRoute && !isExtensionRoute) {
       res.setHeader('X-Frame-Options', 'DENY');
-      res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-eval' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: blob:; media-src 'self' data: blob:; connect-src 'self' ws: wss: https://cdn.jsdelivr.net; font-src 'self' data: https://cdn.jsdelivr.net");
+      res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-eval' 'unsafe-inline' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: blob:; media-src 'self' data: blob:; connect-src 'self' ws: wss: https://cdn.jsdelivr.net; font-src 'self' data: https://cdn.jsdelivr.net");
     }
     next();
   });
@@ -276,6 +316,14 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
   // Serve inspect bridge script for preview iframe injection
   app.get('/api/inspect-bridge.js', (_req, res) => {
     const bridgePath = path.join(import.meta.dirname, 'api/inspect-bridge.js');
+    res.setHeader('Content-Type', 'application/javascript');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.sendFile(bridgePath);
+  });
+
+  // Serve widget bridge SDK for dynamic skill UI widgets
+  app.get('/api/widget-bridge.js', (_req, res) => {
+    const bridgePath = path.join(import.meta.dirname, 'api/widget-bridge.js');
     res.setHeader('Content-Type', 'application/javascript');
     res.setHeader('Cache-Control', 'no-cache');
     res.sendFile(bridgePath);
@@ -614,6 +662,139 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
         res.status(202).json({ requestId, status: 'pending' });
       }
     }, 200);
+  });
+
+  // ── Dynamic Skill UI — Widget endpoints ──────────────────────────────────
+
+  // POST /api/sessions/:id/widget — create or replace a widget
+  app.post('/api/sessions/:id/widget', (req, res) => {
+    const sessionId = req.params.id;
+    const { name, html } = req.body as { name?: string; html?: string };
+
+    if (!name || !html) {
+      res.status(400).json({ error: 'Missing name or html' });
+      return;
+    }
+
+    if (!WIDGET_NAME_PATTERN.test(name)) {
+      logger.warn({ sessionId, widgetName: name, action: 'create' }, 'Widget name validation failed');
+      res.status(400).json({ error: 'Invalid widget name — must be lowercase alphanumeric with hyphens' });
+      return;
+    }
+
+    const htmlBytes = Buffer.byteLength(html, 'utf-8');
+    if (htmlBytes > WIDGET_HTML_MAX_BYTES) {
+      logger.warn({ sessionId, widgetName: name, action: 'create', size: htmlBytes }, 'Widget HTML exceeds size limit');
+      res.status(413).json({ error: 'Widget HTML exceeds 512KB limit' });
+      return;
+    }
+
+    const existing = getWidget(sessionId, name);
+    const replaced = !!existing;
+
+    const widget: Widget = {
+      name,
+      html,
+      sessionId,
+      createdAt: Date.now(),
+      result: null,
+      resultAt: null,
+    };
+    setWidget(sessionId, name, widget);
+
+    // Broadcast board command to frontend
+    broadcastToSession(sessionId, {
+      type: 'board_command',
+      sessionId,
+      command: 'widget.create',
+      params: { name, html },
+    });
+
+    logger.info({ sessionId, widgetName: name, action: replaced ? 'replace' : 'create' }, 'Widget created');
+    res.json({ ok: true, name, ...(replaced ? { replaced: true } : { created: true }) });
+  });
+
+  // DELETE /api/sessions/:id/widget/:name — dismiss a widget
+  app.delete('/api/sessions/:id/widget/:name', (req, res) => {
+    const sessionId = req.params.id;
+    const { name } = req.params;
+
+    if (!deleteWidget(sessionId, name)) {
+      res.status(404).json({ error: 'Widget not found' });
+      return;
+    }
+
+    broadcastToSession(sessionId, {
+      type: 'board_command',
+      sessionId,
+      command: 'widget.dismiss',
+      params: { name },
+    });
+
+    logger.info({ sessionId, widgetName: name, action: 'dismiss' }, 'Widget dismissed');
+    res.json({ ok: true, name });
+  });
+
+  // POST /api/sessions/:id/widget/:name/result — submit widget result from frontend
+  app.post('/api/sessions/:id/widget/:name/result', (req, res) => {
+    const sessionId = req.params.id;
+    const { name } = req.params;
+    const { data } = req.body as { data?: unknown };
+
+    const widget = getWidget(sessionId, name);
+    if (!widget) {
+      res.status(404).json({ error: 'Widget not found' });
+      return;
+    }
+
+    // Check result size
+    const resultJson = JSON.stringify(data ?? {});
+    if (Buffer.byteLength(resultJson, 'utf-8') > WIDGET_RESULT_MAX_BYTES) {
+      logger.warn({ sessionId, widgetName: name, action: 'result' }, 'Widget result exceeds size limit');
+      res.status(413).json({ error: 'Result exceeds 1MB limit' });
+      return;
+    }
+
+    widget.result = (data ?? {}) as Record<string, unknown>;
+    widget.resultAt = Date.now();
+
+    logger.info({ sessionId, widgetName: name, action: 'result' }, 'Widget result received');
+    res.json({ ok: true });
+  });
+
+  // GET /api/sessions/:id/widget/:name/result — poll for widget result
+  app.get('/api/sessions/:id/widget/:name/result', (req, res) => {
+    const sessionId = req.params.id;
+    const { name } = req.params;
+
+    const widget = getWidget(sessionId, name);
+    if (!widget) {
+      res.status(404).json({ error: 'Widget not found' });
+      return;
+    }
+
+    if (widget.result !== null) {
+      res.json({ status: 'ready', result: widget.result, receivedAt: widget.resultAt });
+    } else {
+      res.json({ status: 'pending' });
+    }
+  });
+
+  // GET /api/sessions/:id/widgets — list all widgets for a session
+  app.get('/api/sessions/:id/widgets', (req, res) => {
+    const sessionId = req.params.id;
+    const session = widgetStore.get(sessionId);
+    if (!session || session.size === 0) {
+      res.json({ widgets: [] });
+      return;
+    }
+
+    const widgets = Array.from(session.values()).map(w => ({
+      name: w.name,
+      createdAt: w.createdAt,
+      hasResult: w.result !== null,
+    }));
+    res.json({ widgets });
   });
 
   // Serve static frontend in production

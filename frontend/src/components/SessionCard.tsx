@@ -8,8 +8,10 @@ import { LivePreview } from './LivePreview';
 import { ProjectSearch } from './ProjectSearch';
 import { GitHubIssues } from './GitHubIssues';
 import { ExtensionPanel, type ExtensionPanelHandle } from './ExtensionPanel';
+import { WidgetPanel } from './WidgetPanel';
 import { usePanel } from '../hooks/usePanel';
 import { useExtensions } from '../hooks/useExtensions';
+import { useWidgets } from '../hooks/useWidgets';
 import { sessions as sessionsApi, type Session, type Worker } from '../services/api';
 import type { WsServerMessage } from '../services/ws';
 import { WorkerBadge } from './WorkerBadge';
@@ -50,6 +52,7 @@ export function SessionCard({
 }: SessionCardProps) {
   const panel = usePanel(session.id);
   const { extensionsWithPanel, getExtension, refresh: refreshExtensions } = useExtensions();
+  const { widgets, activeWidget, addWidget, removeWidget, setActiveWidget: setActiveWidgetName, widgetCount } = useWidgets();
 
   // Per-session extension opt-in (persisted server-side for real skill isolation)
   const [enabledExtensions, setEnabledExtensions] = useState<string[]>([]);
@@ -336,6 +339,14 @@ export function SessionCard({
           }
         }
 
+        // Handle widget board commands
+        if (msg.command === 'widget.create' && msg.params.name && msg.params.html) {
+          addWidget(msg.params.name, msg.params.html);
+          ensurePanelOpen('widgets');
+        } else if (msg.command === 'widget.dismiss' && msg.params.name) {
+          removeWidget(msg.params.name);
+        }
+
         // Forward board commands to matching extensions
         for (const ext of extensionsWithPanel) {
           if (ext.boardCommands.includes(msg.command)) {
@@ -353,7 +364,7 @@ export function SessionCard({
         // Never disrupt the terminal for command handling errors
       }
     }
-  }, [panel, session.id, getExtension, extensionsWithPanel]);
+  }, [panel, session.id, getExtension, extensionsWithPanel, addWidget, removeWidget]);
 
   useEffect(() => {
     return () => {
@@ -705,6 +716,7 @@ export function SessionCard({
     { value: 'git', label: 'Git' },
     { value: 'preview', label: 'Preview' },
     { value: 'issues', label: 'Issues' },
+    ...(widgetCount > 0 ? [{ value: 'widgets', label: `Widgets (${widgetCount})` }] : []),
     ...activeExtensions.map((ext) => ({
       value: ext.panelKey,
       label: ext.displayName,
@@ -804,6 +816,17 @@ export function SessionCard({
               sessionsApi.input(session.id, text + '\n').catch(() => {});
             }}
             onClose={slot === 'left' ? closeLeftPanel : closeRightPanel}
+          />
+        );
+      case 'widgets':
+        return (
+          <WidgetPanel
+            widgets={widgets}
+            activeWidget={activeWidget}
+            sessionId={session.id}
+            onClose={slot === 'left' ? closeLeftPanel : closeRightPanel}
+            onSetActiveWidget={setActiveWidgetName}
+            onDismissWidget={removeWidget}
           />
         );
       default:

@@ -4,7 +4,7 @@ import { panelState as panelStateApi } from '../services/api';
 export type ActivePanel = 'none' | 'files' | 'git' | 'preview';
 export type LeftPanel = 'none' | 'files';
 export type RightPanel = 'none' | 'git' | 'preview';
-export type PanelContent = 'none' | 'files' | 'git' | 'preview' | 'claude' | 'search' | 'issues' | 'shell' | `ext:${string}`;
+export type PanelContent = 'none' | 'files' | 'git' | 'preview' | 'claude' | 'search' | 'issues' | 'shell' | 'widgets' | `ext:${string}`;
 export type TerminalPosition = 'center' | 'bottom';
 export type ViewportMode = 'desktop' | 'mobile' | 'custom';
 
