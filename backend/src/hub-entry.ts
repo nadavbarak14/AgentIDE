@@ -270,7 +270,7 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
   app.use('/api/directories', createDirectoriesRouter());
   app.use('/api/projects', createProjectsRouter(repo, projectService));
   app.use('/api/sessions', createGitHubRouter(repo));
-  app.use('/api/sessions', createPreviewRouter(repo, previewService));
+  app.use('/api/sessions', createPreviewRouter(repo, previewService, agentTunnelManager));
   app.use('/api/sessions', createUploadsRouter(repo, previewService));
 
   // Serve inspect bridge script for preview iframe injection

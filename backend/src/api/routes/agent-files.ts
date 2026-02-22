@@ -270,6 +270,77 @@ export function createAgentFilesRouter(fileWatcher: FileWatcher): Router {
     }
   });
 
+  // ── Screenshot save (remote) ──
+  router.post('/sessions/:id/screenshots', (req, res) => {
+    const session = sessionRegistry.get(req.params.id);
+    if (!session) {
+      res.status(404).json({ error: 'Session not registered with agent' });
+      return;
+    }
+
+    const { dataUrl, pageUrl } = req.body as { dataUrl?: string; pageUrl?: string };
+    if (typeof dataUrl !== 'string' || !dataUrl) {
+      res.status(400).json({ error: 'dataUrl is required' });
+      return;
+    }
+
+    try {
+      const dir = path.join(session.workingDirectory, '.c3-uploads', 'screenshots');
+      fs.mkdirSync(dir, { recursive: true });
+      const id = crypto.randomUUID();
+      const filename = `${id}.png`;
+      const storedPath = path.join(dir, filename);
+      const base64Data = dataUrl.replace(/^data:image\/\w+;base64,/, '');
+      fs.writeFileSync(storedPath, Buffer.from(base64Data, 'base64'));
+      logger.info({ sessionId: req.params.id, storedPath }, 'screenshot saved on remote agent');
+      res.status(201).json({ id, storedPath, pageUrl: pageUrl || null, createdAt: new Date().toISOString() });
+    } catch (err) {
+      logger.error({ sessionId: req.params.id, err: (err as Error).message }, 'failed to save screenshot on agent');
+      res.status(500).json({ error: 'Failed to save screenshot' });
+    }
+  });
+
+  // ── Recording save (remote) ──
+  router.post('/sessions/:id/recordings', (req, res) => {
+    const session = sessionRegistry.get(req.params.id);
+    if (!session) {
+      res.status(404).json({ error: 'Session not registered with agent' });
+      return;
+    }
+
+    const { events, durationMs, pageUrl, viewportWidth, viewportHeight, thumbnailDataUrl } = req.body as Record<string, unknown>;
+    if (!Array.isArray(events)) {
+      res.status(400).json({ error: 'events must be an array' });
+      return;
+    }
+
+    try {
+      const dir = path.join(session.workingDirectory, '.c3-uploads', 'recordings');
+      fs.mkdirSync(dir, { recursive: true });
+      const id = crypto.randomUUID();
+      const eventsPath = path.join(dir, `${id}.json`);
+      fs.writeFileSync(eventsPath, JSON.stringify(events));
+
+      let thumbnailPath: string | null = null;
+      if (typeof thumbnailDataUrl === 'string' && thumbnailDataUrl) {
+        thumbnailPath = path.join(dir, `${id}-thumb.png`);
+        const base64 = thumbnailDataUrl.replace(/^data:image\/\w+;base64,/, '');
+        fs.writeFileSync(thumbnailPath, Buffer.from(base64, 'base64'));
+      }
+
+      logger.info({ sessionId: req.params.id, eventsPath, eventCount: events.length }, 'recording saved on remote agent');
+      res.status(201).json({
+        id, videoPath: eventsPath, thumbnailPath,
+        durationMs: durationMs || null, eventCount: events.length,
+        pageUrl: pageUrl || null, viewportWidth: viewportWidth || null, viewportHeight: viewportHeight || null,
+        createdAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      logger.error({ sessionId: req.params.id, err: (err as Error).message }, 'failed to save recording on agent');
+      res.status(500).json({ error: 'Failed to save recording' });
+    }
+  });
+
   // ── Preview proxy (US1) ──
   router.all('/sessions/:id/proxy/:port/*', (req, res) => {
     const session = sessionRegistry.get(req.params.id);
