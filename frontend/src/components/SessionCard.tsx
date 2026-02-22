@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { TerminalView } from './TerminalView';
 import { ShellTerminal } from './ShellTerminal';
 import { FileTree } from './FileTree';
@@ -48,7 +48,42 @@ export function SessionCard({
   onSetCurrent,
 }: SessionCardProps) {
   const panel = usePanel(session.id);
-  const { extensionsWithPanel, getExtension } = useExtensions();
+  const { extensionsWithPanel, getExtension, refresh: refreshExtensions } = useExtensions();
+
+  // Per-session extension opt-in (persisted server-side for real skill isolation)
+  const [enabledExtensions, setEnabledExtensions] = useState<string[]>([]);
+  const [showExtPicker, setShowExtPicker] = useState(false);
+
+  // Load enabled extensions from server on mount
+  useEffect(() => {
+    fetch(`/api/sessions/${session.id}/extensions`)
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data.enabled)) setEnabledExtensions(data.enabled);
+      })
+      .catch(() => {});
+  }, [session.id]);
+
+  // Only show extensions the user has enabled for this session
+  const activeExtensions = useMemo(
+    () => extensionsWithPanel.filter((e) => enabledExtensions.includes(e.name)),
+    [extensionsWithPanel, enabledExtensions],
+  );
+
+  const toggleExtension = useCallback((name: string) => {
+    setEnabledExtensions((prev) => {
+      const next = prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name];
+      // Persist to server + sync skills into session's .claude/skills/
+      fetch(`/api/sessions/${session.id}/extensions`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: next }),
+      }).catch(() => {});
+      return next;
+    });
+  }, [session.id]);
+
+
   const [resizingSide, setResizingSide] = useState<'left' | 'right' | null>(null);
   const [resizingVertical, setResizingVertical] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -346,9 +381,11 @@ export function SessionCard({
       setRefreshResult({ ok: false, msg: 'Failed to refresh' });
     } finally {
       setRefreshingSkills(false);
+      // Re-fetch extensions list so toolbar buttons update
+      refreshExtensions();
       setTimeout(() => setRefreshResult(null), 3000);
     }
-  }, [refreshingSkills]);
+  }, [refreshingSkills, refreshExtensions]);
 
   const showToolbar = session.status === 'active' || session.status === 'completed';
   const showLeftPanel = showToolbar && panel.leftPanel !== 'none';
@@ -605,6 +642,17 @@ export function SessionCard({
     }
   }, [panel, canOpenPanel, getExtension]);
 
+  // Close extension picker on outside click
+  useEffect(() => {
+    if (!showExtPicker) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest?.('[data-ext-picker]')) setShowExtPicker(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showExtPicker]);
+
   // Track chord armed state for showing key hints on tabs
   const [chordArmed, setChordArmed] = useState(false);
   useEffect(() => {
@@ -683,7 +731,7 @@ export function SessionCard({
     { value: 'git', label: 'Git' },
     { value: 'preview', label: 'Preview' },
     { value: 'issues', label: 'Issues' },
-    ...extensionsWithPanel.map((ext) => ({
+    ...activeExtensions.map((ext) => ({
       value: ext.panelKey,
       label: ext.displayName,
     })),
@@ -999,10 +1047,11 @@ export function SessionCard({
               Shell
               {chordArmed && isCurrent && <span className="ml-1 px-1 py-px bg-blue-600 text-white text-[10px] rounded font-mono animate-pulse">S</span>}
             </button>
-            {extensionsWithPanel.length > 0 && (
+            {/* Active (enabled) extension panel buttons */}
+            {activeExtensions.length > 0 && (
               <>
                 <div className="w-px h-3.5 bg-gray-600 mx-0.5" />
-                {extensionsWithPanel.map((ext) => (
+                {activeExtensions.map((ext) => (
                   <button
                     key={ext.panelKey}
                     onClick={() => handleTogglePanel(ext.panelKey as 'files')}
@@ -1018,54 +1067,50 @@ export function SessionCard({
                 ))}
               </>
             )}
+            {/* Extensions picker dropdown */}
             <div className="w-px h-3.5 bg-gray-600 mx-0.5" />
-            <button
-              onClick={handleRefreshSkills}
-              disabled={refreshingSkills}
-              className={`px-1.5 py-0.5 text-xs rounded transition-colors ${
-                refreshingSkills
-                  ? 'text-gray-500 cursor-wait'
-                  : refreshResult
-                    ? refreshResult.ok
-                      ? 'text-green-400'
-                      : 'text-red-400'
+            <div className="relative" data-ext-picker>
+              <button
+                onClick={() => { refreshExtensions(); setShowExtPicker((v) => !v); }}
+                className={`px-1.5 py-0.5 text-xs rounded transition-colors ${
+                  showExtPicker
+                    ? 'bg-cyan-500/20 text-cyan-400'
                     : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
-              }`}
-              title={refreshResult ? refreshResult.msg : 'Refresh extension skills'}
-            >
-              {refreshingSkills ? '...' : refreshResult ? (refreshResult.ok ? '\u2713' : '\u2717') : '\u27F3 Skills'}
-            </button>
-            <button
-              onClick={async () => {
-                const instructions = [
-                  'I want to create a new extension skill for AgentIDE.',
-                  'An extension lives in extensions/<name>/ and needs:',
-                  '1. manifest.json - with name, displayName, panel entry, skills list, and boardCommands',
-                  '2. ui/ folder - with index.html, styles.css, app.js for the panel UI',
-                  '3. skills/ folder - each skill in skills/<skill-name>/ with SKILL.md (description + instructions) and a shell script',
-                  '',
-                  'Look at extensions/frontend-design/ as a reference implementation.',
-                  'The extension panel communicates with the host via postMessage bridge (ready/init/ping handshake, board-command dispatch, send-comment for sending text to Claude).',
-                  '',
-                  'Please ask me what kind of extension I want to create, then build it following this pattern.',
-                ].join('\n');
-                try {
-                  // If session is completed, continue it first
-                  if (session.status === 'completed' && session.claudeSessionId) {
-                    onContinue?.(session.id);
-                    // Wait briefly for session to become active
-                    await new Promise(r => setTimeout(r, 2000));
-                  }
-                  await sessionsApi.input(session.id, instructions + '\n');
-                } catch {
-                  // Ignore — session may not be ready yet
-                }
-              }}
-              className="px-1.5 py-0.5 text-xs rounded transition-colors text-gray-400 hover:bg-gray-700 hover:text-gray-200"
-              title="Send instructions to Claude for creating a new extension skill"
-            >
-              + Skill
-            </button>
+                }`}
+                title="Select extensions for this session"
+              >
+                Ext ▾
+              </button>
+              {showExtPicker && (
+                <div className="absolute top-full right-0 mt-1 bg-gray-800 border border-gray-600 rounded-md shadow-lg z-50 min-w-[180px] py-1">
+                  {extensionsWithPanel.length === 0 && (
+                    <div className="px-3 py-2 text-xs text-gray-500">No extensions found</div>
+                  )}
+                  {extensionsWithPanel.map((ext) => (
+                    <label
+                      key={ext.name}
+                      className="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-300 hover:bg-gray-700 cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={enabledExtensions.includes(ext.name)}
+                        onChange={() => toggleExtension(ext.name)}
+                        className="rounded border-gray-600 text-cyan-500 focus:ring-cyan-500 focus:ring-offset-0"
+                      />
+                      {ext.displayName}
+                    </label>
+                  ))}
+                  <div className="border-t border-gray-700 mt-1 pt-1">
+                    <button
+                      onClick={() => setShowExtPicker(false)}
+                      className="w-full px-3 py-1 text-xs text-gray-400 hover:text-gray-200 text-left"
+                    >
+                      Close
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
             <div className="w-px h-3.5 bg-gray-600 mx-0.5" />
             <button
               onClick={() => panel.setFontSize(Math.max(panel.fontSize - 2, 8))}

@@ -200,6 +200,133 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
     }
   });
 
+  // ─── Per-session extension management ───
+
+  // Helper: get all skill names for an extension from its manifest
+  function getExtensionSkillNames(extensionsDir: string, extName: string): { autoSkills: string[]; customSkills: { name: string; sourcePath: string }[] } {
+    const manifestPath = path.join(extensionsDir, extName, 'manifest.json');
+    let manifest: { skills?: string[]; panel?: unknown } = {};
+    try { manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8')); } catch { return { autoSkills: [], customSkills: [] }; }
+
+    const autoSkills = manifest.panel ? [
+      `${extName}.open`, `${extName}.comment`, `${extName}.select-text`
+    ] : [];
+
+    const customSkills = (manifest.skills || []).map((s: string) => ({
+      name: s.split('/').pop()!,
+      sourcePath: path.join(extensionsDir, extName, s),
+    }));
+
+    return { autoSkills, customSkills };
+  }
+
+  // Helper: sync skills into a session's .claude/skills/ directory based on enabled extensions
+  function syncSessionSkills(sessionWorkDir: string, enabled: string[]): { added: number; removed: number } {
+    const extensionsDir = path.join(import.meta.dirname, '../../extensions');
+    const hubSkillsDir = path.join(import.meta.dirname, '../../.claude-skills/skills');
+    const sessionSkillsDir = path.join(sessionWorkDir, '.claude', 'skills');
+    if (!fs.existsSync(sessionSkillsDir)) fs.mkdirSync(sessionSkillsDir, { recursive: true });
+
+    // Build set of skill names that SHOULD be in the session
+    const enabledSkillNames = new Set<string>();
+    // Always include non-extension skills (built-in skills)
+    const builtinSkills = ['open-file', 'open-preview', 'show-diff', 'show-panel',
+      'view-click', 'view-navigate', 'view-read-page', 'view-record-start',
+      'view-record-stop', 'view-screenshot', 'view-set-resolution', 'view-type'];
+    for (const s of builtinSkills) enabledSkillNames.add(s);
+
+    // Get all installed extensions
+    const allExtensions: string[] = [];
+    if (fs.existsSync(extensionsDir)) {
+      for (const entry of fs.readdirSync(extensionsDir, { withFileTypes: true })) {
+        if (entry.isDirectory() && fs.existsSync(path.join(extensionsDir, entry.name, 'manifest.json'))) {
+          allExtensions.push(entry.name);
+        }
+      }
+    }
+
+    // Add skills for enabled extensions
+    for (const extName of enabled) {
+      const { autoSkills, customSkills } = getExtensionSkillNames(extensionsDir, extName);
+      for (const s of autoSkills) enabledSkillNames.add(s);
+      for (const s of customSkills) enabledSkillNames.add(s.name);
+    }
+
+    let added = 0;
+    let removed = 0;
+
+    // Remove skills that shouldn't be there
+    if (fs.existsSync(sessionSkillsDir)) {
+      for (const entry of fs.readdirSync(sessionSkillsDir, { withFileTypes: true })) {
+        if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+        if (!enabledSkillNames.has(entry.name)) {
+          const p = path.join(sessionSkillsDir, entry.name);
+          try {
+            const stat = fs.lstatSync(p);
+            if (stat.isSymbolicLink()) fs.unlinkSync(p);
+            else fs.rmSync(p, { recursive: true });
+            removed++;
+          } catch { /* ignore */ }
+        }
+      }
+    }
+
+    // Add skills that should be there but aren't
+    for (const skillName of enabledSkillNames) {
+      const dest = path.join(sessionSkillsDir, skillName);
+      if (fs.existsSync(dest)) continue;
+      // Try to copy from hub skills dir
+      const hubSource = path.join(hubSkillsDir, skillName);
+      if (fs.existsSync(hubSource)) {
+        try {
+          fs.cpSync(hubSource, dest, { recursive: true });
+          added++;
+        } catch { /* ignore */ }
+      }
+    }
+
+    return { added, removed };
+  }
+
+  // GET per-session enabled extensions
+  app.get('/api/sessions/:id/extensions', (req, res) => {
+    const enabled = repo.getSessionExtensions(req.params.id);
+    res.json({ enabled });
+  });
+
+  // PUT per-session enabled extensions + live-sync skills
+  app.put('/api/sessions/:id/extensions', (req, res) => {
+    const { enabled } = req.body as { enabled?: string[] };
+    if (!Array.isArray(enabled)) {
+      res.status(400).json({ error: 'enabled must be an array of extension names' });
+      return;
+    }
+    const session = repo.getSession(req.params.id);
+    if (!session) {
+      res.status(404).json({ error: 'Session not found' });
+      return;
+    }
+
+    // Store in DB
+    repo.setSessionExtensions(session.id, enabled);
+
+    // Live-sync skills into session's .claude/skills/ directory
+    const { added, removed } = syncSessionSkills(session.workingDirectory, enabled);
+
+    res.json({ ok: true, enabled, added, removed });
+  });
+
+  // Legacy global toggle-skills (kept for backward compat / tests)
+  app.post('/api/extensions/toggle-skills', (req, res) => {
+    const { enabled } = req.body as { enabled?: string[] };
+    if (!Array.isArray(enabled)) {
+      res.status(400).json({ error: 'enabled must be an array of extension names' });
+      return;
+    }
+    // No-op for global — per-session is the real mechanism now
+    res.json({ ok: true, added: 0, removed: 0, enabled });
+  });
+
   // Register extension skills (runs the register script and returns output)
   app.post('/api/register-extensions', (_req, res) => {
     const scriptPath = path.join(import.meta.dirname, '../../scripts/register-extension-skills.js');

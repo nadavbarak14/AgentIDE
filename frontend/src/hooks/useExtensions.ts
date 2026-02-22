@@ -5,21 +5,24 @@ import { loadExtensions } from '../services/extension-loader';
 export function useExtensions() {
   const [extensions, setExtensions] = useState<LoadedExtension[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
-    console.log('[useExtensions] Loading extensions...');
+    setLoading(true);
     loadExtensions().then((exts) => {
-      console.log('[useExtensions] Loaded', exts.length, 'extensions:', exts.map(e => e.name));
       if (!cancelled) {
         setExtensions(exts);
         setLoading(false);
       }
-    }).catch((err) => {
-      console.warn('[useExtensions] Load failed:', err);
+    }).catch(() => {
       if (!cancelled) setLoading(false);
     });
     return () => { cancelled = true; };
+  }, [refreshKey]);
+
+  const refresh = useCallback(() => {
+    setRefreshKey((k) => k + 1);
   }, []);
 
   const getExtension = useCallback(
@@ -33,5 +36,5 @@ export function useExtensions() {
     [extensions],
   );
 
-  return { extensions, extensionsWithPanel, getExtension, loading };
+  return { extensions, extensionsWithPanel, getExtension, loading, refresh };
 }

@@ -1,104 +1,104 @@
-# Implementation Plan: Extension System
+# Implementation Plan: [FEATURE]
 
-**Branch**: `012-extension-system` | **Date**: 2026-02-21 | **Spec**: [spec.md](./spec.md)
-**Input**: Feature specification from `/specs/012-extension-system/spec.md`
+**Branch**: `[###-feature-name]` | **Date**: [DATE] | **Spec**: [link]
+**Input**: Feature specification from `/specs/[###-feature-name]/spec.md`
+
+**Note**: This template is filled in by the `/speckit.plan` command. See `.specify/templates/commands/plan.md` for the execution workflow.
 
 ## Summary
 
-Add a frontend-only extension system that lets developers create extensions with custom UI panels and agent skills by dropping a folder with a manifest into the `extensions/` directory. No backend changes. Extensions render in iframes, communicate via a postMessage bridge, and register skills as files. Every extension with a panel automatically gets three built-in skills (`<ext-name>.open`, `<ext-name>.comment`, `<ext-name>.select-text`) generated at registration time. Extensions can additionally declare custom skills. Includes a "Frontend Design" test extension that displays agent-generated HTML screens with per-element commenting and text selection feedback.
+[Extract from feature spec: primary requirement + technical approach from research]
 
 ## Technical Context
 
-**Language/Version**: TypeScript 5.7, Node.js 20 LTS
-**Primary Dependencies**: React 18, Vite 6, Tailwind CSS 3 (existing); no new dependencies
-**Storage**: N/A — no database changes; extension state held in React component state only
-**Testing**: Vitest 2.1.0, @testing-library/react, @testing-library/jest-dom (existing)
-**Target Platform**: Web (Chrome, Firefox, Safari — latest versions)
-**Project Type**: Web application (frontend changes only)
-**Performance Goals**: Extension panel renders within 1s; board commands reach iframe within 500ms
-**Constraints**: Zero backend code changes; extensions are purely frontend artifacts; must not break existing panel system
-**Scale/Scope**: Support 1-10 extensions loaded simultaneously; Frontend Design extension supports 10+ screens
+<!--
+  ACTION REQUIRED: Replace the content in this section with the technical details
+  for the project. The structure here is presented in advisory capacity to guide
+  the iteration process.
+-->
+
+**Language/Version**: [e.g., Python 3.11, Swift 5.9, Rust 1.75 or NEEDS CLARIFICATION]  
+**Primary Dependencies**: [e.g., FastAPI, UIKit, LLVM or NEEDS CLARIFICATION]  
+**Storage**: [if applicable, e.g., PostgreSQL, CoreData, files or N/A]  
+**Testing**: [e.g., pytest, XCTest, cargo test or NEEDS CLARIFICATION]  
+**Target Platform**: [e.g., Linux server, iOS 15+, WASM or NEEDS CLARIFICATION]
+**Project Type**: [single/web/mobile - determines source structure]  
+**Performance Goals**: [domain-specific, e.g., 1000 req/s, 10k lines/sec, 60 fps or NEEDS CLARIFICATION]  
+**Constraints**: [domain-specific, e.g., <200ms p95, <100MB memory, offline-capable or NEEDS CLARIFICATION]  
+**Scale/Scope**: [domain-specific, e.g., 10k users, 1M LOC, 50 screens or NEEDS CLARIFICATION]
 
 ## Constitution Check
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-| Principle | Status | Notes |
-|-----------|--------|-------|
-| I. Comprehensive Testing | PASS | Unit tests for extension loader, manifest parser, postMessage bridge (Phase 2-7). System tests for end-to-end extension discovery, postMessage round-trip, skill registration, and Frontend Design extension (Phase 8: T045-T048). |
-| II. UX-First Design | PASS | User stories define flows before implementation. Extension panel integrates into existing panel picker UX. Inspect mode follows established browser DevTools patterns. |
-| III. UI Quality & Consistency | PASS | Extension panels use same panel header/dropdown as built-in panels. Frontend Design extension follows existing Tailwind design language. |
-| IV. Simplicity | PASS | No new abstractions beyond manifest convention + iframe + postMessage. No new dependencies. Extensions are just folders with HTML and JSON. |
-| V. CI/CD Pipeline | PASS | New tests added to existing CI pipeline. No CI changes needed. |
-| VI. Frontend Plugin Quality | PASS | No new frontend plugins. Uses only browser-native APIs (postMessage, iframe, MutationObserver). |
-| VII. Backend Security | PASS | No backend changes. Extension iframes are sandboxed (allow-scripts only). postMessage origin validation on host side. |
-| VIII. Observability & Logging | PASS | Console warnings for invalid manifests, failed extension loads, and malformed postMessages. Extension events logged at debug level. |
-
-**Gate Result: ALL PASS — no violations.**
+[Gates determined based on constitution file]
 
 ## Project Structure
 
 ### Documentation (this feature)
 
 ```text
-specs/012-extension-system/
-├── plan.md              # This file
-├── spec.md              # Feature specification
-├── research.md          # Phase 0 research
-├── data-model.md        # Phase 1 data model
-├── quickstart.md        # Phase 1 quickstart guide
-├── contracts/           # Phase 1 API contracts
-│   └── postmessage-protocol.md
-└── tasks.md             # Phase 2 tasks (via /speckit.tasks)
+specs/[###-feature]/
+├── plan.md              # This file (/speckit.plan command output)
+├── research.md          # Phase 0 output (/speckit.plan command)
+├── data-model.md        # Phase 1 output (/speckit.plan command)
+├── quickstart.md        # Phase 1 output (/speckit.plan command)
+├── contracts/           # Phase 1 output (/speckit.plan command)
+└── tasks.md             # Phase 2 output (/speckit.tasks command - NOT created by /speckit.plan)
 ```
 
 ### Source Code (repository root)
+<!--
+  ACTION REQUIRED: Replace the placeholder tree below with the concrete layout
+  for this feature. Delete unused options and expand the chosen structure with
+  real paths (e.g., apps/admin, packages/something). The delivered plan must
+  not include Option labels.
+-->
 
 ```text
+# [REMOVE IF UNUSED] Option 1: Single project (DEFAULT)
+src/
+├── models/
+├── services/
+├── cli/
+└── lib/
+
+tests/
+├── contract/
+├── integration/
+└── unit/
+
+# [REMOVE IF UNUSED] Option 2: Web application (when "frontend" + "backend" detected)
+backend/
+├── src/
+│   ├── models/
+│   ├── services/
+│   └── api/
+└── tests/
+
 frontend/
 ├── src/
 │   ├── components/
-│   │   └── ExtensionPanel.tsx          # Generic iframe panel for extensions
-│   ├── hooks/
-│   │   ├── useExtensions.ts            # Extension discovery and manifest loading
-│   │   └── usePostMessageBridge.ts     # postMessage communication hook
+│   ├── pages/
 │   └── services/
-│       └── extension-loader.ts         # Manifest parsing, validation, registration
-├── tests/
-│   └── unit/
-│       ├── extension-loader.test.ts
-│       ├── auto-skill-generator.test.ts
-│       ├── useExtensions.test.ts
-│       └── postmessage-bridge.test.ts
-└── vite-plugin-extensions.ts           # Vite plugin: serves extensions, generates index.json
+└── tests/
 
-scripts/
-└── auto-skill-generator.ts            # Generates open/comment/select-text skill files per extension (Node script, writes to disk)
+# [REMOVE IF UNUSED] Option 3: Mobile + API (when "iOS/Android" detected)
+api/
+└── [same as backend above]
 
-extensions/                             # Extension directory (project root)
-└── frontend-design/                    # Test extension
-    ├── manifest.json
-    ├── ui/
-    │   ├── index.html                  # Extension entry point
-    │   ├── app.js                      # Extension logic (vanilla JS or bundled)
-    │   └── styles.css                  # Extension styles
-    └── skills/
-        ├── design-add-screen/
-        │   ├── SKILL.md
-        │   └── scripts/
-        │       └── design-add-screen.sh
-        ├── design-update-screen/
-        │   ├── SKILL.md
-        │   └── scripts/
-        │       └── design-update-screen.sh
-        └── design-remove-screen/
-            ├── SKILL.md
-            └── scripts/
-                └── design-remove-screen.sh
+ios/ or android/
+└── [platform-specific structure: feature modules, UI flows, platform tests]
 ```
 
-**Structure Decision**: Frontend-only changes. Extension infrastructure lives in `frontend/src/` (components, hooks, services). The `extensions/` directory at project root contains the actual extensions. Vite plugin generates `extensions/index.json` at dev-server start and build time (solves browser directory scanning). `auto-skill-generator.ts` lives in `scripts/` (not frontend) because it writes skill files to disk — a Node.js build-time operation. No backend directory changes.
+**Structure Decision**: [Document the selected structure and reference the real
+directories captured above]
 
 ## Complexity Tracking
 
-> No constitution violations — this section is intentionally empty.
+> **Fill ONLY if Constitution Check has violations that must be justified**
+
+| Violation | Why Needed | Simpler Alternative Rejected Because |
+|-----------|------------|-------------------------------------|
+| [e.g., 4th project] | [current need] | [why 3 projects insufficient] |
+| [e.g., Repository pattern] | [specific problem] | [why direct DB access insufficient] |

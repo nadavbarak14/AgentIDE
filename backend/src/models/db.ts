@@ -210,6 +210,11 @@ function migrate(database: Database.Database): void {
     database.exec('ALTER TABLE sessions ADD COLUMN worktree INTEGER NOT NULL DEFAULT 0');
   }
 
+  // Add enabled_extensions column to panel_states
+  if (!colNames.has('enabled_extensions')) {
+    database.exec("ALTER TABLE panel_states ADD COLUMN enabled_extensions TEXT NOT NULL DEFAULT '[]'");
+  }
+
   // Migrate video_recordings table for WebM format
   const videoCols = database.pragma('table_info(video_recordings)') as Array<{ name: string }>;
   const videoColNames = new Set(videoCols.map((c) => c.name));
