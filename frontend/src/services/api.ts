@@ -44,6 +44,7 @@ export interface Worker {
   sshPort: number;
   sshUser: string | null;
   sshKeyPath: string | null;
+  remoteAgentPort: number | null;
   status: 'connected' | 'disconnected' | 'error';
   maxSessions: number;
   activeSessionCount?: number;
@@ -128,6 +129,7 @@ export const workers = {
     sshUser: string;
     sshKeyPath: string;
     maxSessions?: number;
+    remoteAgentPort?: number | null;
   }) => request<Worker>('/workers', { method: 'POST', body: JSON.stringify(data) }),
 
   update: (id: string, data: {
@@ -137,12 +139,13 @@ export const workers = {
     sshUser?: string;
     sshKeyPath?: string;
     maxSessions?: number;
+    remoteAgentPort?: number | null;
   }) => request<Worker>(`/workers/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
 
   delete: (id: string) => request<void>(`/workers/${id}`, { method: 'DELETE' }),
 
   test: (id: string) =>
-    request<{ ok: boolean; latency_ms: number }>(`/workers/${id}/test`, { method: 'POST' }),
+    request<{ ok: boolean; latency_ms: number; claudeAvailable?: boolean; claudeVersion?: string; error?: string }>(`/workers/${id}/test`, { method: 'POST' }),
 
   connect: (id: string) =>
     request<{ ok: boolean; message: string }>(`/workers/${id}/connect`, { method: 'POST' }),

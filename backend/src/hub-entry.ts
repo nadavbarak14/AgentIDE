@@ -210,6 +210,13 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
     fileWatcher.stopWatching(sessionId);
   });
 
+  // Reconnect existing remote workers on startup (fire and forget)
+  for (const worker of repo.listWorkers().filter((w) => w.type === 'remote')) {
+    workerManager.connectWorker(worker).catch((err: Error) => {
+      logger.warn({ workerId: worker.id, host: worker.sshHost, err: err.message }, 'failed to reconnect worker on startup');
+    });
+  }
+
   // Resume sessions that were active before restart
   sessionManager.resumeSessions(ptySpawner);
 
