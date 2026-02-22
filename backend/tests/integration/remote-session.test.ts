@@ -221,7 +221,7 @@ describe('Remote session creation with directory validation', () => {
 
   beforeEach(async () => {
     const { Repository } = await import('../../src/models/repository.js');
-    const { createTestDb, closeDb } = await import('../../src/models/db.js');
+    const { createTestDb } = await import('../../src/models/db.js');
 
     const db = createTestDb();
     repo = new Repository(db);
