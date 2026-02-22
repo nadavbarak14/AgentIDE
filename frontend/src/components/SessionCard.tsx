@@ -928,14 +928,14 @@ export function SessionCard({
         onSetCurrent?.(session.id);
       }}
       onClick={() => onSetCurrent?.(session.id)}
-      className={`rounded-lg border ${
+      className={`rounded-lg border-2 ${
         session.needsInput
           ? 'border-amber-400 ring-2 ring-amber-400/50'
           : isCurrent
-            ? 'border-blue-500 ring-1 ring-blue-500/30'
+            ? 'border-blue-500 ring-2 ring-blue-500/50 bg-blue-950/20'
             : focused
-              ? 'border-gray-600'
-              : 'border-gray-700'
+              ? 'border-gray-600 border'
+              : 'border-gray-700 border'
       } bg-gray-800 overflow-hidden flex flex-col`}
     >
       {/* Header + Toolbar (merged single row) */}
