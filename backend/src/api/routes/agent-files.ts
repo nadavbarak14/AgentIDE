@@ -368,6 +368,7 @@ export function createAgentFilesRouter(fileWatcher: FileWatcher): Router {
                 body = rewriteCssForProxy(body, proxyBase);
               }
               delete responseHeaders['content-length'];
+              delete responseHeaders['transfer-encoding'];
               responseHeaders['content-length'] = String(Buffer.byteLength(body));
               res.writeHead(proxyRes.statusCode || 200, responseHeaders);
               res.end(body);
@@ -375,6 +376,7 @@ export function createAgentFilesRouter(fileWatcher: FileWatcher): Router {
               logger.warn({ error: (err as Error).message }, 'Failed to process proxied response');
               const raw = Buffer.concat(chunks);
               delete responseHeaders['content-length'];
+              delete responseHeaders['transfer-encoding'];
               responseHeaders['content-length'] = String(raw.length);
               res.writeHead(proxyRes.statusCode || 200, responseHeaders);
               res.end(raw);
