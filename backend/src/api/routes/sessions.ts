@@ -203,7 +203,29 @@ export function createSessionsRouter(repo: Repository, sessionManager: SessionMa
     }
     const state = repo.getPanelState(id);
     if (!state) {
-      res.status(404).json({ error: 'No panel state found for session' });
+      // Return default state for new sessions instead of 404
+      res.json({
+        sessionId: id,
+        leftPanel: 'none',
+        rightPanel: 'none',
+        leftWidthPercent: 25,
+        rightWidthPercent: 35,
+        bottomPanel: 'none',
+        bottomHeightPercent: 40,
+        terminalPosition: 'center',
+        terminalVisible: true,
+        previewViewport: 'desktop',
+        customViewportWidth: null,
+        customViewportHeight: null,
+        fontSize: 14,
+        activePanel: 'none',
+        fileTabs: [],
+        activeTabIndex: 0,
+        tabScrollPositions: {},
+        gitScrollPosition: 0,
+        previewUrl: '',
+        panelWidthPercent: 35,
+      });
       return;
     }
     res.json(state);
