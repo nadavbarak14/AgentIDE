@@ -10,6 +10,7 @@ import {
   decompressBuffer,
   cleanSetCookieHeaders,
   rewriteHtmlForProxy,
+  rewriteCssForProxy,
   injectBridgeScript,
   MIME_TYPES,
 } from '../proxy-utils.js';
@@ -292,6 +293,7 @@ export function createAgentFilesRouter(fileWatcher: FileWatcher): Router {
     delete forwardHeaders['connection'];
     delete forwardHeaders['upgrade'];
     delete forwardHeaders['accept-encoding'];
+    delete forwardHeaders['transfer-encoding']; // Prevent Content-Length + Transfer-Encoding conflict
     forwardHeaders['host'] = `localhost:${targetPort}`;
 
     const proxyReq = http.request(
@@ -337,7 +339,8 @@ export function createAgentFilesRouter(fileWatcher: FileWatcher): Router {
           req.headers['accept']?.includes('text/html') && !req.headers['x-requested-with'];
         const shouldRewriteHtml = contentType.includes('text/html') && isNavigationRequest;
         const isJavaScript = contentType.includes('javascript');
-        const shouldBuffer = shouldRewriteHtml || isJavaScript;
+        const isCss = contentType.includes('text/css');
+        const shouldBuffer = shouldRewriteHtml || isJavaScript || isCss;
 
         if (shouldBuffer) {
           const chunks: Buffer[] = [];
@@ -356,6 +359,8 @@ export function createAgentFilesRouter(fileWatcher: FileWatcher): Router {
               } else if (isJavaScript) {
                 body = body.replaceAll('CHUNK_BASE_PATH = "/_next/"', `CHUNK_BASE_PATH = "${proxyBase}/_next/"`);
                 body = body.replaceAll('RUNTIME_PUBLIC_PATH = "/_next/"', `RUNTIME_PUBLIC_PATH = "${proxyBase}/_next/"`);
+              } else if (isCss) {
+                body = rewriteCssForProxy(body, proxyBase);
               }
               delete responseHeaders['content-length'];
               responseHeaders['content-length'] = String(Buffer.byteLength(body));
@@ -371,6 +376,10 @@ export function createAgentFilesRouter(fileWatcher: FileWatcher): Router {
             }
           });
         } else {
+          // Prevent Content-Length + Transfer-Encoding conflict (Node HTTP parser rejects it)
+          if (responseHeaders['transfer-encoding'] && responseHeaders['content-length']) {
+            delete responseHeaders['content-length'];
+          }
           res.writeHead(proxyRes.statusCode || 200, responseHeaders);
           proxyRes.pipe(res);
         }
