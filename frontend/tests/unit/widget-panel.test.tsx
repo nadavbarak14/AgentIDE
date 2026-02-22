@@ -21,6 +21,7 @@ function defaultProps(overrides: Partial<Parameters<typeof WidgetPanel>[0]> = {}
     sessionId: 'session-1',
     onClose: vi.fn(),
     onSetActiveWidget: vi.fn(),
+    onDismissWidget: vi.fn(),
     ...overrides,
   };
 }
@@ -72,10 +73,13 @@ describe('WidgetPanel', () => {
       const iframe = screen.getByTitle('Widget: test-widget') as HTMLIFrameElement;
       expect(iframe).toBeInTheDocument();
       expect(iframe.tagName).toBe('IFRAME');
-      expect(iframe.getAttribute('srcdoc')).toBe('<p>Widget Content</p>');
+      // Bridge SDK is prepended to srcDoc
+      const srcDoc = iframe.getAttribute('srcdoc') ?? '';
+      expect(srcDoc).toContain('<p>Widget Content</p>');
+      expect(srcDoc).toContain('C3.ready');
     });
 
-    it('iframe has sandbox="allow-scripts" attribute', () => {
+    it('iframe has no sandbox attribute (removed for CSP compatibility)', () => {
       const widget = createWidget();
       render(
         <WidgetPanel
@@ -84,7 +88,7 @@ describe('WidgetPanel', () => {
       );
 
       const iframe = screen.getByTitle('Widget: test-widget') as HTMLIFrameElement;
-      expect(iframe.getAttribute('sandbox')).toBe('allow-scripts');
+      expect(iframe.getAttribute('sandbox')).toBeNull();
     });
   });
 
@@ -194,7 +198,9 @@ describe('WidgetPanel', () => {
 
       const iframe = screen.getByTitle('Widget: Empty Widget') as HTMLIFrameElement;
       expect(iframe).toBeInTheDocument();
-      expect(iframe.getAttribute('srcdoc')).toBe('');
+      // Even empty HTML gets the bridge SDK prepended
+      const srcDoc = iframe.getAttribute('srcdoc') ?? '';
+      expect(srcDoc).toContain('C3.ready');
     });
   });
 });
