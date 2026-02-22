@@ -51,6 +51,7 @@ function proxyToAgent(
   const forwardHeaders: Record<string, string | string[] | undefined> = { ...req.headers };
   delete forwardHeaders['host'];
   delete forwardHeaders['connection'];
+  delete forwardHeaders['transfer-encoding'];
   forwardHeaders['host'] = `127.0.0.1:${agentPort}`;
 
   const proxyReq = http.request(
@@ -64,6 +65,10 @@ function proxyToAgent(
     (proxyRes) => {
       // Forward all response headers
       const responseHeaders = { ...proxyRes.headers };
+      // Prevent Content-Length + Transfer-Encoding conflict (Node parser rejects it)
+      if (responseHeaders['transfer-encoding'] && responseHeaders['content-length']) {
+        delete responseHeaders['content-length'];
+      }
       // Remove restrictive headers for proxy/serve routes
       if (agentPath.includes('/proxy/') || agentPath.includes('/serve/')) {
         res.removeHeader('x-frame-options');
