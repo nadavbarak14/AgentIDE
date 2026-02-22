@@ -54,7 +54,8 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
   // Initialize services
   const ptySpawner = new PtySpawner({ hubPort: port });
   const shellSpawner = new ShellSpawner();
-  const workerManager = new WorkerManager(repo);
+  const queueManager = new QueueManager(repo);
+  const workerManager = new WorkerManager(repo, port);
   const tunnelManager = workerManager.getTunnelManager();
   const agentTunnelManager = workerManager.getAgentTunnelManager();
   const remotePtyBridge = new RemotePtyBridge(tunnelManager, { hubPort: port });

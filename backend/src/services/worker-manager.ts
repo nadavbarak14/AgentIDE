@@ -13,7 +13,7 @@ export class WorkerManager extends EventEmitter {
   private workerClient = new WorkerClient(this.tunnelManager);
   private healthCheckInterval: ReturnType<typeof setInterval> | null = null;
 
-  constructor(private repo: Repository) {
+  constructor(private repo: Repository, private hubPort: number = 3000) {
     super();
     this.setupTunnelListeners();
   }
@@ -71,6 +71,7 @@ export class WorkerManager extends EventEmitter {
       port: worker.sshPort,
       username: worker.sshUser,
       privateKeyPath: worker.sshKeyPath,
+      hubPort: this.hubPort,
     };
 
     try {

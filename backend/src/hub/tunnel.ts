@@ -1,3 +1,4 @@
+import net from 'node:net';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import { Client, type ClientChannel } from 'ssh2';
@@ -8,6 +9,8 @@ export interface TunnelConfig {
   port: number;
   username: string;
   privateKeyPath: string;
+  /** If set, establishes a reverse port forward so processes on the remote machine can reach the hub at localhost:hubPort */
+  hubPort?: number;
 }
 
 export class TunnelManager extends EventEmitter {
@@ -26,7 +29,31 @@ export class TunnelManager extends EventEmitter {
         this.clients.set(workerId, client);
         this.reconnectDelay.set(workerId, 1000);
         this.emit('connected', workerId);
+
+        // Request reverse port forward so remote processes can reach hub at localhost:hubPort
+        if (config.hubPort) {
+          client.forwardIn('127.0.0.1', config.hubPort, (err, boundPort) => {
+            if (err) {
+              log.warn({ err: err.message }, 'reverse port forward request failed');
+            } else {
+              log.info({ port: boundPort || config.hubPort }, 'reverse port forward active: remote localhost → hub');
+            }
+          });
+        }
+
         resolve();
+      });
+
+      // Handle incoming TCP connections from the remote side (reverse tunnel)
+      client.on('tcp connection', (info, accept) => {
+        const channel = accept();
+        const local = net.createConnection(info.destPort, '127.0.0.1');
+        channel.pipe(local);
+        local.pipe(channel);
+        local.on('error', () => { try { channel.destroy(); } catch { /* ignore */ } });
+        channel.on('error', () => { try { local.destroy(); } catch { /* ignore */ } });
+        local.on('close', () => { try { channel.destroy(); } catch { /* ignore */ } });
+        channel.on('close', () => { try { local.destroy(); } catch { /* ignore */ } });
       });
 
       client.on('error', (err) => {
