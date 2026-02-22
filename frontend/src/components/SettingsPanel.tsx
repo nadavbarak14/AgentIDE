@@ -56,6 +56,7 @@ interface WorkerFormData {
   sshKeyPath: string;
   sshPort: number;
   maxSessions: number;
+  remoteAgentPort: string;
 }
 
 const emptyForm: WorkerFormData = {
@@ -65,6 +66,7 @@ const emptyForm: WorkerFormData = {
   sshKeyPath: '',
   sshPort: 22,
   maxSessions: 2,
+  remoteAgentPort: '',
 };
 
 export function SettingsPanel({ settings, onSettingsChange, workers, onWorkersChange, autoOpenAddForm }: SettingsPanelProps) {
@@ -146,6 +148,7 @@ export function SettingsPanel({ settings, onSettingsChange, workers, onWorkersCh
       sshKeyPath: w.sshKeyPath || '',
       sshPort: w.sshPort || 22,
       maxSessions: w.maxSessions,
+      remoteAgentPort: w.remoteAgentPort != null ? String(w.remoteAgentPort) : '',
     });
     setEditingId(w.id);
     setFormError(null);
@@ -161,16 +164,19 @@ export function SettingsPanel({ settings, onSettingsChange, workers, onWorkersCh
     setFormError(null);
     try {
       if (editingId) {
-        const updated = await workersApi.update(editingId, {
+        const agentPort = form.remoteAgentPort ? parseInt(form.remoteAgentPort) : null;
+      const updated = await workersApi.update(editingId, {
           name: form.name.trim(),
           sshHost: form.sshHost.trim(),
           sshUser: form.sshUser.trim(),
           sshKeyPath: form.sshKeyPath.trim(),
           sshPort: form.sshPort,
           maxSessions: form.maxSessions,
+          remoteAgentPort: agentPort,
         });
         onWorkersChange(workers.map((w) => (w.id === editingId ? updated : w)));
       } else {
+        const agentPort = form.remoteAgentPort ? parseInt(form.remoteAgentPort) : null;
         const created = await workersApi.create({
           name: form.name.trim(),
           sshHost: form.sshHost.trim(),
@@ -178,6 +184,7 @@ export function SettingsPanel({ settings, onSettingsChange, workers, onWorkersCh
           sshKeyPath: form.sshKeyPath.trim(),
           sshPort: form.sshPort,
           maxSessions: form.maxSessions,
+          remoteAgentPort: agentPort,
         });
         onWorkersChange([...workers, created]);
       }
@@ -409,6 +416,17 @@ export function SettingsPanel({ settings, onSettingsChange, workers, onWorkersCh
                     onChange={(e) => setForm((f) => ({ ...f, maxSessions: parseInt(e.target.value) || 2 }))}
                     className="w-14 px-2 py-1 text-xs bg-gray-800 border border-gray-600 rounded text-white focus:border-blue-500 focus:outline-none"
                   />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-400">Agent port:</span>
+                  <input
+                    type="number"
+                    placeholder="e.g. 4100"
+                    value={form.remoteAgentPort}
+                    onChange={(e) => setForm((f) => ({ ...f, remoteAgentPort: e.target.value }))}
+                    className="w-20 px-2 py-1 text-xs bg-gray-800 border border-gray-600 rounded text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+                  />
+                  <span className="text-[10px] text-gray-500">enables file tree &amp; git</span>
                 </div>
                 {formError && (
                   <div className="text-xs text-red-400">{formError}</div>

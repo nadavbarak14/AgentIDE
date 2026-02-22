@@ -24,6 +24,11 @@ export function createWorkersRouter(repo: Repository, workerManager: WorkerManag
   });
 
   router.post('/', validateBody(['name', 'sshHost', 'sshUser', 'sshKeyPath']), async (req, res) => {
+    // Normalize sshHost — strip protocol prefix and trailing slashes
+    if (req.body.sshHost) {
+      req.body.sshHost = req.body.sshHost.replace(/^https?:\/\//i, '').replace(/\/+$/, '').trim();
+    }
+
     // Validate SSH key file before creating the worker record
     try {
       workerManager.validateSshKeyFile(req.body.sshKeyPath);
@@ -63,6 +68,11 @@ export function createWorkersRouter(repo: Repository, workerManager: WorkerManag
     if (worker.type === 'local') {
       res.status(403).json({ error: 'Cannot edit the local worker' });
       return;
+    }
+
+    // Normalize sshHost — strip protocol prefix and trailing slashes
+    if (req.body.sshHost) {
+      req.body.sshHost = req.body.sshHost.replace(/^https?:\/\//i, '').replace(/\/+$/, '').trim();
     }
 
     const newKeyPath = req.body.sshKeyPath;

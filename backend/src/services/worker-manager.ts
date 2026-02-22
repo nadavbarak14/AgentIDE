@@ -116,6 +116,19 @@ export class WorkerManager extends EventEmitter {
     }
 
     const start = Date.now();
+
+    // If not connected, attempt to establish connection first
+    if (!this.tunnelManager.isConnected(worker.id)) {
+      try {
+        await this.connectWorker(worker);
+      } catch (err) {
+        const latency = Date.now() - start;
+        const message = err instanceof Error ? err.message : 'SSH connection failed';
+        logger.warn({ workerId: worker.id, latency_ms: latency, err }, 'worker connection test failed during connect');
+        return { ok: false, latency_ms: latency, error: message };
+      }
+    }
+
     try {
       // Test SSH connectivity
       await this.tunnelManager.exec(worker.id, 'echo ok');
@@ -156,8 +169,9 @@ export class WorkerManager extends EventEmitter {
       return { ok: true, latency_ms: latency, claudeAvailable: true, claudeVersion };
     } catch (err) {
       const latency = Date.now() - start;
+      const message = err instanceof Error ? err.message : 'SSH exec failed';
       logger.warn({ workerId: worker.id, latency_ms: latency, err }, 'worker health check failed');
-      return { ok: false, latency_ms: latency };
+      return { ok: false, latency_ms: latency, error: message };
     }
   }
 
@@ -205,6 +219,12 @@ export class WorkerManager extends EventEmitter {
     this.tunnelManager.on('disconnected', (workerId: string) => {
       this.repo.updateWorkerStatus(workerId, 'disconnected');
       this.emit('worker_disconnected', workerId);
+    });
+
+    // Must listen for 'error' — unhandled EventEmitter errors crash the process
+    this.tunnelManager.on('error', (workerId: string, err: Error) => {
+      logger.warn({ workerId, err: err.message }, 'tunnel error');
+      this.repo.updateWorkerStatus(workerId, 'error');
     });
   }
 
