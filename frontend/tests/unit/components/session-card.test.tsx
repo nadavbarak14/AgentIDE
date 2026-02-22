@@ -90,11 +90,6 @@ describe('SessionCard', () => {
     expect(screen.getByText('active')).toBeInTheDocument();
   });
 
-  it('shows status text for queued session', () => {
-    render(<SessionCard session={createMockSession({ status: 'queued' })} />);
-    expect(screen.getByText('queued')).toBeInTheDocument();
-  });
-
   it('shows needs_input indicator when needsInput is true', () => {
     render(<SessionCard session={createMockSession({ needsInput: true })} />);
     expect(screen.getByTitle('Needs input')).toBeInTheDocument();
@@ -126,19 +121,10 @@ describe('SessionCard', () => {
     expect(screen.getByTitle('Kill session')).toBeInTheDocument();
   });
 
-  it('shows Continue button for completed sessions with claudeSessionId', () => {
+  it('does not show Continue button for completed sessions', () => {
     render(
       <SessionCard
         session={createMockSession({ status: 'completed', claudeSessionId: 'abc123' })}
-      />,
-    );
-    expect(screen.getByTitle('Continue with claude -c')).toBeInTheDocument();
-  });
-
-  it('does not show Continue button for completed sessions without claudeSessionId', () => {
-    render(
-      <SessionCard
-        session={createMockSession({ status: 'completed', claudeSessionId: null })}
       />,
     );
     expect(screen.queryByTitle('Continue with claude -c')).not.toBeInTheDocument();

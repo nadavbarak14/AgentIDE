@@ -128,6 +128,7 @@ describe('Panel State Repository', () => {
       panelWidthPercent: 35,
     });
 
+    repo.completeSession(session.id, null);
     repo.deleteSession(session.id);
     expect(repo.getPanelState(session.id)).toBeNull();
   });

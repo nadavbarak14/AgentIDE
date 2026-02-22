@@ -128,6 +128,7 @@ describe('IDE Panels API', () => {
           panelWidthPercent: 40,
         });
 
+      repo.completeSession(session.id, null);
       await request(app).delete(`/api/sessions/${session.id}`);
 
       // Session deleted, panel state should be gone
