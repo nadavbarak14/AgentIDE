@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { ClientChannel } from 'ssh2';
-import type { TunnelManager } from '../hub/tunnel.js';
+import { type TunnelManager, REVERSE_TUNNEL_PORT } from '../hub/tunnel.js';
 import { createSessionLogger, logger } from '../services/logger.js';
 import type { PtyProcess } from './pty-spawner.js';
 
@@ -36,7 +36,7 @@ export class RemotePtyBridge extends EventEmitter {
    * Creates a minimal settings.json without hooks (remote hooks not supported yet).
    */
   private async ensureRemoteSettings(workerId: string): Promise<void> {
-    const settingsDir = `/tmp/.c3-hooks-${this.hubPort}`;
+    const settingsDir = `/tmp/.c3-hooks-${REVERSE_TUNNEL_PORT}`;
     const settingsPath = `${settingsDir}/settings.json`;
 
     // Create directory and settings file on remote server
@@ -99,9 +99,9 @@ export class RemotePtyBridge extends EventEmitter {
 
     // Build the claude command to send to the remote shell
     // Source shell profile to load PATH where claude is installed
-    const claudeArgs = ['claude', '--settings', `/tmp/.c3-hooks-${this.hubPort}/settings.json`];
+    const claudeArgs = ['claude', '--settings', `/tmp/.c3-hooks-${REVERSE_TUNNEL_PORT}/settings.json`];
     claudeArgs.push(...args);
-    const envVars = `C3_SESSION_ID=${escapeShellArg(sessionId)} C3_HUB_PORT=${this.hubPort}`;
+    const envVars = `C3_SESSION_ID=${escapeShellArg(sessionId)} C3_HUB_PORT=${REVERSE_TUNNEL_PORT}`;
     const cmd = `source ~/.bashrc 2>/dev/null; source ~/.bash_profile 2>/dev/null; cd ${escapeShellArg(workingDirectory)} && ${envVars} ${claudeArgs.join(' ')}\n`;
 
     log.info({ cmd: cmd.trim() }, 'sending claude command to remote shell');
