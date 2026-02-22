@@ -932,7 +932,9 @@ export function SessionCard({
         session.needsInput
           ? 'border-amber-400 ring-2 ring-amber-400/50'
           : isCurrent
-            ? 'border-blue-500 ring-1 ring-blue-500/30'
+            ? session.status === 'queued'
+              ? 'border-blue-500 bg-yellow-500/10 ring-1 ring-blue-500/30'
+              : 'border-blue-500 ring-1 ring-blue-500/30'
             : focused
               ? 'border-gray-600'
               : 'border-gray-700'

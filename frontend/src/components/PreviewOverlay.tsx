@@ -130,39 +130,39 @@ export function PreviewOverlay({ sessionId, bridge, containerWidth, containerHei
         {/* Inspect mode toggle */}
         <button
           onClick={() => bridge.toggleInspectMode()}
-          className={`w-7 h-7 flex items-center justify-center rounded text-xs ${
+          className={`w-7 h-7 flex items-center justify-center rounded text-sm ${
             bridge.inspectMode
               ? 'bg-blue-600 text-white'
               : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-600'
           }`}
-          title={bridge.inspectMode ? 'Exit inspect mode' : 'Inspect element'}
+          title={bridge.inspectMode ? 'Exit inspect mode' : 'Select element'}
           disabled={!bridge.isReady}
         >
-          +
+          👁️
         </button>
 
         {/* Screenshot button */}
         <button
           onClick={handleCaptureScreenshot}
-          className="w-7 h-7 flex items-center justify-center rounded text-xs bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-600"
+          className="w-7 h-7 flex items-center justify-center rounded text-sm bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-600"
           title="Capture screenshot"
           disabled={!bridge.isReady}
         >
-          S
+          📸
         </button>
 
         {/* Record button */}
         <button
           onClick={handleToggleRecording}
-          className={`w-7 h-7 flex items-center justify-center rounded text-xs ${
+          className={`w-7 h-7 flex items-center justify-center rounded text-sm ${
             bridge.isRecording
               ? 'bg-red-600 text-white animate-pulse'
               : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-600'
           }`}
-          title={bridge.isRecording ? `Stop recording (${recordingTimer}s)` : 'Start recording'}
+          title={bridge.isRecording ? `Stop recording (${recordingTimer}s)` : 'Record video'}
           disabled={!bridge.isReady}
         >
-          {bridge.isRecording ? 'X' : 'R'}
+          {bridge.isRecording ? '⏹️' : '⏺️'}
         </button>
 
         {/* Recording timer */}
