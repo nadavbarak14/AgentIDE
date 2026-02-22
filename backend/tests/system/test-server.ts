@@ -6,7 +6,6 @@ import { createSettingsRouter } from '../../src/api/routes/settings.js';
 import { createSessionsRouter } from '../../src/api/routes/sessions.js';
 import { createFilesRouter } from '../../src/api/routes/files.js';
 import { setupWebSocket } from '../../src/api/websocket.js';
-import { QueueManager } from '../../src/services/queue-manager.js';
 import { SessionManager } from '../../src/services/session-manager.js';
 import { PtySpawner } from '../../src/worker/pty-spawner.js';
 import type Database from 'better-sqlite3';
@@ -25,7 +24,6 @@ function createMockPtySpawner(): PtySpawner {
       },
     };
   };
-  spawner.spawnContinue = spawner.spawn;
   return spawner;
 }
 
@@ -35,7 +33,6 @@ export interface TestServer {
   port: number;
   repo: Repository;
   sessionManager: SessionManager;
-  queueManager: QueueManager;
   ptySpawner: PtySpawner;
   db: Database.Database;
   close: () => Promise<void>;
@@ -45,8 +42,7 @@ export async function createTestServer(): Promise<TestServer> {
   const db = createTestDb();
   const repo = new Repository(db);
   const ptySpawner = createMockPtySpawner();
-  const queueManager = new QueueManager(repo);
-  const sessionManager = new SessionManager(repo, ptySpawner, queueManager);
+  const sessionManager = new SessionManager(repo, ptySpawner);
 
   const app = express();
   app.use(express.json());
@@ -79,7 +75,6 @@ export async function createTestServer(): Promise<TestServer> {
     port,
     repo,
     sessionManager,
-    queueManager,
     ptySpawner,
     db,
     close: async () => {

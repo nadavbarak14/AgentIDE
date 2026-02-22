@@ -17,7 +17,6 @@ export function Dashboard() {
     deleteSession,
     killSession,
     toggleLock,
-    refresh,
   } = useSessionQueue();
 
   const {
