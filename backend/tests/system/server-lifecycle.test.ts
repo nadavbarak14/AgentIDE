@@ -24,7 +24,7 @@ describe('Server Lifecycle', () => {
     const res = await fetch(`${baseUrl}/api/settings`);
     expect(res.status).toBe(200);
     const data = await res.json();
-    expect(data).toHaveProperty('maxConcurrentSessions');
+    expect(data).toHaveProperty('maxVisibleSessions');
     expect(data).toHaveProperty('gridLayout');
     expect(data).toHaveProperty('theme');
   });
@@ -80,13 +80,13 @@ describe('Server Lifecycle', () => {
     const patchRes = await fetch(`${baseUrl}/api/settings`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ maxConcurrentSessions: 5 }),
+      body: JSON.stringify({ maxVisibleSessions: 5 }),
     });
     expect(patchRes.status).toBe(200);
 
     const getRes = await fetch(`${baseUrl}/api/settings`);
     const data = await getRes.json();
-    expect(data.maxConcurrentSessions).toBe(5);
+    expect(data.maxVisibleSessions).toBe(5);
   });
 
   it('comments workflow: create and list', async () => {
