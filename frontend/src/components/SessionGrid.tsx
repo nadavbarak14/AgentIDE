@@ -12,6 +12,8 @@ interface SessionGridProps {
   onDelete: (id: string) => void;
   onFocusSession: (id: string) => void;
   onSetCurrent?: (id: string) => void;
+  zoomedSessionId?: string | null;
+  onToggleZoom?: (id: string) => void;
 }
 
 export function SessionGrid({
@@ -24,6 +26,8 @@ export function SessionGrid({
   onDelete,
   onFocusSession,
   onSetCurrent,
+  zoomedSessionId,
+  onToggleZoom,
 }: SessionGridProps) {
   const [overflowCollapsed, setOverflowCollapsed] = useState(
     () => localStorage.getItem('c3-overflow-collapsed') !== 'false'
@@ -122,6 +126,8 @@ export function SessionGrid({
             onToggleLock={onToggleLock}
             onDelete={onDelete}
             onSetCurrent={onSetCurrent}
+            isZoomed={zoomedSessionId === session.id}
+            onToggleZoom={onToggleZoom}
           />
         ))}
       </div>

@@ -13,7 +13,9 @@ export type ShortcutAction =
   | 'switch_prev'
   | 'confirm_session'
   | 'show_help'
-  | 'search_files';
+  | 'search_files'
+  | 'zoom_session'
+  | 'kill_session';
 
 export interface Shortcut {
   key: string;
@@ -40,6 +42,8 @@ export const DEFAULT_SHORTCUT_MAP: Shortcut[] = [
   { key: 'Enter', action: 'confirm_session', category: 'Navigation', description: 'Confirm session switch' },
   { key: '?', action: 'show_help', category: 'Navigation', description: 'Show keyboard shortcuts' },
   { key: 'f', action: 'search_files', category: 'Files', description: 'Search in files' },
+  { key: 'z', action: 'zoom_session', category: 'Session Actions', description: 'Zoom / unzoom session' },
+  { key: 'k', action: 'kill_session', category: 'Session Actions', description: 'Kill / remove session' },
 ];
 
 export interface ChordIndicatorState {

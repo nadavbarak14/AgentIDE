@@ -66,6 +66,47 @@ export function Dashboard() {
 
   const [displayedIds, setDisplayedIds] = useState<string[]>([]);
 
+  // ── Zoom State ──────────────────────────────────────────────────
+  const [zoomedSessionId, setZoomedSessionId] = useState<string | null>(null);
+  const preZoomDisplayedIdsRef = useRef<string[] | null>(null);
+  const zoomedSessionIdRef = useRef(zoomedSessionId);
+
+  const displayedIdsRef = useRef(displayedIds);
+  displayedIdsRef.current = displayedIds;
+
+  const handleToggleZoom = useCallback((sessionId: string) => {
+    if (zoomedSessionIdRef.current === sessionId) {
+      // Unzoom: restore previous layout
+      const saved = preZoomDisplayedIdsRef.current;
+      setZoomedSessionId(null);
+      zoomedSessionIdRef.current = null;
+      preZoomDisplayedIdsRef.current = null;
+      if (saved) setDisplayedIds(saved);
+    } else {
+      // Zoom: save current layout, show only the zoomed session
+      preZoomDisplayedIdsRef.current = [...displayedIdsRef.current];
+      setZoomedSessionId(sessionId);
+      zoomedSessionIdRef.current = sessionId;
+      setDisplayedIds([sessionId]);
+      handleSetCurrentSession(sessionId);
+    }
+  }, [handleSetCurrentSession]);
+
+  // Auto-unzoom when zoomed session is killed/deleted
+  useEffect(() => {
+    if (!zoomedSessionId) return;
+    const sessionStillExists = sessions.some((s) => s.id === zoomedSessionId);
+    if (!sessionStillExists) {
+      const saved = preZoomDisplayedIdsRef.current;
+      setZoomedSessionId(null);
+      zoomedSessionIdRef.current = null;
+      preZoomDisplayedIdsRef.current = null;
+      if (saved) {
+        setDisplayedIds(saved.filter((id) => id !== zoomedSessionId));
+      }
+    }
+  }, [sessions, zoomedSessionId]);
+
   // FIFO queue: tracks the order sessions entered needsInput state.
   // Oldest needsInput session gets priority when a slot opens.
   const needsInputQueueRef = useRef<string[]>([]);
@@ -144,6 +185,7 @@ export function Dashboard() {
 
   // Fill slots when a displayed session becomes inactive (completed/failed)
   useEffect(() => {
+    if (zoomedSessionIdRef.current) return; // Skip during zoom
     if (displayedIds.length === 0) return;
     const activeIds = new Set(activeSessions.map((s) => s.id));
     if (displayedIds.some((id) => !activeIds.has(id))) {
@@ -153,6 +195,7 @@ export function Dashboard() {
 
   // Add newly activated sessions when slots are available
   useEffect(() => {
+    if (zoomedSessionIdRef.current) return; // Skip during zoom
     if (activeSessions.length === 0) return;
     const displayed = new Set(displayedIds);
     const newActive = activeSessions.filter((s) => !displayed.has(s.id));
@@ -191,6 +234,7 @@ export function Dashboard() {
   // "Ready" = the session we typed in no longer needs input (user answered it)
   // AND there's an overflow session that does need input (FIFO order).
   useEffect(() => {
+    if (zoomedSessionIdRef.current) return; // Skip during zoom
     const swapId = swapEligibleSessionId.current;
     if (!swapId) return;
 
@@ -227,6 +271,7 @@ export function Dashboard() {
   // Trigger 2: maxVisible changed → resize
   const prevMaxVisible = useRef(maxVisible);
   useEffect(() => {
+    if (zoomedSessionIdRef.current) return; // Skip during zoom
     if (prevMaxVisible.current !== maxVisible && displayedIds.length > 0) {
       prevMaxVisible.current = maxVisible;
       rebuildDisplay();
@@ -282,6 +327,8 @@ export function Dashboard() {
   useEffect(() => {
     const prev = new Set(prevDisplayedIdsRef.current);
     prevDisplayedIdsRef.current = displayedIds;
+    // Skip auto-focus when unzooming (restoring multiple sessions at once)
+    if (!zoomedSessionIdRef.current && prev.size <= 1 && displayedIds.length > 1) return;
     // Find sessions that are newly displayed
     const newlyDisplayed = displayedIds.filter((id) => !prev.has(id));
     if (newlyDisplayed.length >= 1) {
@@ -312,9 +359,7 @@ export function Dashboard() {
     }
   }, [currentSessionId, displayedIds, handleSetCurrentSession]);
 
-  // Keep a ref to displayedIds for the shortcut handler
-  const displayedIdsRef = useRef(displayedIds);
-  displayedIdsRef.current = displayedIds;
+  // Keep a ref to currentSessionId for the shortcut handler
   const currentSessionIdRef = useRef(currentSessionId);
   currentSessionIdRef.current = currentSessionId;
 
@@ -411,6 +456,22 @@ export function Dashboard() {
       case 'show_help':
         setShortcutsHelpOpen((prev) => !prev);
         break;
+      case 'zoom_session':
+        if (curId) {
+          handleToggleZoom(curId);
+        }
+        break;
+      case 'kill_session': {
+        if (!curId) break;
+        const sess = allSessions.find((s) => s.id === curId);
+        if (!sess) break;
+        if (sess.status === 'active') {
+          killSession(curId).catch(() => {});
+        } else {
+          deleteSession(curId).catch(() => {});
+        }
+        break;
+      }
       case 'toggle_files':
       case 'toggle_git':
       case 'toggle_preview':
@@ -423,7 +484,7 @@ export function Dashboard() {
         }
         break;
     }
-  }, [handleSetCurrentSession, handleFocusSession, focusTerminalInSession, sessionSwitcherIndex]);
+  }, [handleSetCurrentSession, handleFocusSession, focusTerminalInSession, sessionSwitcherIndex, handleToggleZoom, killSession, deleteSession]);
 
   const chordState = useKeyboardShortcuts({
     enabled: true,
@@ -499,6 +560,8 @@ export function Dashboard() {
           onDelete={(id) => deleteSession(id).catch(() => {})}
           onFocusSession={handleFocusSession}
           onSetCurrent={handleSetCurrentSession}
+          zoomedSessionId={zoomedSessionId}
+          onToggleZoom={handleToggleZoom}
         />
       </div>
 
