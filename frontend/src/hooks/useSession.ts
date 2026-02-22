@@ -7,11 +7,6 @@ export function useSession(sessions: Session[]) {
     [sessions],
   );
 
-  const queuedSessions = useMemo(
-    () => sessions.filter((s) => s.status === 'queued').sort((a, b) => (a.position ?? 0) - (b.position ?? 0)),
-    [sessions],
-  );
-
   const completedSessions = useMemo(
     () => sessions.filter((s) => s.status === 'completed'),
     [sessions],
@@ -36,12 +31,10 @@ export function useSession(sessions: Session[]) {
 
   return {
     activeSessions,
-    queuedSessions,
     completedSessions,
     failedSessions,
     focusSessions,
     totalCount: sessions.length,
     activeCount: activeSessions.length,
-    queuedCount: queuedSessions.length,
   };
 }

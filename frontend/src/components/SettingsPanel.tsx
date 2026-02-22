@@ -261,13 +261,6 @@ export function SettingsPanel({ settings, onSettingsChange, workers, onWorkersCh
             Settings
           </h3>
           <NumberStepper
-            label="Active sessions"
-            value={settings.maxConcurrentSessions}
-            min={1}
-            max={10}
-            onChange={(v) => updateSetting('maxConcurrentSessions', v)}
-          />
-          <NumberStepper
             label="Visible grid"
             value={settings.maxVisibleSessions}
             min={1}

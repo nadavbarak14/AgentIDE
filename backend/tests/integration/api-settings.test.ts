@@ -23,7 +23,6 @@ describe('Settings API', () => {
   it('GET /api/settings returns default settings', async () => {
     const res = await request(app).get('/api/settings');
     expect(res.status).toBe(200);
-    expect(res.body.maxConcurrentSessions).toBe(2);
     expect(res.body.maxVisibleSessions).toBe(4);
     expect(res.body.autoApprove).toBe(false);
     expect(res.body.gridLayout).toBe('auto');
@@ -33,9 +32,8 @@ describe('Settings API', () => {
   it('PATCH /api/settings updates partial settings', async () => {
     const res = await request(app)
       .patch('/api/settings')
-      .send({ maxConcurrentSessions: 8, theme: 'light' });
+      .send({ theme: 'light' });
     expect(res.status).toBe(200);
-    expect(res.body.maxConcurrentSessions).toBe(8);
     expect(res.body.theme).toBe('light');
     expect(res.body.maxVisibleSessions).toBe(4); // unchanged
   });
@@ -46,13 +44,6 @@ describe('Settings API', () => {
       .send({ maxVisibleSessions: 3 });
     expect(res.status).toBe(200);
     expect(res.body.maxVisibleSessions).toBe(3);
-  });
-
-  it('PATCH /api/settings rejects invalid maxConcurrentSessions', async () => {
-    const res = await request(app)
-      .patch('/api/settings')
-      .send({ maxConcurrentSessions: 0 });
-    expect(res.status).toBe(400);
   });
 
   it('PATCH /api/settings rejects invalid gridLayout', async () => {

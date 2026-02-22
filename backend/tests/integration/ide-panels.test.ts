@@ -8,7 +8,6 @@ import { createTestDb, closeDb } from '../../src/models/db.js';
 import { Repository } from '../../src/models/repository.js';
 import { createSessionsRouter } from '../../src/api/routes/sessions.js';
 import { createFilesRouter } from '../../src/api/routes/files.js';
-import { QueueManager } from '../../src/services/queue-manager.js';
 import { PtySpawner } from '../../src/worker/pty-spawner.js';
 import { SessionManager } from '../../src/services/session-manager.js';
 
@@ -26,7 +25,6 @@ function createMockPtySpawner(): PtySpawner {
       },
     };
   };
-  spawner.spawnContinue = spawner.spawn;
   return spawner;
 }
 
@@ -41,8 +39,7 @@ describe('IDE Panels API', () => {
     const db = createTestDb();
     repo = new Repository(db);
     const ptySpawner = createMockPtySpawner();
-    const queueManager = new QueueManager(repo);
-    sessionManager = new SessionManager(repo, ptySpawner, queueManager);
+    sessionManager = new SessionManager(repo, ptySpawner);
     app = express();
     app.use(express.json());
     app.use('/api/sessions', createSessionsRouter(repo, sessionManager));

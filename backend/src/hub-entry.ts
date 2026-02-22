@@ -7,7 +7,6 @@ import { Repository } from './models/repository.js';
 import { PtySpawner } from './worker/pty-spawner.js';
 import { RemotePtyBridge } from './worker/remote-pty-bridge.js';
 import { ShellSpawner } from './worker/shell-spawner.js';
-import { QueueManager } from './services/queue-manager.js';
 import { SessionManager } from './services/session-manager.js';
 import { WorkerManager } from './services/worker-manager.js';
 import { ProjectService } from './services/project-service.js';
@@ -46,19 +45,17 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
   // Register local worker if none exists
   const localWorker = repo.getLocalWorker();
   if (!localWorker) {
-    const settings = repo.getSettings();
-    repo.createLocalWorker('Local', settings.maxConcurrentSessions);
+    repo.createLocalWorker('Local', 999);
     logger.info('registered local worker');
   }
 
   // Initialize services
   const ptySpawner = new PtySpawner({ hubPort: port });
   const shellSpawner = new ShellSpawner();
-  const queueManager = new QueueManager(repo);
   const workerManager = new WorkerManager(repo);
   const tunnelManager = workerManager.getTunnelManager();
   const remotePtyBridge = new RemotePtyBridge(tunnelManager, { hubPort: port });
-  const sessionManager = new SessionManager(repo, ptySpawner, queueManager, shellSpawner, remotePtyBridge, tunnelManager);
+  const sessionManager = new SessionManager(repo, ptySpawner, shellSpawner, remotePtyBridge, tunnelManager);
   const projectService = new ProjectService(repo);
   const previewService = new PreviewService(repo, sessionManager);
 
@@ -507,9 +504,6 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
   const server = http.createServer(app);
   setupWebSocket(server, repo, sessionManager, ptySpawner, fileWatcher, shellSpawner, remotePtyBridge);
 
-  // Start auto-dispatch
-  queueManager.startAutoDispatch();
-
   // Start server
   server.listen(port, host, () => {
     logger.info(
@@ -524,7 +518,6 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
   // Graceful shutdown
   const shutdown = () => {
     logger.info('shutting down...');
-    queueManager.stopAutoDispatch();
     workerManager.destroy();
     fileWatcher.destroy();
     ptySpawner.destroy();

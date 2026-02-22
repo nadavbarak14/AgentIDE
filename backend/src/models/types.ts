@@ -1,5 +1,5 @@
-// Session status — sessions ARE the queue, no separate task entity
-export type SessionStatus = 'queued' | 'active' | 'completed' | 'failed';
+// Session status
+export type SessionStatus = 'active' | 'completed' | 'failed';
 
 export interface Session {
   id: string;
@@ -29,7 +29,6 @@ export interface CreateSessionInput {
 }
 
 export interface UpdateSessionInput {
-  position?: number;
   title?: string;
   lock?: boolean;
 }
@@ -111,7 +110,6 @@ export type GridLayout = 'auto' | '1x1' | '2x2' | '3x3';
 export type Theme = 'dark' | 'light';
 
 export interface Settings {
-  maxConcurrentSessions: number;
   maxVisibleSessions: number;
   autoApprove: boolean;
   gridLayout: GridLayout;
@@ -119,7 +117,6 @@ export interface Settings {
 }
 
 export interface UpdateSettingsInput {
-  maxConcurrentSessions?: number;
   maxVisibleSessions?: number;
   autoApprove?: boolean;
   gridLayout?: GridLayout;

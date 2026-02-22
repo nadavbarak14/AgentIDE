@@ -15,10 +15,6 @@ export class WorkerClient {
     await this.sendCommand(workerId, { cmd: 'spawn', sessionId, directory });
   }
 
-  async continueSession(workerId: string, sessionId: string, directory: string, claudeSessionId: string): Promise<void> {
-    await this.sendCommand(workerId, { cmd: 'continue', sessionId, directory, claudeSessionId });
-  }
-
   async sendInput(workerId: string, sessionId: string, data: string): Promise<void> {
     await this.sendCommand(workerId, { cmd: 'input', sessionId, data });
   }

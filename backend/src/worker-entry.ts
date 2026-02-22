@@ -76,11 +76,6 @@ function handleCommand(cmd: WorkerCommand, ptySpawner: PtySpawner): void {
         ptySpawner.spawn(cmd.sessionId, cmd.directory);
       }
       break;
-    case 'continue':
-      if (cmd.sessionId && cmd.directory) {
-        ptySpawner.spawnContinue(cmd.sessionId, cmd.directory);
-      }
-      break;
     case 'input':
       if (cmd.sessionId && cmd.data) {
         ptySpawner.write(cmd.sessionId, cmd.data);

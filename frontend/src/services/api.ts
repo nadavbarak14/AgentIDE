@@ -15,7 +15,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 // Session types (mirrors backend)
-export type SessionStatus = 'queued' | 'active' | 'completed' | 'failed';
+export type SessionStatus = 'active' | 'completed' | 'failed';
 
 export interface Session {
   id: string;
@@ -65,7 +65,6 @@ export interface Project {
 }
 
 export interface Settings {
-  maxConcurrentSessions: number;
   maxVisibleSessions: number;
   autoApprove: boolean;
   gridLayout: string;
@@ -99,16 +98,13 @@ export const sessions = {
   list: (status?: SessionStatus) =>
     request<Session[]>(`/sessions${status ? `?status=${status}` : ''}`),
 
-  create: (data: { workingDirectory: string; title: string; targetWorker?: string | null; startFresh?: boolean; worktree?: boolean }) =>
-    request<Session & { continued?: boolean }>('/sessions', { method: 'POST', body: JSON.stringify(data) }),
+  create: (data: { workingDirectory: string; title: string; targetWorker?: string | null; worktree?: boolean }) =>
+    request<Session>('/sessions', { method: 'POST', body: JSON.stringify(data) }),
 
-  update: (id: string, data: { position?: number; title?: string; lock?: boolean }) =>
+  update: (id: string, data: { title?: string; lock?: boolean }) =>
     request<Session>(`/sessions/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
 
   delete: (id: string) => request<void>(`/sessions/${id}`, { method: 'DELETE' }),
-
-  continue: (id: string) =>
-    request<{ status: string; message: string }>(`/sessions/${id}/continue`, { method: 'POST' }),
 
   kill: (id: string) =>
     request<{ ok: boolean }>(`/sessions/${id}/kill`, { method: 'POST' }),

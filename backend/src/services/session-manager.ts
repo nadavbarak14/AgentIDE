@@ -5,19 +5,10 @@ import type { PtySpawner, PtyProcess } from '../worker/pty-spawner.js';
 import type { RemotePtyBridge } from '../worker/remote-pty-bridge.js';
 import type { ShellSpawner } from '../worker/shell-spawner.js';
 import type { TunnelManager } from '../hub/tunnel.js';
-import type { QueueManager } from './queue-manager.js';
 import { createSessionLogger, logger } from './logger.js';
 
 export class SessionManager extends EventEmitter {
   private activePtys = new Map<string, PtyProcess>();
-  private suspendingIds = new Set<string>();
-  // Sessions that should start fresh (no --continue flag)
-  private startFreshIds = new Set<string>();
-  // Suspend guard: sessions that have NOT yet received user input since activation.
-  // A session is only eligible for auto-suspend after the user has engaged with it
-  // (sent input), which proves the session "did work" in response.
-  // Set when a session is activated. Cleared when the user sends input.
-  private suspendGuardIds = new Set<string>();
   // Track which sessions are remote (for input routing)
   private remoteSessions = new Set<string>();
 
@@ -28,7 +19,6 @@ export class SessionManager extends EventEmitter {
   constructor(
     private repo: Repository,
     private ptySpawner: PtySpawner,
-    private queueManager: QueueManager,
     shellSpawner?: ShellSpawner,
     remotePtyBridge?: RemotePtyBridge,
     tunnelManager?: TunnelManager,
@@ -41,7 +31,6 @@ export class SessionManager extends EventEmitter {
     if (this._remotePtyBridge) {
       this.setupRemotePtyListeners();
     }
-    this.setupQueueListeners();
   }
 
   get shellSpawner(): ShellSpawner | null {
@@ -49,11 +38,9 @@ export class SessionManager extends EventEmitter {
   }
 
   /**
-   * Create a new session. Auto-activates if a slot is available.
-   * When startFresh=true, session starts without --continue flag.
-   * Otherwise, --continue is used so Claude resumes the latest conversation in that directory.
+   * Create a new session. Always activates immediately.
    */
-  createSession(input: CreateSessionInput, startFresh = false): Session {
+  createSession(input: CreateSessionInput): Session {
     // Default targetWorker to local worker if not specified
     if (!input.targetWorker) {
       const localWorker = this.repo.getLocalWorker();
@@ -64,18 +51,12 @@ export class SessionManager extends EventEmitter {
 
     const session = this.repo.createSession(input);
     const log = createSessionLogger(session.id);
-    log.info({ title: session.title, dir: session.workingDirectory, startFresh }, 'session created');
+    log.info({ title: session.title, dir: session.workingDirectory }, 'session created');
 
-    if (startFresh) {
-      this.startFreshIds.add(session.id);
-    }
-
-    // Try to activate immediately if slot available
-    if (this.queueManager.hasAvailableSlot()) {
-      this.activateSession(session.id).catch((err) => {
-        createSessionLogger(session.id).error({ err }, 'failed to auto-activate session');
-      });
-    }
+    // Activate immediately
+    this.activateSession(session.id).catch((err) => {
+      createSessionLogger(session.id).error({ err }, 'failed to activate session');
+    });
 
     return this.repo.getSession(session.id)!;
   }
@@ -110,19 +91,14 @@ export class SessionManager extends EventEmitter {
     try {
       let ptyProc: PtyProcess;
 
-      const isStartFresh = this.startFreshIds.has(sessionId);
-      this.startFreshIds.delete(sessionId);
-
       if (isRemote && this._remotePtyBridge && worker) {
-        ptyProc = await this.activateRemoteSession(session, worker.id, isStartFresh, log);
+        ptyProc = await this.activateRemoteSession(session, worker.id, log);
         this.remoteSessions.add(sessionId);
       } else {
-        ptyProc = this.activateLocalSession(session, isStartFresh, log);
+        ptyProc = this.activateLocalSession(session, log);
       }
 
       this.activePtys.set(sessionId, ptyProc);
-      // Guard: session cannot be auto-suspended until user sends input
-      this.suspendGuardIds.add(sessionId);
       const activated = this.repo.activateSession(sessionId, ptyProc.pid);
       this.emit('session_activated', activated);
 
@@ -139,42 +115,20 @@ export class SessionManager extends EventEmitter {
 
   private activateLocalSession(
     session: Session,
-    isStartFresh: boolean,
     log: ReturnType<typeof createSessionLogger>,
   ): PtyProcess {
     // Get per-session enabled extensions for skill filtering
     const enabledExtensions = this.repo.getSessionExtensions(session.id);
     log.info({ enabledExtensions }, 'session enabled extensions');
 
-    if (session.continuationCount > 0 && session.claudeSessionId) {
-      log.info({ claudeSessionId: session.claudeSessionId }, 'resuming specific conversation with claude --resume');
-      return this.ptySpawner.spawnResume(
-        session.id,
-        session.workingDirectory,
-        session.claudeSessionId,
-        enabledExtensions,
-      );
-    } else if (session.continuationCount > 0) {
-      log.info('continuing session with claude -c (no claudeSessionId available)');
-      return this.ptySpawner.spawnContinue(
-        session.id,
-        session.workingDirectory,
-        enabledExtensions,
-      );
-    } else if (isStartFresh || session.worktree) {
-      const args = session.worktree ? ['--worktree'] : [];
-      log.info({ worktree: session.worktree, startFresh: isStartFresh }, 'spawning new claude process');
-      return this.ptySpawner.spawn(session.id, session.workingDirectory, args, enabledExtensions);
-    } else {
-      log.info({ dir: session.workingDirectory }, 'spawning claude with --continue');
-      return this.ptySpawner.spawn(session.id, session.workingDirectory, ['--continue'], enabledExtensions);
-    }
+    const args = session.worktree ? ['--worktree'] : [];
+    log.info({ worktree: session.worktree }, 'spawning new claude process');
+    return this.ptySpawner.spawn(session.id, session.workingDirectory, args, enabledExtensions);
   }
 
   private async activateRemoteSession(
     session: Session,
     workerId: string,
-    isStartFresh: boolean,
     log: ReturnType<typeof createSessionLogger>,
   ): Promise<PtyProcess> {
     const bridge = this._remotePtyBridge!;
@@ -192,50 +146,9 @@ export class SessionManager extends EventEmitter {
       }
     }
 
-    if (session.continuationCount > 0 && session.claudeSessionId) {
-      log.info({ claudeSessionId: session.claudeSessionId, workerId }, 'resuming remote conversation with --resume');
-      return bridge.spawnResume(session.id, workerId, session.workingDirectory, session.claudeSessionId);
-    } else if (session.continuationCount > 0) {
-      log.info({ workerId }, 'continuing remote session with -c');
-      return bridge.spawnContinue(session.id, workerId, session.workingDirectory);
-    } else if (isStartFresh || session.worktree) {
-      const args = session.worktree ? ['--worktree'] : [];
-      log.info({ worktree: session.worktree, startFresh: isStartFresh, workerId }, 'spawning new remote claude process');
-      return bridge.spawn(session.id, workerId, session.workingDirectory, args);
-    } else {
-      log.info({ dir: session.workingDirectory, workerId }, 'spawning remote claude with --continue');
-      return bridge.spawn(session.id, workerId, session.workingDirectory, ['--continue']);
-    }
-  }
-
-  /**
-   * Continue a completed/failed session.
-   * - If claudeSessionId exists → uses `claude -c <id>`
-   * - Otherwise → uses `claude --continue` (resumes most recent session in that directory)
-   */
-  continueSession(sessionId: string): { status: string; message: string } {
-    const session = this.repo.getSession(sessionId);
-    if (!session) throw new Error('Session not found');
-    if (session.status === 'active') throw new Error('Session is already active');
-
-    const log = createSessionLogger(sessionId);
-    log.info(
-      { claudeSessionId: session.claudeSessionId, dir: session.workingDirectory },
-      'continue/restart requested',
-    );
-
-    // Queue for continuation
-    this.repo.queueSessionForContinue(sessionId);
-
-    // Try to activate immediately if slot available
-    if (this.queueManager.hasAvailableSlot()) {
-      this.activateSession(sessionId).catch((err) => {
-        createSessionLogger(sessionId).error({ err }, 'failed to activate continued session');
-      });
-      return { status: 'active', message: 'Session resumed' };
-    }
-
-    return { status: 'queued', message: 'Session queued for continuation' };
+    const args = session.worktree ? ['--worktree'] : [];
+    log.info({ worktree: session.worktree, workerId }, 'spawning new remote claude process');
+    return bridge.spawn(session.id, workerId, session.workingDirectory, args);
   }
 
   /**
@@ -351,17 +264,8 @@ export class SessionManager extends EventEmitter {
       const log = createSessionLogger(sessionId);
 
       this.activePtys.delete(sessionId);
-      const wasSuspended = this.suspendingIds.delete(sessionId);
 
-      if (wasSuspended) {
-        // Auto-suspended → re-queue for automatic continuation
-        log.info({ claudeSessionId }, 'session auto-suspended → back to queue');
-        if (claudeSessionId) {
-          this.repo.setClaudeSessionId(sessionId, claudeSessionId);
-        }
-        this.repo.queueSessionForContinue(sessionId);
-        this.emit('session_suspended', sessionId);
-      } else if (exitCode === 0) {
+      if (exitCode === 0) {
         log.info({ claudeSessionId }, 'session completed');
         this.repo.completeSession(sessionId, claudeSessionId);
         this.emit('session_completed', sessionId, claudeSessionId);
@@ -370,14 +274,8 @@ export class SessionManager extends EventEmitter {
         this.repo.failSession(sessionId);
         this.emit('session_failed', sessionId);
       }
-
-      // Trigger queue dispatch
-      this.queueManager.onSessionCompleted();
     });
 
-    // Clear needs_input when user sends input.
-    // Also clear the suspend guard — the user has engaged with this session,
-    // so it's eligible for auto-suspend after it finishes the new work.
     this.ptySpawner.on('input_sent', (sessionId: string) => {
       const log = createSessionLogger(sessionId);
       const session = this.repo.getSession(sessionId);
@@ -385,10 +283,6 @@ export class SessionManager extends EventEmitter {
         log.info('user sent input — clearing needs_input');
         this.repo.setNeedsInput(sessionId, false);
         this.emit('needs_input_changed', sessionId, false);
-      }
-      // User engaged → eligible for auto-suspend after doing work
-      if (this.suspendGuardIds.delete(sessionId)) {
-        log.info('user sent input — clearing suspend guard');
       }
     });
 
@@ -405,48 +299,7 @@ export class SessionManager extends EventEmitter {
         this.repo.setNeedsInput(sessionId, true);
         this.emit('needs_input_changed', sessionId, true);
       }
-
-      // FR-030: Auto-suspend idle session IF:
-      //   1. Queue has waiting sessions
-      //   2. Session is not pinned/locked
-      //   3. User has interacted with this session (guard cleared)
-      //      → Ensures session actually did work before being re-queued
-      if (
-        !session.lock &&
-        this.queueManager.hasQueuedSessions() &&
-        !this.suspendGuardIds.has(sessionId)
-      ) {
-        log.info('auto-suspending idle session — queue has waiting items');
-        this.autoSuspendSession(sessionId);
-      }
     });
-  }
-
-  /**
-   * Auto-suspend an idle session to free its slot for queued sessions.
-   * Kills the Claude process, re-queues for continuation.
-   * Guard is re-set on activation — session needs user input again before next suspend.
-   */
-  private autoSuspendSession(sessionId: string): void {
-    const log = createSessionLogger(sessionId);
-    const ptyProc = this.activePtys.get(sessionId);
-
-    if (!ptyProc) {
-      log.warn('no pty process found for auto-suspend');
-      return;
-    }
-
-    // Kill shell terminal if running
-    if (this._shellSpawner?.hasShell(sessionId)) {
-      log.info('killing shell terminal during auto-suspend');
-      this._shellSpawner.kill(sessionId);
-    }
-
-    // Mark as suspending so exit handler re-queues instead of completing
-    this.suspendingIds.add(sessionId);
-
-    log.info('killing process for auto-suspend');
-    ptyProc.kill();
   }
 
   /**
@@ -498,16 +351,8 @@ export class SessionManager extends EventEmitter {
 
       this.activePtys.delete(sessionId);
       this.remoteSessions.delete(sessionId);
-      const wasSuspended = this.suspendingIds.delete(sessionId);
 
-      if (wasSuspended) {
-        log.info({ claudeSessionId }, 'remote session auto-suspended → back to queue');
-        if (claudeSessionId) {
-          this.repo.setClaudeSessionId(sessionId, claudeSessionId);
-        }
-        this.repo.queueSessionForContinue(sessionId);
-        this.emit('session_suspended', sessionId);
-      } else if (exitCode === 0) {
+      if (exitCode === 0) {
         log.info({ claudeSessionId }, 'remote session completed');
         this.repo.completeSession(sessionId, claudeSessionId);
         this.emit('session_completed', sessionId, claudeSessionId);
@@ -516,8 +361,6 @@ export class SessionManager extends EventEmitter {
         this.repo.failSession(sessionId);
         this.emit('session_failed', sessionId);
       }
-
-      this.queueManager.onSessionCompleted();
     });
 
     bridge.on('input_sent', (sessionId: string) => {
@@ -527,9 +370,6 @@ export class SessionManager extends EventEmitter {
         log.info('user sent input to remote session — clearing needs_input');
         this.repo.setNeedsInput(sessionId, false);
         this.emit('needs_input_changed', sessionId, false);
-      }
-      if (this.suspendGuardIds.delete(sessionId)) {
-        log.info('user sent input to remote session — clearing suspend guard');
       }
     });
 
@@ -544,23 +384,6 @@ export class SessionManager extends EventEmitter {
         this.repo.setNeedsInput(sessionId, true);
         this.emit('needs_input_changed', sessionId, true);
       }
-
-      if (
-        !session.lock &&
-        this.queueManager.hasQueuedSessions() &&
-        !this.suspendGuardIds.has(sessionId)
-      ) {
-        log.info('auto-suspending idle remote session — queue has waiting items');
-        this.autoSuspendSession(sessionId);
-      }
-    });
-  }
-
-  private setupQueueListeners(): void {
-    this.queueManager.on('dispatch', (session: Session) => {
-      this.activateSession(session.id).catch((err) => {
-        createSessionLogger(session.id).error({ err }, 'failed to activate dispatched session');
-      });
     });
   }
 
@@ -580,15 +403,12 @@ export class SessionManager extends EventEmitter {
         'marked detached session as completed for restart',
       );
     }
-
-    this.queueManager.onSessionCompleted();
   }
 
   destroy(): void {
     this._shellSpawner?.destroy();
     this._remotePtyBridge?.destroy();
     this.ptySpawner.destroy();
-    this.queueManager.stopAutoDispatch();
   }
 }
 

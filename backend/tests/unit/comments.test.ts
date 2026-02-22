@@ -122,6 +122,9 @@ describe('Comment Repository', () => {
       commentText: 'Comment',
     });
 
+    // Complete the session first so it can be deleted (active sessions cannot be deleted)
+    repo.activateSession(session.id, 1234);
+    repo.completeSession(session.id, null);
     repo.deleteSession(session.id);
     const comments = repo.getComments(session.id);
     expect(comments).toHaveLength(0);

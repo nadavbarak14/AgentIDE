@@ -7,7 +7,6 @@ interface SessionGridProps {
   overflowSessions: Session[];
   currentSessionId?: string | null;
   workers?: Worker[];
-  onContinue: (id: string) => void;
   onKill: (id: string) => void;
   onToggleLock: (id: string, lock: boolean) => void;
   onDelete: (id: string) => void;
@@ -20,7 +19,6 @@ export function SessionGrid({
   overflowSessions,
   currentSessionId,
   workers,
-  onContinue,
   onKill,
   onToggleLock,
   onDelete,
@@ -120,7 +118,6 @@ export function SessionGrid({
             focused={true}
             isCurrent={currentSessionId === session.id}
             isSingleView={displayedSessions.length === 1}
-            onContinue={onContinue}
             onKill={onKill}
             onToggleLock={onToggleLock}
             onDelete={onDelete}
