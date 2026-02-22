@@ -23,7 +23,7 @@ function startServer(
   options?: { timeout?: number },
 ): Promise<ServerProcess> {
   const timeout = options?.timeout || 15000;
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentide-cli-test-'));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'adyx-cli-test-'));
 
   return new Promise((resolve, reject) => {
     // Use tsx directly (not npx) so SIGTERM propagates properly
@@ -140,7 +140,7 @@ describe('System: CLI E2E', { timeout: 30000 }, () => {
     servers.length = 0;
   });
 
-  it('agentide start --port PORT launches and responds to HTTP', async () => {
+  it('adyx start --port PORT launches and responds to HTTP', async () => {
     const port = 18000 + Math.floor(Math.random() * 1000);
     const sp = await startServer(['--port', String(port)]);
     servers.push(sp);

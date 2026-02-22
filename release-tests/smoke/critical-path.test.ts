@@ -29,7 +29,7 @@ describe('Release Smoke Test', { timeout: 300_000 }, () => {
     }
   });
 
-  it('agentide binary exists and is executable', () => {
+  it('adyx binary exists and is executable', () => {
     expect(fs.existsSync(artifact.binaryPath)).toBe(true);
     fs.accessSync(artifact.binaryPath, fs.constants.X_OK);
   });

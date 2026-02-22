@@ -32,7 +32,7 @@ describe('CLI', () => {
   it('shows help with --help', () => {
     const { stdout, status } = runCli('--help');
     expect(status).toBe(0);
-    expect(stdout).toContain('agentide');
+    expect(stdout).toContain('adyx');
     expect(stdout).toContain('start');
   });
 

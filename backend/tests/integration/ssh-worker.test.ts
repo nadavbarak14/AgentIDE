@@ -10,7 +10,7 @@ import { WorkerManager } from '../../src/services/worker-manager.js';
 import { createWorkersRouter } from '../../src/api/routes/workers.js';
 
 // Test SSH key fixtures
-const TEST_DIR = path.join(os.tmpdir(), 'agentide-ssh-test-' + process.pid);
+const TEST_DIR = path.join(os.tmpdir(), 'adyx-ssh-test-' + process.pid);
 
 function createTestKey(filename: string, content: string): string {
   const filePath = path.join(TEST_DIR, filename);

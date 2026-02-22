@@ -21,7 +21,7 @@ describe('Install: npx-style execution via global install', { timeout: 120_000 }
 
   it('fresh install in isolated env starts server and serves health', async () => {
     // This simulates what a first-time user does:
-    // npm install -g c3-dashboard && agentide start
+    // npm install -g adyx && adyx start
     // (npx <tarball> doesn't work because npx treats tarballs differently)
     const tarball = packArtifact();
     env = await createReleaseEnvironment();

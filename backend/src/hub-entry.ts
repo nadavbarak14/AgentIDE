@@ -823,7 +823,7 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
   server.listen(port, host, () => {
     logger.info(
       { port, host },
-      `AgentIDE Hub started on http://${host}:${port}`,
+      `Adyx started on http://${host}:${port}`,
     );
   });
 

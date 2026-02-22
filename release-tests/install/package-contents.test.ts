@@ -32,8 +32,8 @@ describe('Install: Package contents verification', { timeout: 60_000 }, () => {
     expect(result.packageJson).toBeDefined();
     const pkg = result.packageJson!;
     const bin = pkg.bin as Record<string, string>;
-    expect(bin?.agentide).toBe('./backend/dist/cli.js');
-    expect(pkg.name).toBe('c3-dashboard');
+    expect(bin?.adyx).toBe('./backend/dist/cli.js');
+    expect(pkg.name).toBe('adyx');
     expect(pkg.version).toBeDefined();
   });
 });
