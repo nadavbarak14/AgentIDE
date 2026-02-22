@@ -46,8 +46,6 @@ export interface Worker {
   sshKeyPath: string | null;
   remoteAgentPort: number | null;
   status: 'connected' | 'disconnected' | 'error';
-  maxSessions: number;
-  activeSessionCount?: number;
   lastHeartbeat: string | null;
 }
 
@@ -128,7 +126,6 @@ export const workers = {
     sshPort?: number;
     sshUser: string;
     sshKeyPath: string;
-    maxSessions?: number;
     remoteAgentPort?: number | null;
   }) => request<Worker>('/workers', { method: 'POST', body: JSON.stringify(data) }),
 
@@ -138,7 +135,6 @@ export const workers = {
     sshPort?: number;
     sshUser?: string;
     sshKeyPath?: string;
-    maxSessions?: number;
     remoteAgentPort?: number | null;
   }) => request<Worker>(`/workers/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
 

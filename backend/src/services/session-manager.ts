@@ -11,6 +11,8 @@ export class SessionManager extends EventEmitter {
   private activePtys = new Map<string, PtyProcess>();
   // Track which sessions are remote (for input routing)
   private remoteSessions = new Set<string>();
+  // Track sessions spawned with --continue and their start time (for retry without -c on failure)
+  private continueSessions = new Map<string, number>();
 
   private _shellSpawner: ShellSpawner | null = null;
   private _remotePtyBridge: RemotePtyBridge | null = null;
@@ -128,6 +130,7 @@ export class SessionManager extends EventEmitter {
       return this.ptySpawner.spawn(session.id, session.workingDirectory, args, enabledExtensions);
     } else {
       log.info({ dir: session.workingDirectory }, 'spawning claude with --continue');
+      this.continueSessions.set(session.id, Date.now());
       return this.ptySpawner.spawn(session.id, session.workingDirectory, ['--continue'], enabledExtensions);
     }
   }
@@ -327,10 +330,29 @@ export class SessionManager extends EventEmitter {
       this.activePtys.delete(sessionId);
 
       if (exitCode === 0) {
+        this.continueSessions.delete(sessionId);
         log.info({ claudeSessionId }, 'session completed');
         this.repo.completeSession(sessionId, claudeSessionId);
         this.emit('session_completed', sessionId, claudeSessionId);
       } else {
+        // If this was a --continue session that failed quickly, retry without --continue
+        const continueStartTime = this.continueSessions.get(sessionId);
+        this.continueSessions.delete(sessionId);
+        if (continueStartTime && (Date.now() - continueStartTime) < 30_000) {
+          log.warn({ exitCode }, '--continue failed, retrying without --continue flag');
+          try {
+            const session = this.repo.getSession(sessionId);
+            if (session) {
+              const enabledExtensions = this.repo.getSessionExtensions(sessionId);
+              const ptyProc = this.ptySpawner.spawn(sessionId, session.workingDirectory, [], enabledExtensions);
+              this.activePtys.set(sessionId, ptyProc);
+              this.repo.activateSession(sessionId, ptyProc.pid);
+              return; // Don't mark as failed — we're retrying
+            }
+          } catch (retryErr) {
+            log.error({ err: retryErr }, 'retry without --continue also failed');
+          }
+        }
         log.warn({ exitCode }, 'session failed');
         this.repo.failSession(sessionId);
         this.emit('session_failed', sessionId);

@@ -46,7 +46,7 @@ export function WorkerSelector({ workers, selectedWorkerId, onChange, onRequestA
                 disabled={w.status !== 'connected'}
               >
                 {w.status === 'connected' ? '\u25CF' : '\u25CB'}{' '}
-                {w.name} ({w.type}) — {w.activeSessionCount ?? 0}/{w.maxSessions} sessions
+                {w.name} ({w.type})
               </option>
             ))}
           </select>

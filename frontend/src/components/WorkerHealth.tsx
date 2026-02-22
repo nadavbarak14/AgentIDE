@@ -53,7 +53,6 @@ export function WorkerHealth({ workers }: WorkerHealthProps) {
         >
           <span className={`w-2 h-2 rounded-full ${statusColor(w.status)} ${w.status === 'error' ? 'animate-pulse' : ''}`} />
           <span className="hidden sm:inline">{w.name}</span>
-          <span className="text-gray-600">{w.activeSessionCount ?? 0}/{w.maxSessions}</span>
 
           {/* Tooltip popover */}
           {tooltip === w.id && (
@@ -66,10 +65,6 @@ export function WorkerHealth({ workers }: WorkerHealthProps) {
                   <span className={w.status === 'connected' ? 'text-green-400' : w.status === 'error' ? 'text-red-400' : 'text-gray-400'}>
                     {w.status}
                   </span>
-                </p>
-                <p className="flex justify-between">
-                  <span className="text-gray-500">Sessions</span>
-                  <span>{w.activeSessionCount ?? 0} / {w.maxSessions}</span>
                 </p>
                 {w.lastHeartbeat && (
                   <p className="flex justify-between">
