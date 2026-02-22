@@ -4,7 +4,7 @@ import { workers as workersApi, type Worker } from '../services/api';
 const INPUT_CLS = 'w-full px-2 py-1.5 text-sm bg-gray-900 border border-gray-600 rounded text-white placeholder-gray-500';
 const STATUS_COLORS: Record<string, string> = { connected: 'bg-green-500', disconnected: 'bg-gray-500', error: 'bg-red-500' };
 
-const EMPTY_FORM = { name: '', sshHost: '', sshUser: '', sshKeyPath: '', sshPort: '22', maxSessions: '2', remoteAgentPort: '' };
+const EMPTY_FORM = { name: '', sshHost: '', sshUser: '', sshKeyPath: '', sshPort: '22', remoteAgentPort: '' };
 
 export function WorkerList() {
   const [workerList, setWorkerList] = useState<Worker[]>([]);
@@ -33,7 +33,6 @@ export function WorkerList() {
         sshUser: form.sshUser,
         sshKeyPath: form.sshKeyPath,
         sshPort: parseInt(form.sshPort) || 22,
-        maxSessions: parseInt(form.maxSessions) || 2,
         remoteAgentPort: form.remoteAgentPort ? parseInt(form.remoteAgentPort) : null,
       });
       setWorkerList((prev) => [...prev, worker]);
@@ -52,7 +51,6 @@ export function WorkerList() {
       sshUser: worker.sshUser ?? '',
       sshKeyPath: worker.sshKeyPath ?? '',
       sshPort: String(worker.sshPort ?? 22),
-      maxSessions: String(worker.maxSessions ?? 2),
       remoteAgentPort: worker.remoteAgentPort != null ? String(worker.remoteAgentPort) : '',
     });
   };
@@ -66,10 +64,9 @@ export function WorkerList() {
         sshUser: editForm.sshUser,
         sshKeyPath: editForm.sshKeyPath,
         sshPort: editForm.sshPort ? parseInt(editForm.sshPort) : undefined,
-        maxSessions: editForm.maxSessions ? parseInt(editForm.maxSessions) : undefined,
         remoteAgentPort: editForm.remoteAgentPort ? parseInt(editForm.remoteAgentPort) : null,
       });
-      setWorkerList((prev) => prev.map((w) => (w.id === id ? { ...updated, activeSessionCount: w.activeSessionCount } : w)));
+      setWorkerList((prev) => prev.map((w) => (w.id === id ? updated : w)));
       setEditingId(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save');
@@ -139,7 +136,6 @@ export function WorkerList() {
           <input placeholder="SSH Key Path (e.g. ~/.ssh/id_ed25519)" value={form.sshKeyPath} onChange={(e) => setForm({ ...form, sshKeyPath: e.target.value })} className={INPUT_CLS} required />
           <div className="flex gap-2">
             <input placeholder="SSH Port" value={form.sshPort} onChange={(e) => setForm({ ...form, sshPort: e.target.value })} className="w-24 px-2 py-1.5 text-sm bg-gray-900 border border-gray-600 rounded text-white" />
-            <input placeholder="Max Sessions" value={form.maxSessions} onChange={(e) => setForm({ ...form, maxSessions: e.target.value })} className="w-28 px-2 py-1.5 text-sm bg-gray-900 border border-gray-600 rounded text-white" />
             <input placeholder="Agent Port (optional)" value={form.remoteAgentPort} onChange={(e) => setForm({ ...form, remoteAgentPort: e.target.value })} className="flex-1 px-2 py-1.5 text-sm bg-gray-900 border border-gray-600 rounded text-white" />
           </div>
           <p className="text-xs text-gray-500">Agent Port: port where the remote-agent is listening on the SSH server (enables file tree, git diff, search)</p>
@@ -157,7 +153,6 @@ export function WorkerList() {
               <input value={editForm.sshKeyPath ?? ''} onChange={(e) => setEditForm({ ...editForm, sshKeyPath: e.target.value })} placeholder="SSH Key Path" className={INPUT_CLS} />
               <div className="flex gap-2">
                 <input value={editForm.sshPort ?? ''} onChange={(e) => setEditForm({ ...editForm, sshPort: e.target.value })} placeholder="SSH Port" className="w-24 px-2 py-1.5 text-sm bg-gray-900 border border-gray-600 rounded text-white" />
-                <input value={editForm.maxSessions ?? ''} onChange={(e) => setEditForm({ ...editForm, maxSessions: e.target.value })} placeholder="Max Sessions" className="w-28 px-2 py-1.5 text-sm bg-gray-900 border border-gray-600 rounded text-white" />
                 <input value={editForm.remoteAgentPort ?? ''} onChange={(e) => setEditForm({ ...editForm, remoteAgentPort: e.target.value })} placeholder="Agent Port" className="flex-1 px-2 py-1.5 text-sm bg-gray-900 border border-gray-600 rounded text-white" />
               </div>
               <div className="flex gap-2">
@@ -198,7 +193,6 @@ export function WorkerList() {
                 </div>
               </div>
               {worker.sshHost && <p className="text-xs text-gray-500 mt-1">{worker.sshUser}@{worker.sshHost}:{worker.sshPort}</p>}
-              <p className="text-xs text-gray-500">Sessions: {worker.activeSessionCount ?? 0}/{worker.maxSessions}</p>
               {testResult[worker.id] && (
                 <p className={`text-xs mt-1 ${testResult[worker.id].startsWith('✓') || testResult[worker.id].startsWith('OK') ? 'text-green-400' : testResult[worker.id].startsWith('⚠') ? 'text-yellow-400' : 'text-red-400'}`}>
                   {testResult[worker.id]}

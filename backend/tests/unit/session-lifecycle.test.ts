@@ -108,7 +108,7 @@ describe('Session Lifecycle — No queue, immediate activation', () => {
   });
 
   it('marks session as failed on non-zero exit', () => {
-    const s1 = sessionManager.createSession({ workingDirectory: '/p1', title: 'S1' });
+    const s1 = sessionManager.createSession({ workingDirectory: '/p1', title: 'S1', startFresh: true });
     fakeSpawner.simulateExit(s1.id, 1, null);
 
     expect(repo.getSession(s1.id)!.status).toBe('failed');

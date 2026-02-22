@@ -55,7 +55,6 @@ interface WorkerFormData {
   sshUser: string;
   sshKeyPath: string;
   sshPort: number;
-  maxSessions: number;
   remoteAgentPort: string;
 }
 
@@ -65,7 +64,6 @@ const emptyForm: WorkerFormData = {
   sshUser: '',
   sshKeyPath: '',
   sshPort: 22,
-  maxSessions: 2,
   remoteAgentPort: '',
 };
 
@@ -147,7 +145,6 @@ export function SettingsPanel({ settings, onSettingsChange, workers, onWorkersCh
       sshUser: w.sshUser || '',
       sshKeyPath: w.sshKeyPath || '',
       sshPort: w.sshPort || 22,
-      maxSessions: w.maxSessions,
       remoteAgentPort: w.remoteAgentPort != null ? String(w.remoteAgentPort) : '',
     });
     setEditingId(w.id);
@@ -165,13 +162,12 @@ export function SettingsPanel({ settings, onSettingsChange, workers, onWorkersCh
     try {
       if (editingId) {
         const agentPort = form.remoteAgentPort ? parseInt(form.remoteAgentPort) : null;
-      const updated = await workersApi.update(editingId, {
+        const updated = await workersApi.update(editingId, {
           name: form.name.trim(),
           sshHost: form.sshHost.trim(),
           sshUser: form.sshUser.trim(),
           sshKeyPath: form.sshKeyPath.trim(),
           sshPort: form.sshPort,
-          maxSessions: form.maxSessions,
           remoteAgentPort: agentPort,
         });
         onWorkersChange(workers.map((w) => (w.id === editingId ? updated : w)));
@@ -183,7 +179,6 @@ export function SettingsPanel({ settings, onSettingsChange, workers, onWorkersCh
           sshUser: form.sshUser.trim(),
           sshKeyPath: form.sshKeyPath.trim(),
           sshPort: form.sshPort,
-          maxSessions: form.maxSessions,
           remoteAgentPort: agentPort,
         });
         onWorkersChange([...workers, created]);
@@ -294,9 +289,6 @@ export function SettingsPanel({ settings, onSettingsChange, workers, onWorkersCh
                     <div className="p-2 bg-red-900/20 border border-red-800/30 rounded text-xs">
                       <p className="text-gray-300 mb-1.5">
                         Remove <span className="font-medium text-white">{w.name}</span>?
-                        {(w.activeSessionCount ?? 0) > 0 && (
-                          <span className="text-amber-400"> ({w.activeSessionCount} active sessions)</span>
-                        )}
                       </p>
                       <div className="flex gap-2">
                         <button
@@ -319,9 +311,6 @@ export function SettingsPanel({ settings, onSettingsChange, workers, onWorkersCh
                       <span className="text-sm text-gray-200 truncate flex-1">{w.name}</span>
                       <span className="text-[10px] text-gray-500">
                         {w.type === 'remote' ? w.sshHost : 'localhost'}
-                      </span>
-                      <span className="text-[10px] text-gray-600">
-                        {w.activeSessionCount ?? 0}/{w.maxSessions}
                       </span>
 
                       {/* Test result indicator */}
@@ -406,17 +395,6 @@ export function SettingsPanel({ settings, onSettingsChange, workers, onWorkersCh
                   onChange={(v) => setForm((f) => ({ ...f, sshKeyPath: v }))}
                   placeholder="SSH Key Path (e.g., ~/.ssh/id_rsa)"
                 />
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-gray-400">Max sessions:</span>
-                  <input
-                    type="number"
-                    value={form.maxSessions}
-                    min={1}
-                    max={20}
-                    onChange={(e) => setForm((f) => ({ ...f, maxSessions: parseInt(e.target.value) || 2 }))}
-                    className="w-14 px-2 py-1 text-xs bg-gray-800 border border-gray-600 rounded text-white focus:border-blue-500 focus:outline-none"
-                  />
-                </div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-gray-400">Agent port:</span>
                   <input
