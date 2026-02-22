@@ -54,7 +54,6 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
   // Initialize services
   const ptySpawner = new PtySpawner({ hubPort: port });
   const shellSpawner = new ShellSpawner();
-  const queueManager = new QueueManager(repo);
   const workerManager = new WorkerManager(repo, port);
   const tunnelManager = workerManager.getTunnelManager();
   const agentTunnelManager = workerManager.getAgentTunnelManager();
@@ -657,7 +656,6 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
   // Graceful shutdown
   const shutdown = () => {
     logger.info('shutting down...');
-    queueManager.stopAutoDispatch();
     for (const [, ws] of agentWsConnections) {
       ws.close();
     }

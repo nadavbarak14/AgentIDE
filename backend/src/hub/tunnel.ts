@@ -4,12 +4,15 @@ import fs from 'node:fs';
 import { Client, type ClientChannel } from 'ssh2';
 import { createWorkerLogger } from '../services/logger.js';
 
+/** Port on the remote machine where the reverse tunnel binds (must not conflict with remote services) */
+export const REVERSE_TUNNEL_PORT = 43000;
+
 export interface TunnelConfig {
   host: string;
   port: number;
   username: string;
   privateKeyPath: string;
-  /** If set, establishes a reverse port forward so processes on the remote machine can reach the hub at localhost:hubPort */
+  /** If set, establishes a reverse port forward so processes on the remote machine can reach the hub via localhost:REVERSE_TUNNEL_PORT → hub:hubPort */
   hubPort?: number;
 }
 
@@ -30,13 +33,13 @@ export class TunnelManager extends EventEmitter {
         this.reconnectDelay.set(workerId, 1000);
         this.emit('connected', workerId);
 
-        // Request reverse port forward so remote processes can reach hub at localhost:hubPort
+        // Request reverse port forward so remote processes can reach hub at localhost:REVERSE_TUNNEL_PORT
         if (config.hubPort) {
-          client.forwardIn('127.0.0.1', config.hubPort, (err, boundPort) => {
+          client.forwardIn('127.0.0.1', REVERSE_TUNNEL_PORT, (err, boundPort) => {
             if (err) {
-              log.warn({ err: err.message }, 'reverse port forward request failed');
+              log.warn({ err: err.message, port: REVERSE_TUNNEL_PORT }, 'reverse port forward request failed');
             } else {
-              log.info({ port: boundPort || config.hubPort }, 'reverse port forward active: remote localhost → hub');
+              log.info({ remotePort: boundPort || REVERSE_TUNNEL_PORT, hubPort: config.hubPort }, 'reverse port forward active');
             }
           });
         }
@@ -45,9 +48,11 @@ export class TunnelManager extends EventEmitter {
       });
 
       // Handle incoming TCP connections from the remote side (reverse tunnel)
-      client.on('tcp connection', (info, accept) => {
+      // Remote connects to REVERSE_TUNNEL_PORT → forward to local hubPort
+      client.on('tcp connection', (_info, accept) => {
         const channel = accept();
-        const local = net.createConnection(info.destPort, '127.0.0.1');
+        const localPort = config.hubPort || 3000;
+        const local = net.createConnection(localPort, '127.0.0.1');
         channel.pipe(local);
         local.pipe(channel);
         local.on('error', () => { try { channel.destroy(); } catch { /* ignore */ } });
