@@ -211,8 +211,19 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
   });
 
   // Reconnect existing remote workers on startup (fire and forget)
+  // After connecting, re-register any active sessions with the remote agent
   for (const worker of repo.listWorkers().filter((w) => w.type === 'remote')) {
-    workerManager.connectWorker(worker).catch((err: Error) => {
+    workerManager.connectWorker(worker).then(() => {
+      if (!worker.remoteAgentPort) return;
+      // Re-register all active sessions for this worker with the remote agent
+      const activeSessions = repo.listSessions().filter(
+        (s) => s.workerId === worker.id && s.status === 'active',
+      );
+      for (const session of activeSessions) {
+        registerWithAgent(session.id, session.workingDirectory, session.pid ?? null, worker.id);
+        logger.info({ sessionId: session.id, workerId: worker.id }, 're-registered session with remote agent on startup');
+      }
+    }).catch((err: Error) => {
       logger.warn({ workerId: worker.id, host: worker.sshHost, err: err.message }, 'failed to reconnect worker on startup');
     });
   }
