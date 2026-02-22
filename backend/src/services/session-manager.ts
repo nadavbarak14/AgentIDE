@@ -142,26 +142,32 @@ export class SessionManager extends EventEmitter {
     isStartFresh: boolean,
     log: ReturnType<typeof createSessionLogger>,
   ): PtyProcess {
+    // Get per-session enabled extensions for skill filtering
+    const enabledExtensions = this.repo.getSessionExtensions(session.id);
+    log.info({ enabledExtensions }, 'session enabled extensions');
+
     if (session.continuationCount > 0 && session.claudeSessionId) {
       log.info({ claudeSessionId: session.claudeSessionId }, 'resuming specific conversation with claude --resume');
       return this.ptySpawner.spawnResume(
         session.id,
         session.workingDirectory,
         session.claudeSessionId,
+        enabledExtensions,
       );
     } else if (session.continuationCount > 0) {
       log.info('continuing session with claude -c (no claudeSessionId available)');
       return this.ptySpawner.spawnContinue(
         session.id,
         session.workingDirectory,
+        enabledExtensions,
       );
     } else if (isStartFresh || session.worktree) {
       const args = session.worktree ? ['--worktree'] : [];
       log.info({ worktree: session.worktree, startFresh: isStartFresh }, 'spawning new claude process');
-      return this.ptySpawner.spawn(session.id, session.workingDirectory, args);
+      return this.ptySpawner.spawn(session.id, session.workingDirectory, args, enabledExtensions);
     } else {
       log.info({ dir: session.workingDirectory }, 'spawning claude with --continue');
-      return this.ptySpawner.spawn(session.id, session.workingDirectory, ['--continue']);
+      return this.ptySpawner.spawn(session.id, session.workingDirectory, ['--continue'], enabledExtensions);
     }
   }
 

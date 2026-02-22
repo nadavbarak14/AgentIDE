@@ -550,13 +550,19 @@ export class Repository {
       panelWidthPercent: number;
     },
   ): void {
+    // Preserve enabled_extensions across INSERT OR REPLACE
+    const existing = this.db
+      .prepare('SELECT enabled_extensions FROM panel_states WHERE session_id = ?')
+      .get(sessionId) as { enabled_extensions: string } | undefined;
+    const enabledExt = existing?.enabled_extensions || '[]';
+
     this.db
       .prepare(
         `INSERT OR REPLACE INTO panel_states
          (session_id, active_panel, left_panel, right_panel, left_width_percent, right_width_percent,
           file_tabs, active_tab_index, tab_scroll_positions,
-          git_scroll_position, preview_url, panel_width_percent, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+          git_scroll_position, preview_url, panel_width_percent, enabled_extensions, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
       )
       .run(
         sessionId,
@@ -571,11 +577,35 @@ export class Repository {
         input.gitScrollPosition,
         input.previewUrl,
         input.panelWidthPercent,
+        enabledExt,
       );
   }
 
   deletePanelState(sessionId: string): void {
     this.db.prepare('DELETE FROM panel_states WHERE session_id = ?').run(sessionId);
+  }
+
+  // ─── Session Extensions ───
+
+  getSessionExtensions(sessionId: string): string[] {
+    const row = this.db
+      .prepare('SELECT enabled_extensions FROM panel_states WHERE session_id = ?')
+      .get(sessionId) as { enabled_extensions: string } | undefined;
+    if (!row) return [];
+    try { return JSON.parse(row.enabled_extensions); } catch { return []; }
+  }
+
+  setSessionExtensions(sessionId: string, enabled: string[]): void {
+    const json = JSON.stringify(enabled);
+    // Upsert: if panel_states row exists, update; otherwise insert minimal row
+    const existing = this.db.prepare('SELECT 1 FROM panel_states WHERE session_id = ?').get(sessionId);
+    if (existing) {
+      this.db.prepare("UPDATE panel_states SET enabled_extensions = ?, updated_at = datetime('now') WHERE session_id = ?")
+        .run(json, sessionId);
+    } else {
+      this.db.prepare("INSERT INTO panel_states (session_id, enabled_extensions, updated_at) VALUES (?, ?, datetime('now'))")
+        .run(sessionId, json);
+    }
   }
 
   // ─── Comments ───

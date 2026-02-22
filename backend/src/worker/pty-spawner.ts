@@ -90,9 +90,9 @@ export class PtySpawner extends EventEmitter {
     return settingsPath;
   }
 
-  spawn(sessionId: string, workingDirectory: string, args: string[] = []): PtyProcess {
+  spawn(sessionId: string, workingDirectory: string, args: string[] = [], enabledExtensions?: string[]): PtyProcess {
     const log = createSessionLogger(sessionId);
-    log.info({ workingDirectory, args }, 'spawning claude process');
+    log.info({ workingDirectory, args, enabledExtensions }, 'spawning claude process');
 
     // Build a clean environment for the child process.
     // Remove Claude Code env vars to avoid "nested session" detection.
@@ -111,13 +111,50 @@ export class PtySpawner extends EventEmitter {
     fullArgs.push(...args);
 
     // Copy skills into session's working directory for local access
+    // If enabledExtensions is set, only copy skills for those extensions (+ built-in)
     const bundledSkillsDir = path.resolve(import.meta.dirname, '../../../.claude-skills/skills');
+    const extensionsDir = path.resolve(import.meta.dirname, '../../../extensions');
     const sessionSkillsDir = path.join(workingDirectory, '.claude', 'skills');
     try {
       if (fs.existsSync(bundledSkillsDir)) {
+        // Clear previous skills for clean state
+        if (fs.existsSync(sessionSkillsDir)) fs.rmSync(sessionSkillsDir, { recursive: true, force: true });
         fs.mkdirSync(sessionSkillsDir, { recursive: true });
-        fs.cpSync(bundledSkillsDir, sessionSkillsDir, { recursive: true });
-        log.info({ sessionSkillsDir }, 'injected skills into session working directory');
+
+        if (enabledExtensions && enabledExtensions.length >= 0) {
+          // Build set of extension-related skill names to include
+          const extSkillNames = new Set<string>();
+          for (const extName of enabledExtensions) {
+            const manifestPath = path.join(extensionsDir, extName, 'manifest.json');
+            if (!fs.existsSync(manifestPath)) continue;
+            try {
+              const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+              if (manifest.panel) {
+                extSkillNames.add(`${extName}.open`);
+                extSkillNames.add(`${extName}.comment`);
+                extSkillNames.add(`${extName}.select-text`);
+              }
+              for (const s of manifest.skills || []) {
+                extSkillNames.add(s.split('/').pop()!);
+              }
+            } catch { /* skip bad manifest */ }
+          }
+
+          // Copy each skill: built-in skills always, extension skills only if enabled
+          for (const entry of fs.readdirSync(bundledSkillsDir, { withFileTypes: true })) {
+            if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+            const isExtensionSkill = this.isExtensionSkill(entry.name, extensionsDir);
+            if (isExtensionSkill && !extSkillNames.has(entry.name)) continue;
+            const src = path.join(bundledSkillsDir, entry.name);
+            const dest = path.join(sessionSkillsDir, entry.name);
+            fs.cpSync(src, dest, { recursive: true, dereference: true });
+          }
+          log.info({ sessionSkillsDir, enabledExtensions, skillCount: fs.readdirSync(sessionSkillsDir).length }, 'injected filtered skills into session');
+        } else {
+          // No filter — copy all skills
+          fs.cpSync(bundledSkillsDir, sessionSkillsDir, { recursive: true });
+          log.info({ sessionSkillsDir }, 'injected all skills into session working directory');
+        }
       }
     } catch (err) {
       log.warn({ err, sessionSkillsDir }, 'failed to inject skills into session');
@@ -193,16 +230,16 @@ export class PtySpawner extends EventEmitter {
     };
   }
 
-  spawnContinue(sessionId: string, workingDirectory: string): PtyProcess {
+  spawnContinue(sessionId: string, workingDirectory: string, enabledExtensions?: string[]): PtyProcess {
     const log = createSessionLogger(sessionId);
     log.info('spawning claude -c (continue) process');
-    return this.spawn(sessionId, workingDirectory, ['-c']);
+    return this.spawn(sessionId, workingDirectory, ['-c'], enabledExtensions);
   }
 
-  spawnResume(sessionId: string, workingDirectory: string, claudeSessionId: string): PtyProcess {
+  spawnResume(sessionId: string, workingDirectory: string, claudeSessionId: string, enabledExtensions?: string[]): PtyProcess {
     const log = createSessionLogger(sessionId);
     log.info({ claudeSessionId }, 'spawning claude --resume (specific conversation) process');
-    return this.spawn(sessionId, workingDirectory, ['--resume', claudeSessionId]);
+    return this.spawn(sessionId, workingDirectory, ['--resume', claudeSessionId], enabledExtensions);
   }
 
   getProcess(sessionId: string): pty.IPty | undefined {
@@ -361,5 +398,32 @@ export class PtySpawner extends EventEmitter {
       }
       this.cleanup(sessionId);
     }
+  }
+
+  /** Check if a skill name belongs to an extension (auto-skill or custom symlink) */
+  private isExtensionSkill(skillName: string, extensionsDir: string): boolean {
+    // Auto-skills follow the pattern: <extName>.open / .comment / .select-text
+    const autoSuffixes = ['.open', '.comment', '.select-text'];
+    for (const suffix of autoSuffixes) {
+      if (skillName.endsWith(suffix)) {
+        const extName = skillName.slice(0, -suffix.length);
+        if (fs.existsSync(path.join(extensionsDir, extName, 'manifest.json'))) return true;
+      }
+    }
+    // Check if any extension declares this as a custom skill
+    if (fs.existsSync(extensionsDir)) {
+      for (const entry of fs.readdirSync(extensionsDir, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const manifestPath = path.join(extensionsDir, entry.name, 'manifest.json');
+        if (!fs.existsSync(manifestPath)) continue;
+        try {
+          const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+          for (const s of manifest.skills || []) {
+            if (s.split('/').pop() === skillName) return true;
+          }
+        } catch { /* skip */ }
+      }
+    }
+    return false;
   }
 }
