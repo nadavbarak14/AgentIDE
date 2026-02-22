@@ -56,6 +56,8 @@ describe('useKeyboardShortcuts', () => {
         'confirm_session',
         'show_help',
         'search_files',
+        'zoom_session',
+        'kill_session',
       ];
 
       const mapActions = DEFAULT_SHORTCUT_MAP.map((s) => s.action);
@@ -207,7 +209,7 @@ describe('useKeyboardShortcuts', () => {
       });
 
       act(() => {
-        fireKeyDown('z');
+        fireKeyDown('x'); // x is not registered
       });
 
       expect(result.current.isArmed).toBe(false);

@@ -116,28 +116,86 @@ describe('SessionCard', () => {
     expect(screen.getByText('PID 42000')).toBeInTheDocument();
   });
 
-  it('shows Kill button for active sessions', () => {
+  it('shows X close button for active sessions with kill tooltip', () => {
     render(<SessionCard session={createMockSession({ status: 'active' })} />);
-    expect(screen.getByTitle('Kill session')).toBeInTheDocument();
+    const closeBtn = screen.getByTestId('close-button');
+    expect(closeBtn).toBeInTheDocument();
+    expect(closeBtn.getAttribute('title')).toBe('Kill session (Ctrl+. K)');
   });
 
-  it('does not show Continue button for completed sessions', () => {
+  it('shows X close button for completed sessions with remove tooltip', () => {
+    render(<SessionCard session={createMockSession({ status: 'completed' })} />);
+    const closeBtn = screen.getByTestId('close-button');
+    expect(closeBtn).toBeInTheDocument();
+    expect(closeBtn.getAttribute('title')).toBe('Remove session');
+  });
+
+  it('X button calls onKill for active sessions', () => {
+    const onKill = vi.fn();
+    render(
+      <SessionCard
+        session={createMockSession({ status: 'active', id: 'sess-1' })}
+        onKill={onKill}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('close-button'));
+    expect(onKill).toHaveBeenCalledWith('sess-1');
+  });
+
+  it('X button calls onDelete for completed sessions', () => {
+    const onDelete = vi.fn();
+    render(
+      <SessionCard
+        session={createMockSession({ status: 'completed', id: 'sess-1' })}
+        onDelete={onDelete}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('close-button'));
+    expect(onDelete).toHaveBeenCalledWith('sess-1');
+  });
+
+  it('shows Continue button for completed sessions with claudeSessionId', () => {
     render(
       <SessionCard
         session={createMockSession({ status: 'completed', claudeSessionId: 'abc123' })}
       />,
     );
+    expect(screen.getByTitle('Continue with claude -c')).toBeInTheDocument();
+  });
+
+  it('does not show Continue button for completed sessions without claudeSessionId', () => {
+    render(
+      <SessionCard
+        session={createMockSession({ status: 'completed', claudeSessionId: null })}
+      />,
+    );
     expect(screen.queryByTitle('Continue with claude -c')).not.toBeInTheDocument();
   });
 
-  it('shows Delete button for non-active sessions', () => {
-    render(<SessionCard session={createMockSession({ status: 'completed' })} />);
-    expect(screen.getByTitle('Delete')).toBeInTheDocument();
+  // Zoom button tests
+  it('renders zoom button with expand tooltip when not zoomed', () => {
+    render(<SessionCard session={createMockSession({ status: 'active' })} />);
+    const zoomBtn = screen.getByTestId('zoom-button');
+    expect(zoomBtn).toBeInTheDocument();
+    expect(zoomBtn.getAttribute('title')).toBe('Zoom session (Ctrl+. Z)');
   });
 
-  it('does not show Delete button for active sessions', () => {
-    render(<SessionCard session={createMockSession({ status: 'active' })} />);
-    expect(screen.queryByTitle('Delete')).not.toBeInTheDocument();
+  it('renders zoom button with compress tooltip when zoomed', () => {
+    render(<SessionCard session={createMockSession({ status: 'active' })} isZoomed={true} />);
+    const zoomBtn = screen.getByTestId('zoom-button');
+    expect(zoomBtn.getAttribute('title')).toBe('Unzoom session (Ctrl+. Z)');
+  });
+
+  it('calls onToggleZoom when zoom button is clicked', () => {
+    const onToggleZoom = vi.fn();
+    render(
+      <SessionCard
+        session={createMockSession({ status: 'active', id: 'sess-1' })}
+        onToggleZoom={onToggleZoom}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('zoom-button'));
+    expect(onToggleZoom).toHaveBeenCalledWith('sess-1');
   });
 
   it('shows current session indicator when isCurrent is true', () => {

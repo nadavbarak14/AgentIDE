@@ -25,6 +25,8 @@ interface SessionCardProps {
   onToggleLock?: (id: string, lock: boolean) => void;
   onDelete?: (id: string) => void;
   onSetCurrent?: (id: string) => void;
+  isZoomed?: boolean;
+  onToggleZoom?: (id: string) => void;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -43,6 +45,8 @@ export function SessionCard({
   onToggleLock,
   onDelete,
   onSetCurrent,
+  isZoomed = false,
+  onToggleZoom,
 }: SessionCardProps) {
   const panel = usePanel(session.id);
   const { extensionsWithPanel, getExtension, refresh: refreshExtensions } = useExtensions();
@@ -1088,13 +1092,22 @@ export function SessionCard({
         )}
         <div className="flex items-center gap-1 flex-shrink-0">
           <span className="text-xs text-gray-500">{session.status}</span>
-          {session.status === 'active' && (
+          <button
+            onClick={() => onToggleZoom?.(session.id)}
+            className="px-1 py-0.5 text-xs text-gray-400 hover:bg-blue-500/20 hover:text-blue-400 rounded relative"
+            title={isZoomed ? 'Unzoom session (Ctrl+. Z)' : 'Zoom session (Ctrl+. Z)'}
+            data-testid="zoom-button"
+          >
+            {isZoomed ? '\u29C9' : '\u25A1'}
+            {chordArmed && isCurrent && <span className="ml-1 px-1 py-px bg-blue-600 text-white text-[10px] rounded font-mono animate-pulse">Z</span>}
+          </button>
+          {session.status === 'completed' && session.claudeSessionId && (
             <button
-              onClick={() => onKill?.(session.id)}
-              className="px-1.5 py-0.5 text-xs text-red-400 hover:bg-red-500/20 rounded"
-              title="Kill session"
+              onClick={() => sessionsApi.input(session.id, '/continue\n').catch(() => {})}
+              className="px-1.5 py-0.5 text-xs text-blue-400 hover:bg-blue-500/20 rounded"
+              title="Continue with claude -c"
             >
-              Kill
+              Continue
             </button>
           )}
           <button
@@ -1106,15 +1119,18 @@ export function SessionCard({
           >
             {session.lock ? 'Unpin' : 'Pin'}
           </button>
-          {session.status !== 'active' && (
-            <button
-              onClick={() => onDelete?.(session.id)}
-              className="px-1.5 py-0.5 text-xs text-gray-500 hover:bg-red-500/20 hover:text-red-400 rounded"
-              title="Delete"
-            >
-              ×
-            </button>
-          )}
+          <button
+            onClick={() => {
+              if (session.status === 'active') { onKill?.(session.id); }
+              else { onDelete?.(session.id); }
+            }}
+            className="px-1.5 py-0.5 text-xs text-gray-400 hover:bg-red-500/20 hover:text-red-400 rounded relative"
+            title={session.status === 'active' ? 'Kill session (Ctrl+. K)' : 'Remove session'}
+            data-testid="close-button"
+          >
+            ×
+            {chordArmed && isCurrent && <span className="ml-1 px-1 py-px bg-blue-600 text-white text-[10px] rounded font-mono animate-pulse">K</span>}
+          </button>
         </div>
       </div>
 
