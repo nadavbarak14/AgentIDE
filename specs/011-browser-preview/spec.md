@@ -27,6 +27,12 @@ This spec covers **new capabilities** layered on top of the existing preview inf
 - Q: Should `/view.click` and `/view.type` target elements by CSS selector, accessible name+role, or both? → A: Accessible name + role (e.g., `button "Sign In"`) — matches the accessibility tree output for a natural read→act loop.
 - Q: Should action skills (`/view.click`, `/view.navigate`, `/view.type`) auto-return the updated accessibility tree, or require a separate `/view.read-page` call? → A: Only return success/error — agent must call `/view.read-page` separately for explicit control.
 
+### Session 2026-02-22
+
+- Q: When a user navigates away from the preview panel (to queue or another panel) and returns, what should happen to the preview content and recording state? → A: Keep preview content & state frozen (iframe doesn't refresh, recording continues if active). This maintains user context and allows recordings to persist across panel switches.
+- Q: When a tab is in "waiting" (yellow) state, how should the focus indicator remain visible? → A: Use blue border/outline + yellow background fill. The blue border signals focus while the yellow fill signals waiting state, making both conditions visible simultaneously.
+- Q: How should the preview control buttons (inspect/select, screenshot, record) be presented in the toolbar? → A: Icon buttons with tooltips on hover. Keep the toolbar compact while being discoverable — tooltips appear on hover showing the full action name (e.g., "Select element", "Capture screenshot", "Record video").
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Element Selection & Visual Commenting (Priority: P1)
@@ -203,6 +209,9 @@ The agent uses `/view.*` skills dispatched through the existing board command pr
 - **FR-029**: System MUST provide `/view.read-page` agent skill that returns the page's accessibility tree (ARIA roles, accessible names, labels, states for interactive elements) — compact and token-efficient.
 - **FR-030**: All preview-related agent skills MUST use the `/view.*` namespace prefix.
 - **FR-031**: Agent skills MUST use the existing board command protocol (no MCP overhead) — dispatched via `POST /api/sessions/:id/board-command`, relayed through WebSocket to the frontend, and executed by the bridge script in the iframe.
+- **FR-032**: System MUST preserve preview panel state (content, iframe DOM, recording state) when user navigates away from the preview panel and returns. The iframe MUST NOT refresh, and any active recording MUST continue uninterrupted.
+- **FR-033**: System MUST display tab focus state with a blue border/outline around the tab when focused, and simultaneously display waiting state with a yellow background fill, making both states visually distinct and clear.
+- **FR-034**: System MUST present preview control buttons (inspect/select, screenshot, record) as compact icon buttons in the toolbar with tooltips displayed on hover showing the full action name (e.g., "Select element", "Capture screenshot", "Record video").
 
 ### Skill Naming Convention
 
