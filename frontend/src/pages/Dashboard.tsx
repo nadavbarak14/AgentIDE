@@ -59,13 +59,33 @@ export function Dashboard() {
   // ── Frozen Display Model ──────────────────────────────────────────
   // displayedIds: IDs of sessions shown in the main grid.
   // FROZEN by default — only changes on explicit triggers:
-  //   1. User sends input (Enter) → rebuild from priority order
+  //   1. User sends input (Enter) → swap that slot with next in FIFO queue
   //   2. User clicks a session → swap it into view
   //   3. A displayed session becomes inactive → fill its slot
   //   4. A new session activates with available slots → add it
   //   5. maxVisible changes → resize
 
   const [displayedIds, setDisplayedIds] = useState<string[]>([]);
+
+  // FIFO queue: tracks the order sessions entered needsInput state.
+  // Oldest needsInput session gets priority when a slot opens.
+  const needsInputQueueRef = useRef<string[]>([]);
+  useEffect(() => {
+    const currentNeedsInput = new Set(
+      activeSessions.filter((s) => s.needsInput).map((s) => s.id),
+    );
+    // Remove sessions that no longer need input
+    needsInputQueueRef.current = needsInputQueueRef.current.filter((id) =>
+      currentNeedsInput.has(id),
+    );
+    // Append new needsInput sessions (FIFO — new ones go to the back)
+    const inQueue = new Set(needsInputQueueRef.current);
+    for (const id of currentNeedsInput) {
+      if (!inQueue.has(id)) {
+        needsInputQueueRef.current.push(id);
+      }
+    }
+  }, [activeSessions]);
 
   // Keep refs to latest data for use in callbacks without stale closures
   const focusSessionsRef = useRef(focusSessions);
@@ -152,29 +172,58 @@ export function Dashboard() {
     }
   }, [activeSessions, displayedIds, maxVisible]);
 
-  // Trigger 1: User sent input (Enter key) → rebuild after backend processes
-  // Backend clears needsInput on the session that received input.
-  // Other sessions with needsInput=true get priority in the rebuild.
-  const pendingRebuild = useRef(false);
+  // Trigger 1: User sent input (Enter key) → mark that slot as eligible for swap.
+  // The slot stays marked until the backend confirms needsInput=false AND
+  // there's an overflow session needing input to replace it.
+  const swapEligibleSessionId = useRef<string | null>(null);
 
   useEffect(() => {
-    const handler = () => {
-      setTimeout(() => {
-        pendingRebuild.current = true;
-        refresh();
-      }, 500);
+    const handler = (e: Event) => {
+      const sessionId = (e as CustomEvent).detail?.sessionId;
+      if (sessionId) {
+        swapEligibleSessionId.current = sessionId;
+      }
     };
     window.addEventListener('c3:input-sent', handler);
     return () => window.removeEventListener('c3:input-sent', handler);
-  }, [refresh]);
+  }, []);
 
-  // After sessions update, if rebuild is pending, execute it
+  // On every poll: check if the swap-eligible slot is ready to rotate.
+  // "Ready" = the session we typed in no longer needs input (user answered it)
+  // AND there's an overflow session that does need input (FIFO order).
   useEffect(() => {
-    if (pendingRebuild.current) {
-      pendingRebuild.current = false;
-      rebuildDisplay();
-    }
-  }, [sessions, rebuildDisplay]);
+    const swapId = swapEligibleSessionId.current;
+    if (!swapId) return;
+
+    // Check if the session we typed in still needs input — if so, wait
+    const typedSession = sessions.find((s) => s.id === swapId);
+    if (typedSession?.needsInput) return; // backend hasn't cleared yet, keep waiting
+
+    setDisplayedIds((prev) => {
+      const slotIdx = prev.indexOf(swapId);
+      if (slotIdx === -1) {
+        swapEligibleSessionId.current = null;
+        return prev;
+      }
+
+      // Find oldest overflow session that needs input (FIFO queue)
+      const displayedSet = new Set(prev);
+      const candidateId = needsInputQueueRef.current.find(
+        (id) => !displayedSet.has(id),
+      );
+      if (!candidateId) {
+        // No overflow session needs input — clear eligibility, nothing to swap
+        swapEligibleSessionId.current = null;
+        return prev;
+      }
+
+      // Swap! Clear eligibility.
+      swapEligibleSessionId.current = null;
+      const next = [...prev];
+      next[slotIdx] = candidateId;
+      return next;
+    });
+  }, [sessions]);
 
   // Trigger 2: maxVisible changed → resize
   const prevMaxVisible = useRef(maxVisible);
@@ -228,6 +277,29 @@ export function Dashboard() {
     () => activeSessions.filter((s) => !displayedIds.includes(s.id)),
     [activeSessions, displayedIds],
   );
+
+  // Auto-focus terminal when a new session swaps into view
+  const prevDisplayedIdsRef = useRef<string[]>([]);
+  useEffect(() => {
+    const prev = new Set(prevDisplayedIdsRef.current);
+    prevDisplayedIdsRef.current = displayedIds;
+    // Find sessions that are newly displayed
+    const newlyDisplayed = displayedIds.filter((id) => !prev.has(id));
+    if (newlyDisplayed.length >= 1) {
+      const newId = newlyDisplayed[0];
+      handleSetCurrentSession(newId);
+      // Focus terminal with retries — terminal may take time to mount
+      const tryFocus = (attempt: number) => {
+        const textarea = document.querySelector(`[data-session-id="${newId}"] .xterm-helper-textarea`) as HTMLElement | null;
+        if (textarea) {
+          textarea.focus();
+        } else if (attempt < 5) {
+          setTimeout(() => tryFocus(attempt + 1), 200);
+        }
+      };
+      setTimeout(() => tryFocus(0), 200);
+    }
+  }, [displayedIds, handleSetCurrentSession]);
 
   // ── Keyboard Shortcuts ──────────────────────────────────────────
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);

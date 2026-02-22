@@ -98,7 +98,7 @@ export const sessions = {
   list: (status?: SessionStatus) =>
     request<Session[]>(`/sessions${status ? `?status=${status}` : ''}`),
 
-  create: (data: { workingDirectory: string; title: string; targetWorker?: string | null; worktree?: boolean }) =>
+  create: (data: { workingDirectory: string; title: string; targetWorker?: string | null; worktree?: boolean; startFresh?: boolean }) =>
     request<Session>('/sessions', { method: 'POST', body: JSON.stringify(data) }),
 
   update: (id: string, data: { title?: string; lock?: boolean }) =>
