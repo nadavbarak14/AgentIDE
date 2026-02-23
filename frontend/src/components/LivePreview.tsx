@@ -207,11 +207,11 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
   }, [addressInput, navigateTo, onUrlChange]);
 
   const handlePortChange = useCallback((newPort: number) => {
-    const url = `http://localhost:${newPort}`;
+    const url = `http://${currentHost}:${newPort}`;
     navigateTo(url);
     // Save to panel state when user picks a port
     onUrlChange?.(url);
-  }, [navigateTo, onUrlChange]);
+  }, [currentHost, navigateTo, onUrlChange]);
 
   const handleLocalPreview = useCallback(() => {
     const url = 'project://index.html';
@@ -253,7 +253,7 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
             onChange={(e) => setAddressInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleNavigate()}
             className="flex-1 bg-transparent text-xs text-gray-300 outline-none min-w-0"
-            placeholder="http://localhost:3000 or project://index.html"
+            placeholder={`http://${currentHost}:3000 or project://index.html`}
             spellCheck={false}
           />
         </div>
