@@ -92,6 +92,12 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
   const iframeUrlRef = useRef(iframeUrl);
   iframeUrlRef.current = iframeUrl;
 
+  // Track the last requested URL to avoid re-navigating to the same URL
+  // This prevents infinite loops when user navigation updates requestedUrl prop
+  const lastRequestedUrlRef = useRef<string>('');
+  const currentDisplayUrlRef = useRef(displayUrl);
+  currentDisplayUrlRef.current = displayUrl;
+
   // Navigate the iframe to a URL (sets both state and iframe.src directly)
   const navigateTo = useCallback((url: string) => {
     setDisplayUrl(url);
@@ -105,10 +111,7 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
     if (iframeRef.current) {
       iframeRef.current.src = proxyUrl;
     }
-
-    // Save the URL to panel state so it persists across session switches
-    onUrlChange?.(url);
-  }, [sessionId, onUrlChange]);
+  }, [sessionId]);
 
   // Update when detected port changes
   useEffect(() => {
@@ -118,8 +121,10 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
   }, [port, localPort, navigateTo]);
 
   // Navigate when requestedUrl changes (from saved panel state or board command)
+  // BUT: only navigate if it's different from what we just navigated to (prevents infinite loops)
   useEffect(() => {
-    if (requestedUrl) {
+    if (requestedUrl && requestedUrl !== lastRequestedUrlRef.current) {
+      lastRequestedUrlRef.current = requestedUrl;
       navigateTo(requestedUrl);
     }
   }, [requestedUrl, navigateTo]);
@@ -174,15 +179,23 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
       url = `http://${url}`;
     }
     navigateTo(url);
-  }, [addressInput, navigateTo]);
+    // Save to panel state only for user-initiated navigation
+    onUrlChange?.(url);
+  }, [addressInput, navigateTo, onUrlChange]);
 
   const handlePortChange = useCallback((newPort: number) => {
-    navigateTo(`http://localhost:${newPort}`);
-  }, [navigateTo]);
+    const url = `http://localhost:${newPort}`;
+    navigateTo(url);
+    // Save to panel state when user picks a port
+    onUrlChange?.(url);
+  }, [navigateTo, onUrlChange]);
 
   const handleLocalPreview = useCallback(() => {
-    navigateTo('project://index.html');
-  }, [navigateTo]);
+    const url = 'project://index.html';
+    navigateTo(url);
+    // Save to panel state for local preview
+    onUrlChange?.(url);
+  }, [navigateTo, onUrlChange]);
 
   const handleApplyCustom = useCallback(() => {
     const w = parseInt(customW, 10);
