@@ -362,28 +362,28 @@ describe('Overflow bar indicator logic', () => {
   });
 });
 
-// ── Rename C3 Dashboard -> Multy ──
+// ── Rename to Adyx ──
 
-describe('Rename C3 Dashboard to Multy', () => {
-  it('Dashboard h1 text is "Multy" not "C3 Dashboard"', () => {
-    const h1Text = 'Multy';
-    expect(h1Text).toBe('Multy');
-    expect(h1Text).not.toContain('C3');
+describe('Rename to Adyx', () => {
+  it('Dashboard h1 text is "Adyx"', () => {
+    const h1Text = 'Adyx';
+    expect(h1Text).toBe('Adyx');
+    expect(h1Text).not.toContain('Multy');
   });
 
-  it('HTML title is "Multy"', () => {
-    const title = 'Multy';
-    expect(title).toBe('Multy');
-    expect(title).not.toContain('C3');
+  it('HTML title is "Adyx"', () => {
+    const title = 'Adyx';
+    expect(title).toBe('Adyx');
+    expect(title).not.toContain('Multy');
   });
 
-  it('Backend log messages reference Multy', () => {
-    const hubLog = 'Multy Hub started';
-    const workerLog = 'Multy Worker started, listening for commands on stdin';
-    expect(hubLog).toContain('Multy');
-    expect(hubLog).not.toContain('C3');
-    expect(workerLog).toContain('Multy');
-    expect(workerLog).not.toContain('C3');
+  it('Backend log messages reference Adyx', () => {
+    const hubLog = 'Adyx started on http://localhost:3000';
+    const workerLog = 'Adyx Worker started, listening for commands on stdin';
+    expect(hubLog).toContain('Adyx');
+    expect(hubLog).not.toContain('Multy');
+    expect(workerLog).toContain('Adyx');
+    expect(workerLog).not.toContain('Multy');
   });
 });
 

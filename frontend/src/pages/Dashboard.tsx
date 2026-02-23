@@ -527,7 +527,7 @@ export function Dashboard() {
         {/* Top Bar */}
         <div className="flex items-center justify-between px-4 py-2 border-b border-gray-700 bg-gray-800/50 flex-shrink-0">
           <div className="flex items-center gap-4">
-            <h1 className="text-lg font-bold">Multy</h1>
+            <h1 className="text-lg font-bold">Adyx</h1>
             <span className="text-sm text-gray-400">
               {activeCount} active / {totalCount} total
             </span>
