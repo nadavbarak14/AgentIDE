@@ -597,19 +597,48 @@ export function createFilesRouter(repo: Repository, agentTunnelManager?: AgentTu
             const baseTag = `<base href="${targetUrl.href}">`;
             body = body.replace(/<head[^>]*>/i, (match) => `${match}\n${baseTag}`);
 
-            // Inject script to prevent cross-origin history/WebSocket errors in iframed content
-            const preventionScript = `<script>
-// Stub out history API to prevent cross-origin errors in iframed content
-window.history.replaceState = function() { return null; };
-window.history.pushState = function() { return null; };
-// Prevent WebSocket connections from failing (they won't work in iframe anyway)
+            // Inject script to fix localhost references and prevent cross-origin errors
+            const remoteHost = targetUrl.hostname;
+            const remoteProtocol = targetUrl.protocol.replace(':', '');
+            const interceptorScript = `<script>
+// Rewrite localhost URLs to use remote server's IP/hostname
+function rewriteLocalhostUrl(url) {
+  if (typeof url !== 'string') return url;
+  return url.replace(/^(https?:\\/\\/)localhost(:[0-9]+)?(\\/|$)/i, '$1${remoteHost}$2$3')
+            .replace(/^(wss?:\\/\\/)localhost(:[0-9]+)?(\\/|$)/i, '$1${remoteHost}$2$3');
+}
+
+// Intercept WebSocket to rewrite localhost URLs
 var OriginalWebSocket = window.WebSocket;
 window.WebSocket = function(url) {
-  try { return new OriginalWebSocket(url); }
-  catch(e) { console.warn('[Proxy] WebSocket blocked:', url); return null; }
+  var rewritten = rewriteLocalhostUrl(url);
+  try { return new OriginalWebSocket(rewritten); }
+  catch(e) { console.warn('[Proxy] WebSocket failed:', url); return null; }
 };
+
+// Intercept fetch to rewrite localhost URLs
+var OriginalFetch = window.fetch;
+window.fetch = function() {
+  if (arguments.length > 0 && typeof arguments[0] === 'string') {
+    arguments[0] = rewriteLocalhostUrl(arguments[0]);
+  }
+  return OriginalFetch.apply(this, arguments);
+};
+
+// Intercept XMLHttpRequest.open to rewrite localhost URLs
+var OriginalXHROpen = XMLHttpRequest.prototype.open;
+XMLHttpRequest.prototype.open = function(method, url) {
+  if (typeof url === 'string') {
+    url = rewriteLocalhostUrl(url);
+  }
+  return OriginalXHROpen.apply(this, [method, url].concat(Array.prototype.slice.call(arguments, 2)));
+};
+
+// Stub out history API to prevent cross-origin errors
+window.history.replaceState = function() { return null; };
+window.history.pushState = function() { return null; };
 </script>`;
-            body = body.replace(/<head[^>]*>/i, (match) => `${match}\n${preventionScript}`);
+            body = body.replace(/<head[^>]*>/i, (match) => `${match}\n${interceptorScript}`);
 
             const modified = injectBridgeScript(body);
             delete responseHeaders['content-length'];
