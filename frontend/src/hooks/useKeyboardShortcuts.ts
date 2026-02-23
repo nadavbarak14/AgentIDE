@@ -17,6 +17,7 @@ export type ShortcutAction =
   | 'zoom_session'
   | 'kill_session'
   | 'toggle_pin'
+  | 'toggle_sidebar'
   | 'jump_1' | 'jump_2' | 'jump_3' | 'jump_4' | 'jump_5'
   | 'jump_6' | 'jump_7' | 'jump_8' | 'jump_9';
 
@@ -48,6 +49,7 @@ export const DEFAULT_SHORTCUT_MAP: Shortcut[] = [
   { key: 'z', action: 'zoom_session', category: 'Session Actions', description: 'Zoom / unzoom session' },
   { key: 'k', action: 'kill_session', category: 'Session Actions', description: 'Kill / remove session' },
   { key: 'p', action: 'toggle_pin', category: 'Session Actions', description: 'Pin / unpin session' },
+  { key: 'n', action: 'toggle_sidebar', category: 'Session Actions', description: 'New session panel' },
 ];
 
 export interface ChordIndicatorState {

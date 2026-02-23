@@ -503,6 +503,14 @@ export function Dashboard() {
         toggleLock(curId, !sess.lock).catch(() => {});
         break;
       }
+      case 'toggle_sidebar': {
+        setSidebarOpen((prev) => {
+          const next = !prev;
+          localStorage.setItem('c3-sidebar-open', String(next));
+          return next;
+        });
+        break;
+      }
       case 'jump_1': case 'jump_2': case 'jump_3':
       case 'jump_4': case 'jump_5': case 'jump_6':
       case 'jump_7': case 'jump_8': case 'jump_9': {
@@ -597,10 +605,27 @@ export function Dashboard() {
                   return next;
                 });
               }}
-              className="px-2 py-1 text-xs text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors"
-              title={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md transition-colors ${
+                sidebarOpen
+                  ? 'text-gray-300 hover:text-white bg-gray-700 hover:bg-gray-600 border border-gray-600'
+                  : 'text-gray-300 hover:text-white bg-blue-600/20 hover:bg-blue-600/40 border border-blue-500/30 hover:border-blue-500/50'
+              }`}
+              title={sidebarOpen ? 'Close sidebar (Ctrl+. N)' : 'New session (Ctrl+. N)'}
             >
-              {sidebarOpen ? '\u00BB' : '\u00AB'}
+              {sidebarOpen ? (
+                <>
+                  <span>Close</span>
+                  <span className="text-base leading-none">&times;</span>
+                </>
+              ) : (
+                <>
+                  <span className="text-base leading-none">+</span>
+                  <span>New Session</span>
+                </>
+              )}
+              {chordState.isArmed && (
+                <span className="ml-1 px-1 py-px bg-blue-600 text-white text-[10px] rounded font-mono font-bold animate-pulse">N</span>
+              )}
             </button>
             {appSettings && (
               <SettingsPanel
@@ -634,7 +659,7 @@ export function Dashboard() {
 
       {/* Chord Indicator */}
       {chordState.isArmed && (
-        <div className="fixed top-2 right-2 z-40 bg-blue-600 text-white text-xs font-mono px-2 py-1 rounded shadow-lg animate-pulse">
+        <div className="fixed top-2 left-1/2 -translate-x-1/2 z-40 bg-blue-600 text-white text-xs font-mono px-3 py-1 rounded shadow-lg animate-pulse">
           Ctrl+. ...
         </div>
       )}
