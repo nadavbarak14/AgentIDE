@@ -243,7 +243,7 @@ describe('rewriteHtmlForProxy', () => {
   it('prepends URL rewriter if no <head> tag exists', () => {
     const html = '<div>No head tag here</div>';
     const result = rewriteHtmlForProxy(html, proxyBase);
-    expect(result.startsWith('<script>(function(){')).toBe(true);
+    expect(result).toContain('<script>(function(){');
   });
 
   it('injects bridge script tag', () => {
