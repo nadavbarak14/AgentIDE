@@ -35,9 +35,11 @@ export interface UsePreviewBridgeReturn {
   enterInspectMode: () => void;
   exitInspectMode: () => void;
   toggleInspectMode: () => void;
-  captureScreenshot: () => void;
+  captureScreenshot: (mode?: 'full' | 'viewport') => void;
+  captureFullPageScreenshot: () => void;
+  captureViewportScreenshot: () => void;
   captureElement: (selector: string) => void;
-  startRecording: () => void;
+  startRecording: (mode?: 'full' | 'viewport') => void;
   stopRecording: () => void;
   checkElements: (selectors: string[]) => void;
   readPage: () => Promise<Record<string, unknown>>;
@@ -290,10 +292,18 @@ export function usePreviewBridge(
     }
   }, [inspectMode, enterInspectMode, exitInspectMode]);
 
-  const captureScreenshot = useCallback(() => {
+  const captureScreenshot = useCallback((mode: 'full' | 'viewport' = 'full') => {
     setScreenshotDataUrl(null); // Clear previous so useEffect sees the new one
-    postMessage({ type: 'c3:captureScreenshot' });
+    postMessage({ type: 'c3:captureScreenshot', mode });
   }, [postMessage]);
+
+  const captureFullPageScreenshot = useCallback(() => {
+    captureScreenshot('full');
+  }, [captureScreenshot]);
+
+  const captureViewportScreenshot = useCallback(() => {
+    captureScreenshot('viewport');
+  }, [captureScreenshot]);
 
   const captureElement = useCallback(
     (selector: string) => {
@@ -302,9 +312,9 @@ export function usePreviewBridge(
     [postMessage],
   );
 
-  const startRecording = useCallback(() => {
+  const startRecording = useCallback((mode: 'full' | 'viewport' = 'full') => {
     recordedEvents.current = [];
-    postMessage({ type: 'c3:startRecording' });
+    postMessage({ type: 'c3:startRecording', mode });
   }, [postMessage]);
 
   const stopRecording = useCallback(() => {
@@ -377,8 +387,8 @@ export function usePreviewBridge(
 
   /** Capture screenshot and return result as Promise (for board-command relay) */
   const captureScreenshotWithResult = useCallback(
-    (): Promise<Record<string, unknown>> => {
-      return sendCommandWithResult({ type: 'c3:captureScreenshot' });
+    (mode: 'full' | 'viewport' = 'full'): Promise<Record<string, unknown>> => {
+      return sendCommandWithResult({ type: 'c3:captureScreenshot', mode });
     },
     [sendCommandWithResult],
   );
@@ -405,6 +415,8 @@ export function usePreviewBridge(
     exitInspectMode,
     toggleInspectMode,
     captureScreenshot,
+    captureFullPageScreenshot,
+    captureViewportScreenshot,
     captureElement,
     startRecording,
     stopRecording,

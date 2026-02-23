@@ -279,39 +279,41 @@
     return loadScript(HTML2CANVAS_PRO_URL);
   }
 
-  function captureScreenshot(msgId) {
+  function captureScreenshot(msgId, mode) {
+    // mode: 'viewport' (current view) or 'full' (full page), defaults to 'full'
+    var captureMode = mode || 'full';
+    var w, h;
+
+    if (captureMode === 'viewport') {
+      // Capture only the visible viewport
+      w = window.innerWidth;
+      h = window.innerHeight;
+    } else {
+      // Capture full page (default)
+      w = Math.max(
+        document.documentElement.scrollWidth,
+        document.body.scrollWidth,
+        window.innerWidth
+      );
+      h = Math.max(
+        document.documentElement.scrollHeight,
+        document.body.scrollHeight,
+        window.innerHeight
+      );
+    }
+
     ensureHtml2Canvas()
       .then(function () {
-        // Capture full page, not just viewport
-        var fullWidth = Math.max(
-          document.documentElement.scrollWidth,
-          document.body.scrollWidth,
-          window.innerWidth
-        );
-        var fullHeight = Math.max(
-          document.documentElement.scrollHeight,
-          document.body.scrollHeight,
-          window.innerHeight
-        );
-        return html2canvas(document.body, getCaptureOptions(fullWidth, fullHeight));
+        return html2canvas(document.body, getCaptureOptions(w, h));
       })
       .then(function (canvas) {
         var dataUrl = canvas.toDataURL('image/png');
-        var fullWidth = Math.max(
-          document.documentElement.scrollWidth,
-          document.body.scrollWidth,
-          window.innerWidth
-        );
-        var fullHeight = Math.max(
-          document.documentElement.scrollHeight,
-          document.body.scrollHeight,
-          window.innerHeight
-        );
         postToParent({
           type: 'c3:bridge:screenshotCaptured',
           dataUrl: dataUrl,
-          width: fullWidth,
-          height: fullHeight,
+          width: w,
+          height: h,
+          mode: captureMode,
           msgId: msgId || null,
         });
       })
@@ -357,22 +359,31 @@
   var RECORDING_FPS = 3;
   var MAX_RECORDING_MS = 300000; // 5 minutes max (FR-022)
 
-  function startRecording(msgId) {
+  function startRecording(msgId, mode) {
+    // mode: 'viewport' (current view) or 'full' (full page), defaults to 'full'
+    var recordingMode = mode || 'full';
     stopRecording();
 
     ensureHtml2Canvas()
       .then(function () {
-        // Capture full page, not just viewport
-        var w = Math.max(
-          document.documentElement.scrollWidth,
-          document.body.scrollWidth,
-          window.innerWidth
-        );
-        var h = Math.max(
-          document.documentElement.scrollHeight,
-          document.body.scrollHeight,
-          window.innerHeight
-        );
+        var w, h;
+        if (recordingMode === 'viewport') {
+          // Record only the visible viewport
+          w = window.innerWidth;
+          h = window.innerHeight;
+        } else {
+          // Record full page (default)
+          w = Math.max(
+            document.documentElement.scrollWidth,
+            document.body.scrollWidth,
+            window.innerWidth
+          );
+          h = Math.max(
+            document.documentElement.scrollHeight,
+            document.body.scrollHeight,
+            window.innerHeight
+          );
+        }
 
         // Create offscreen canvas for frame drawing
         recordingCanvas = document.createElement('canvas');
@@ -835,13 +846,13 @@
         exitInspectMode();
         break;
       case 'c3:captureScreenshot':
-        captureScreenshot(data.msgId);
+        captureScreenshot(data.msgId, data.mode);
         break;
       case 'c3:captureElement':
         if (data.selector) captureElement(data.selector);
         break;
       case 'c3:startRecording':
-        startRecording(data.msgId);
+        startRecording(data.msgId, data.mode);
         break;
       case 'c3:stopRecording':
         stopRecording(data.msgId);
