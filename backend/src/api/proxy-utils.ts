@@ -115,9 +115,9 @@ var navTarget=(tp&&tp!==cp)?tp:null;
 if(navTarget)_c3Nav=navTarget;
 p=p.then(function(r){var rd=r.headers.get("x-proxy-redirect");
 if(rd){_c3Nav=null;setTimeout(function(){var pp=b+rd;if(window.location.pathname!==pp)oPS({},"",pp)},0)}
-else if(navTarget&&_c3Nav===navTarget){setTimeout(function(){if(_c3Nav===navTarget){var np=stripProxy(window.location.pathname);_c3Nav=null;if(np!==navTarget)oLA(b+navTarget)}},50)}
+else if(navTarget&&_c3Nav===navTarget){setTimeout(function(){if(_c3Nav===navTarget){var np=stripProxy(window.location.pathname);_c3Nav=null;if(np!==navTarget){oPS({},"",b+navTarget);window.dispatchEvent(new PopStateEvent("popstate",{state:{}}))}}},50)}
 return r});
-if(navTarget){setTimeout(function(){if(_c3Nav===navTarget){var np=stripProxy(window.location.pathname);_c3Nav=null;if(np!==navTarget)oLA(b+navTarget)}},3000)}
+if(navTarget){setTimeout(function(){if(_c3Nav===navTarget){var np=stripProxy(window.location.pathname);_c3Nav=null;if(np!==navTarget){oPS({},"",b+navTarget);window.dispatchEvent(new PopStateEvent("popstate",{state:{}}))}}},3000)}
 }
 return p};
 function rwEl(el){if(!el||el.nodeType!==1)return;

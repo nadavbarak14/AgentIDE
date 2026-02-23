@@ -593,6 +593,11 @@ export function createFilesRouter(repo: Repository, agentTunnelManager?: AgentTu
           responseHeaders['link'] = linkVal.replace(/<\//g, `<${proxyBase}/`);
         }
 
+        // Cache immutable static assets (hashed filenames) — browser skips network on reload
+        if (targetPath.includes('/_next/static/')) {
+          responseHeaders['cache-control'] = 'public, max-age=31536000, immutable';
+        }
+
         const contentType = (proxyRes.headers['content-type'] || '').toLowerCase();
         // Only rewrite full HTML documents (navigation requests).
         // Skip rewriting for fetch/XHR responses (RSC, server actions, API calls)
@@ -600,9 +605,12 @@ export function createFilesRouter(repo: Repository, agentTunnelManager?: AgentTu
         const isNavigationRequest = req.method === 'GET' && !req.headers['rsc'] && !req.headers['next-action'] &&
           req.headers['accept']?.includes('text/html') && !req.headers['x-requested-with'];
         const shouldRewriteHtml = contentType.includes('text/html') && isNavigationRequest;
-        const isJavaScript = contentType.includes('javascript');
+        // Only buffer the Turbopack/Webpack runtime chunk (needs CHUNK_BASE_PATH rewrite).
+        // All other JS files stream directly — no rewriting needed.
+        const isRuntimeChunk = contentType.includes('javascript') &&
+          (targetPath.includes('turbopack') || targetPath.includes('webpack'));
         const isCss = contentType.includes('text/css');
-        const shouldBuffer = shouldRewriteHtml || isJavaScript || isCss;
+        const shouldBuffer = shouldRewriteHtml || isRuntimeChunk || isCss;
         if (shouldBuffer) {
           // Buffer response to rewrite paths
           const chunks: Buffer[] = [];
@@ -618,7 +626,7 @@ export function createFilesRouter(repo: Repository, agentTunnelManager?: AgentTu
               let body = raw.toString('utf-8');
               if (shouldRewriteHtml) {
                 body = rewriteHtmlForProxy(body, proxyBase);
-              } else if (isJavaScript) {
+              } else if (isRuntimeChunk) {
                 // Rewrite Turbopack/Webpack runtime chunk base paths so dynamic
                 // imports resolve through the proxy instead of the dashboard root
                 body = body.replaceAll('CHUNK_BASE_PATH = "/_next/"', `CHUNK_BASE_PATH = "${proxyBase}/_next/"`);
