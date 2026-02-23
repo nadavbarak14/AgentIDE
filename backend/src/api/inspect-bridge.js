@@ -282,15 +282,36 @@
   function captureScreenshot(msgId) {
     ensureHtml2Canvas()
       .then(function () {
-        return html2canvas(document.body, getCaptureOptions(window.innerWidth, window.innerHeight));
+        // Capture full page, not just viewport
+        var fullWidth = Math.max(
+          document.documentElement.scrollWidth,
+          document.body.scrollWidth,
+          window.innerWidth
+        );
+        var fullHeight = Math.max(
+          document.documentElement.scrollHeight,
+          document.body.scrollHeight,
+          window.innerHeight
+        );
+        return html2canvas(document.body, getCaptureOptions(fullWidth, fullHeight));
       })
       .then(function (canvas) {
         var dataUrl = canvas.toDataURL('image/png');
+        var fullWidth = Math.max(
+          document.documentElement.scrollWidth,
+          document.body.scrollWidth,
+          window.innerWidth
+        );
+        var fullHeight = Math.max(
+          document.documentElement.scrollHeight,
+          document.body.scrollHeight,
+          window.innerHeight
+        );
         postToParent({
           type: 'c3:bridge:screenshotCaptured',
           dataUrl: dataUrl,
-          width: window.innerWidth,
-          height: window.innerHeight,
+          width: fullWidth,
+          height: fullHeight,
           msgId: msgId || null,
         });
       })
@@ -341,8 +362,17 @@
 
     ensureHtml2Canvas()
       .then(function () {
-        var w = window.innerWidth;
-        var h = window.innerHeight;
+        // Capture full page, not just viewport
+        var w = Math.max(
+          document.documentElement.scrollWidth,
+          document.body.scrollWidth,
+          window.innerWidth
+        );
+        var h = Math.max(
+          document.documentElement.scrollHeight,
+          document.body.scrollHeight,
+          window.innerHeight
+        );
 
         // Create offscreen canvas for frame drawing
         recordingCanvas = document.createElement('canvas');
