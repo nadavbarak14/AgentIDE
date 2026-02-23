@@ -65,10 +65,9 @@ npm test && npm run lint
 TypeScript 5.x, Node.js 20 LTS: Follow standard conventions
 
 ## Recent Changes
+- 018-adyx-branding: Added TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, Vite 6, Tailwind CSS 3
 - 017-readme-npm-publish: Added TypeScript 5.7, Node.js 20 LTS + Express 4, commander (CLI), better-sqlite3, node-pty, ws 8, React 18, Vite 6, Tailwind CSS 3
 - 014-remote-preview-proxy: Added TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, Vite 6, Tailwind CSS 3
-- 012-extension-system: Added TypeScript 5.7, Node.js 20 LTS + React 18, Vite 6, Tailwind CSS 3 (existing); no new dependencies
-- 012-session-connect-ux: Added TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, ssh2, better-sqlite3, Tailwind CSS 3
 
 
 <!-- MANUAL ADDITIONS START -->
