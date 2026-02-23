@@ -15,7 +15,10 @@ export type ShortcutAction =
   | 'show_help'
   | 'search_files'
   | 'zoom_session'
-  | 'kill_session';
+  | 'kill_session'
+  | 'toggle_pin'
+  | 'jump_1' | 'jump_2' | 'jump_3' | 'jump_4' | 'jump_5'
+  | 'jump_6' | 'jump_7' | 'jump_8' | 'jump_9';
 
 export interface Shortcut {
   key: string;
@@ -33,10 +36,10 @@ export const DEFAULT_SHORTCUT_MAP: Shortcut[] = [
   { key: '\\', action: 'toggle_claude', category: 'Panels', description: 'Toggle Claude terminal' },
   { key: 'i', action: 'toggle_issues', category: 'Panels', description: 'Toggle Issues panel' },
   { key: 's', action: 'toggle_shell', category: 'Panels', description: 'Toggle Shell terminal' },
-  { key: 'ArrowRight', action: 'focus_next', category: 'Navigation', description: 'Focus next session' },
-  { key: 'ArrowDown', action: 'focus_next', category: 'Navigation', description: 'Focus next session' },
-  { key: 'ArrowLeft', action: 'focus_prev', category: 'Navigation', description: 'Focus previous session' },
-  { key: 'ArrowUp', action: 'focus_prev', category: 'Navigation', description: 'Focus previous session' },
+  { key: 'ArrowRight', action: 'focus_next', category: 'Navigation', description: 'Focus next session', keepArmed: true },
+  { key: 'ArrowDown', action: 'focus_next', category: 'Navigation', description: 'Focus next session', keepArmed: true },
+  { key: 'ArrowLeft', action: 'focus_prev', category: 'Navigation', description: 'Focus previous session', keepArmed: true },
+  { key: 'ArrowUp', action: 'focus_prev', category: 'Navigation', description: 'Focus previous session', keepArmed: true },
   { key: 'Tab', action: 'switch_next', category: 'Navigation', description: 'Switch to next session (waiting first)', keepArmed: true },
   { key: 'Shift+Tab', action: 'switch_prev', category: 'Navigation', description: 'Switch to previous session', keepArmed: true },
   { key: 'Enter', action: 'confirm_session', category: 'Navigation', description: 'Confirm session switch' },
@@ -44,6 +47,7 @@ export const DEFAULT_SHORTCUT_MAP: Shortcut[] = [
   { key: 'f', action: 'search_files', category: 'Files', description: 'Search in files' },
   { key: 'z', action: 'zoom_session', category: 'Session Actions', description: 'Zoom / unzoom session' },
   { key: 'k', action: 'kill_session', category: 'Session Actions', description: 'Kill / remove session' },
+  { key: 'p', action: 'toggle_pin', category: 'Session Actions', description: 'Pin / unpin session' },
 ];
 
 export interface ChordIndicatorState {
@@ -156,6 +160,13 @@ export function useKeyboardShortcuts({ enabled, onAction }: UseKeyboardShortcuts
 
         e.preventDefault();
         e.stopPropagation();
+
+        // Handle digit keys for quick session jump (1-9)
+        if (e.key >= '1' && e.key <= '9') {
+          onActionRef.current(`jump_${e.key}` as ShortcutAction);
+          disarm();
+          return;
+        }
 
         const shortcuts = getEffectiveShortcuts();
 

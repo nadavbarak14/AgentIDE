@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { SessionCard } from './SessionCard';
 import type { Session, Worker } from '../services/api';
 
@@ -14,6 +14,8 @@ interface SessionGridProps {
   onSetCurrent?: (id: string) => void;
   zoomedSessionId?: string | null;
   onToggleZoom?: (id: string) => void;
+  chordArmed?: boolean;
+  sessionNumbers?: Record<string, number>;
 }
 
 export function SessionGrid({
@@ -28,10 +30,27 @@ export function SessionGrid({
   onSetCurrent,
   zoomedSessionId,
   onToggleZoom,
+  chordArmed,
+  sessionNumbers,
 }: SessionGridProps) {
-  const [overflowCollapsed, setOverflowCollapsed] = useState(
+  const [userCollapsed, setUserCollapsed] = useState(
     () => localStorage.getItem('c3-overflow-collapsed') !== 'false'
   );
+
+  // Track whether chord forced the expand so we can auto-collapse back
+  const chordForcedRef = useRef(false);
+
+  // When chord arms → force expand; when chord disarms → restore if user had it collapsed
+  useEffect(() => {
+    if (chordArmed && userCollapsed) {
+      chordForcedRef.current = true;
+    }
+    if (!chordArmed && chordForcedRef.current) {
+      chordForcedRef.current = false;
+    }
+  }, [chordArmed, userCollapsed]);
+
+  const isCollapsed = chordArmed ? false : (chordForcedRef.current ? false : userCollapsed);
 
   // Auto-compute columns: up to 3 columns, then rows wrap
   const cols = Math.min(displayedSessions.length, 3);
@@ -49,58 +68,69 @@ export function SessionGrid({
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      {/* Overflow: Collapsible section for sessions beyond max_visible — at top */}
+      {/* Overflow: sessions beyond max_visible — at top */}
       {overflowSessions.length > 0 && (
         <div className="border-b border-gray-700 flex-shrink-0">
           <button
             onClick={() => {
-              setOverflowCollapsed((prev) => {
+              setUserCollapsed((prev) => {
                 const next = !prev;
                 localStorage.setItem('c3-overflow-collapsed', String(next));
                 return next;
               });
+              chordForcedRef.current = false;
             }}
             className={`w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wide hover:bg-gray-800/50 transition-colors${
-              overflowCollapsed && overflowSessions.some((s) => s.needsInput) ? ' bg-amber-500/20' : ''
+              isCollapsed && overflowSessions.some((s) => s.needsInput) ? ' bg-amber-500/20' : ''
             }`}
           >
             <span className="flex items-center gap-1.5">
-              {overflowCollapsed
+              {isCollapsed
                 ? `+${overflowSessions.length} more sessions`
                 : `More Sessions (${overflowSessions.length})`}
-              {overflowCollapsed && overflowSessions.some((s) => s.needsInput) && (
+              {isCollapsed && overflowSessions.some((s) => s.needsInput) && (
                 <span className="text-amber-400 animate-pulse font-bold">!</span>
               )}
             </span>
-            <span className="text-gray-500">{overflowCollapsed ? '▾' : '▴'}</span>
+            <span className="text-gray-500">{isCollapsed ? '▾' : '▴'}</span>
           </button>
-          {!overflowCollapsed && (
+          {!isCollapsed && (
             <div className="px-3 pb-3">
-              <div className="flex gap-2 overflow-x-auto pb-2">
-                {overflowSessions.map((session) => (
-                  <button
-                    key={session.id}
-                    onClick={() => onFocusSession(session.id)}
-                    className={`flex-shrink-0 w-48 p-2 rounded border text-left transition-colors ${
-                      session.needsInput
-                        ? 'border-amber-400 bg-amber-500/10 hover:bg-amber-500/20'
-                        : 'border-gray-700 bg-gray-800 hover:bg-gray-700 hover:border-gray-600'
-                    }`}
-                  >
-                    <div className="flex items-center gap-1 mb-1">
-                      <span
-                        className={`w-1.5 h-1.5 rounded-full ${
-                          session.status === 'active' ? 'bg-green-500' : 'bg-gray-500'
-                        }`}
-                      />
-                      <span className="text-xs truncate">{session.title || 'Untitled'}</span>
-                      {session.needsInput && (
-                        <span className="text-xs text-amber-400 animate-pulse">!</span>
-                      )}
-                    </div>
-                    <p className="text-xs text-gray-500 truncate">{session.workingDirectory}</p>
-                  </button>
-                ))}
+              <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))' }}>
+                {overflowSessions.map((session) => {
+                  const num = sessionNumbers?.[session.id];
+                  return (
+                    <button
+                      key={session.id}
+                      onClick={() => onFocusSession(session.id)}
+                      className={`p-2 rounded border text-left transition-colors ${
+                        session.needsInput
+                          ? 'border-amber-400 bg-amber-500/10 hover:bg-amber-500/20'
+                          : 'border-gray-700 bg-gray-800 hover:bg-gray-700 hover:border-gray-600'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1 mb-1">
+                        {num != null && (
+                          <span className={`w-4 h-4 flex-shrink-0 text-[10px] font-bold rounded flex items-center justify-center ${
+                            chordArmed ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-400'
+                          }`}>
+                            {num}
+                          </span>
+                        )}
+                        <span
+                          className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                            session.status === 'active' ? 'bg-green-500' : 'bg-gray-500'
+                          }`}
+                        />
+                        <span className="text-xs truncate">{session.title || 'Untitled'}</span>
+                        {session.needsInput && (
+                          <span className="text-xs text-amber-400 animate-pulse">!</span>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-500 truncate">{session.workingDirectory}</p>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -128,6 +158,7 @@ export function SessionGrid({
             onSetCurrent={onSetCurrent}
             isZoomed={zoomedSessionId === session.id}
             onToggleZoom={onToggleZoom}
+            sessionNumber={sessionNumbers?.[session.id]}
           />
         ))}
       </div>

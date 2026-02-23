@@ -29,6 +29,7 @@ interface SessionCardProps {
   onSetCurrent?: (id: string) => void;
   isZoomed?: boolean;
   onToggleZoom?: (id: string) => void;
+  sessionNumber?: number;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -45,10 +46,11 @@ export function SessionCard({
   isSingleView: _isSingleView = false,
   onKill,
   onToggleLock,
-  onDelete,
+  onDelete: _onDelete,
   onSetCurrent: _onSetCurrent,
   isZoomed = false,
   onToggleZoom,
+  sessionNumber,
 }: SessionCardProps) {
   const panel = usePanel(session.id);
   const { extensionsWithPanel, getExtension, refresh: refreshExtensions } = useExtensions();
@@ -951,6 +953,11 @@ export function SessionCard({
       {/* Header + Toolbar (merged single row) */}
       <div className="flex items-center px-2 py-1 border-b border-gray-700 bg-gray-800/50 gap-1 flex-shrink-0">
         <div className="flex items-center gap-1.5 min-w-0 flex-shrink-0">
+          {sessionNumber != null && (
+            <span className="w-4 h-4 flex-shrink-0 text-[10px] font-bold rounded bg-gray-700 text-gray-400 flex items-center justify-center">
+              {sessionNumber}
+            </span>
+          )}
           <span className={`w-2 h-2 rounded-full flex-shrink-0 ${STATUS_COLORS[session.status]}`} />
           <span className="text-sm font-medium truncate max-w-[180px]">{session.title || 'Untitled'}</span>
           {workers && <WorkerBadge workerId={session.workerId} workers={workers} />}
@@ -1165,18 +1172,17 @@ export function SessionCard({
           >
             {session.lock ? 'Unpin' : 'Pin'}
           </button>
-          <button
-            onClick={() => {
-              if (session.status === 'active') { onKill?.(session.id); }
-              else { onDelete?.(session.id); }
-            }}
-            className="px-1.5 py-0.5 text-xs text-gray-400 hover:bg-red-500/20 hover:text-red-400 rounded relative"
-            title={session.status === 'active' ? 'Kill session (Ctrl+. K)' : 'Remove session'}
-            data-testid="close-button"
-          >
-            ×
-            {chordArmed && isCurrent && <span className="ml-1 px-1 py-px bg-blue-600 text-white text-[10px] rounded font-mono animate-pulse">K</span>}
-          </button>
+          {session.status === 'active' && (
+            <button
+              onClick={() => onKill?.(session.id)}
+              className="px-1.5 py-0.5 text-xs text-gray-400 hover:bg-red-500/20 hover:text-red-400 rounded relative"
+              title="Kill session (Ctrl+. K)"
+              data-testid="close-button"
+            >
+              ×
+              {chordArmed && isCurrent && <span className="ml-1 px-1 py-px bg-blue-600 text-white text-[10px] rounded font-mono animate-pulse">K</span>}
+            </button>
+          )}
         </div>
       </div>
 
