@@ -1,31 +1,39 @@
 ---
 name: widget-get-result
-description: Poll for a widget's structured result from user interaction
+description: Wait for the user's response from the canvas UI
 ---
 
-# widget-get-result
+# widget-get-result — Get User's Response
 
-Polls for the result of a named widget. Waits up to 60 seconds for the user to interact with the widget and submit a result.
+Waits for the user to interact with the canvas and submit a result. Polls for up to 60 seconds.
+
+Usually you don't need this directly — use `widget-create.sh ... --wait` instead, which shows the UI and waits in one step.
+
+Use this only if you showed the canvas separately and need to check for results later.
 
 ## Usage
 
 ```bash
-./scripts/widget-get-result.sh <widget-name>
+./scripts/widget-get-result.sh
 ```
-
-## Parameters
-
-- `widget-name` (required): The name of the widget to poll for results
 
 ## Behavior
 
-- Polls every 0.5 seconds for up to 60 seconds
-- When a result is ready, outputs the JSON result data
+- Polls every 1 second for up to 60 seconds
+- When the user submits a result (via `C3.sendResult(data)`), outputs the JSON data
 - If the timeout expires with no result, exits with an error
 
 ## Example
 
 ```bash
-./scripts/widget-get-result.sh "color-picker"
-# Output: {"color":"blue"}
+# Show a UI first
+./scripts/widget-create.sh '<button onclick="C3.sendResult({ok:true})">Confirm</button>'
+
+# Then wait for the result separately
+RESULT=$(./scripts/widget-get-result.sh)
+echo "$RESULT"  # e.g. {"ok":true}
 ```
+
+## Tip
+
+Prefer `widget-create.sh --wait` for the common show-then-wait pattern. Use `widget-get-result.sh` only when you need to do something between showing the UI and collecting the result.

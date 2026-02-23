@@ -1,24 +1,29 @@
 ---
 name: widget-dismiss
-description: Dismiss (remove) a widget from the user's panel
+description: Close the canvas UI panel
 ---
 
-# widget-dismiss
+# widget-dismiss — Close the Canvas
 
-Removes a named widget from the Widgets panel. Use this when a widget is no longer needed or to clean up after collecting results.
+Closes the canvas panel, removing whatever HTML was being displayed. **Always call this when you're done** with the canvas to clean up.
 
 ## Usage
 
 ```bash
-./scripts/widget-dismiss.sh <widget-name>
+./scripts/widget-dismiss.sh
 ```
 
-## Parameters
+## When to Use
 
-- `widget-name` (required): The name of the widget to dismiss
+- After you've collected the user's input via `C3.sendResult()` and no longer need the UI
+- When you want to clear the canvas before showing something else (though `widget-create.sh` auto-replaces)
+- To clean up if the user's interaction is no longer needed
 
 ## Example
 
 ```bash
-./scripts/widget-dismiss.sh "color-picker"
+# Show UI, wait for result, then close
+RESULT=$(./scripts/widget-create.sh '<button onclick="C3.sendResult({ok:true})">OK</button>' --wait)
+./scripts/widget-dismiss.sh
+echo "User said: $RESULT"
 ```

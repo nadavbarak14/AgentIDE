@@ -1,16 +1,18 @@
 #!/bin/bash
-# Skill: Dismiss (remove) a widget
-NAME="${1:?Usage: widget-dismiss.sh <widget-name>}"
-ENCODED_NAME=$(node -e "process.stdout.write(encodeURIComponent(process.argv[1]))" "$NAME")
+# Skill: Close the canvas UI panel
+# Usage: widget-dismiss.sh
 
-RESPONSE=$(curl -s -w "\n%{http_code}" -X DELETE "http://localhost:${C3_HUB_PORT}/api/sessions/${C3_SESSION_ID}/widget/${ENCODED_NAME}")
+# Fixed internal name — there's only one canvas
+NAME="_canvas"
+
+RESPONSE=$(curl -s -w "\n%{http_code}" -X DELETE "http://localhost:${C3_HUB_PORT}/api/sessions/${C3_SESSION_ID}/widget/${NAME}")
 
 HTTP_CODE=$(echo "$RESPONSE" | tail -1)
 BODY=$(echo "$RESPONSE" | sed '$d')
 
 if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
-  echo "Widget \"$NAME\" dismissed"
+  echo "Canvas closed"
 else
-  echo "Failed to dismiss widget \"$NAME\": $BODY" >&2
+  echo "Failed to close canvas: $BODY" >&2
   exit 1
 fi

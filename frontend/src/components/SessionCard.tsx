@@ -52,7 +52,7 @@ export function SessionCard({
 }: SessionCardProps) {
   const panel = usePanel(session.id);
   const { extensionsWithPanel, getExtension, refresh: refreshExtensions } = useExtensions();
-  const { widgets, activeWidget, addWidget, removeWidget, setActiveWidget: setActiveWidgetName, widgetCount } = useWidgets();
+  const { widgets, activeWidget, addWidget, removeWidget, widgetCount } = useWidgets();
 
   // Per-session extension opt-in (persisted server-side for real skill isolation)
   const [enabledExtensions, setEnabledExtensions] = useState<string[]>([]);
@@ -716,7 +716,7 @@ export function SessionCard({
     { value: 'git', label: 'Git' },
     { value: 'preview', label: 'Preview' },
     { value: 'issues', label: 'Issues' },
-    ...(widgetCount > 0 ? [{ value: 'widgets', label: `Widgets (${widgetCount})` }] : []),
+    ...(widgetCount > 0 ? [{ value: 'widgets', label: 'Canvas' }] : []),
     ...activeExtensions.map((ext) => ({
       value: ext.panelKey,
       label: ext.displayName,
@@ -825,7 +825,7 @@ export function SessionCard({
             activeWidget={activeWidget}
             sessionId={session.id}
             onClose={slot === 'left' ? closeLeftPanel : closeRightPanel}
-            onSetActiveWidget={setActiveWidgetName}
+            onSetActiveWidget={() => {}}
             onDismissWidget={removeWidget}
           />
         );
