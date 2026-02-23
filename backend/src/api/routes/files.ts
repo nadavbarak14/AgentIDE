@@ -599,7 +599,6 @@ export function createFilesRouter(repo: Repository, agentTunnelManager?: AgentTu
 
             // Inject script to fix localhost references and prevent cross-origin errors
             const remoteHost = targetUrl.hostname;
-            const remoteProtocol = targetUrl.protocol.replace(':', '');
             const interceptorScript = `<script>
 // Rewrite localhost URLs to use remote server's IP/hostname
 function rewriteLocalhostUrl(url) {
