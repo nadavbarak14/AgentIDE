@@ -3,6 +3,7 @@ import http from 'node:http';
 import https from 'node:https';
 import dns from 'node:dns/promises';
 import net from 'node:net';
+import zlib from 'node:zlib';
 import path from 'node:path';
 import fs from 'node:fs';
 import type { Repository } from '../../models/repository.js';
@@ -598,6 +599,7 @@ export function createFilesRouter(repo: Repository, agentTunnelManager?: AgentTu
           responseHeaders['cache-control'] = 'public, max-age=31536000, immutable';
         }
 
+        const clientAcceptsGzip = (req.headers['accept-encoding'] || '').includes('gzip');
         const contentType = (proxyRes.headers['content-type'] || '').toLowerCase();
         // Only rewrite full HTML documents (navigation requests).
         // Skip rewriting for fetch/XHR responses (RSC, server actions, API calls)
@@ -634,10 +636,19 @@ export function createFilesRouter(repo: Repository, agentTunnelManager?: AgentTu
               } else if (isCss) {
                 body = rewriteCssForProxy(body, proxyBase);
               }
+              const bodyBuf = Buffer.from(body);
               delete responseHeaders['content-length'];
-              responseHeaders['content-length'] = String(Buffer.byteLength(body));
-              res.writeHead(proxyRes.statusCode || 200, responseHeaders);
-              res.end(body);
+              if (clientAcceptsGzip) {
+                const compressed = zlib.gzipSync(bodyBuf);
+                responseHeaders['content-encoding'] = 'gzip';
+                responseHeaders['content-length'] = String(compressed.length);
+                res.writeHead(proxyRes.statusCode || 200, responseHeaders);
+                res.end(compressed);
+              } else {
+                responseHeaders['content-length'] = String(bodyBuf.length);
+                res.writeHead(proxyRes.statusCode || 200, responseHeaders);
+                res.end(bodyBuf);
+              }
             } catch (err) {
               logger.warn({ error: (err as Error).message }, 'Failed to process proxied response');
               const raw = Buffer.concat(chunks);
@@ -648,8 +659,18 @@ export function createFilesRouter(repo: Repository, agentTunnelManager?: AgentTu
             }
           });
         } else {
-          res.writeHead(proxyRes.statusCode || 200, responseHeaders);
-          proxyRes.pipe(res);
+          // Stream non-rewritten content — compress text-based responses for remote clients
+          const isCompressible = contentType.includes('javascript') || contentType.includes('text/') ||
+            contentType.includes('json') || contentType.includes('xml') || contentType.includes('svg');
+          if (clientAcceptsGzip && isCompressible && !responseHeaders['content-encoding']) {
+            responseHeaders['content-encoding'] = 'gzip';
+            delete responseHeaders['content-length'];
+            res.writeHead(proxyRes.statusCode || 200, responseHeaders);
+            proxyRes.pipe(zlib.createGzip()).pipe(res);
+          } else {
+            res.writeHead(proxyRes.statusCode || 200, responseHeaders);
+            proxyRes.pipe(res);
+          }
         }
       },
     );
