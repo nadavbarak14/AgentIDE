@@ -50,7 +50,7 @@ function toProxyUrl(sessionId: string, displayUrl: string): string {
   return displayUrl;
 }
 
-export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose, refreshKey: _refreshKey = 0, viewportMode = 'desktop', onViewportChange, customViewportWidth, customViewportHeight, onCustomViewport, bridgeRef, requestedUrl, navCounter = 0, onUrlChange }: LivePreviewProps) {
+export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose, refreshKey: _refreshKey = 0, viewportMode = 'desktop', onViewportChange, customViewportWidth, customViewportHeight, onCustomViewport, bridgeRef, requestedUrl, onUrlChange }: LivePreviewProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [stopped, setStopped] = useState(false);
