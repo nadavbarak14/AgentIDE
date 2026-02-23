@@ -69,18 +69,24 @@ async function run() {
     await submitButton.click();
     console.log('✓ Submit clicked, waiting for response...');
 
-    // 5. Wait and track URL changes over time
+    // 5. Wait for navigation away from /login (up to 10s)
     for (let sec = 1; sec <= 10; sec++) {
       await page.waitForTimeout(1000);
-      const url = await page.evaluate(() => window.location.pathname);
-      const text = await page.evaluate(() => document.body?.innerText?.substring(0, 100) || '');
-      const hasLogin = text.includes('Sign in') || text.includes('Login') || text.includes('Email');
-      const hasObserver = text.includes('Observer');
-      const shortText = text.replace(/\s+/g, ' ').substring(0, 150);
-      console.log(`  [${sec}s] path=${url.replace(/\/api\/sessions\/[^/]+\/proxy\/3000/, '')} login=${hasLogin} observer=${hasObserver} text="${shortText}"`);
-      if (hasObserver && !url.includes('/login')) {
-        console.log('  ✓ Detected successful redirect!');
-        break;
+      try {
+        const url = await page.evaluate(() => window.location.pathname);
+        const text = await page.evaluate(() => document.body?.innerText?.substring(0, 100) || '');
+        const hasLogin = text.includes('Sign in') || text.includes('Login') || text.includes('Email');
+        const hasObserver = text.includes('Observer');
+        const shortText = text.replace(/\s+/g, ' ').substring(0, 150);
+        console.log(`  [${sec}s] path=${url.replace(/\/api\/sessions\/[^/]+\/proxy\/3000/, '')} login=${hasLogin} observer=${hasObserver} text="${shortText}"`);
+        if (hasObserver && !url.includes('/login')) {
+          console.log('  ✓ Detected successful redirect!');
+          break;
+        }
+      } catch {
+        // Navigation may have destroyed the execution context — wait and retry
+        await page.waitForLoadState('domcontentloaded').catch(() => {});
+        console.log(`  [${sec}s] (navigated)`);
       }
     }
 
