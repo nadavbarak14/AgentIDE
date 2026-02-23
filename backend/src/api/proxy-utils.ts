@@ -69,6 +69,9 @@ export function rewriteHtmlForProxy(html: string, proxyBase: string): string {
     `["${proxyBase}/$1"`,
   );
 
+  // Expose proxy base so SPA frameworks (React Router etc.) can use it as basename
+  const proxyBaseScript = `<script>window.__c3ProxyBase__="${proxyBase}";</script>`;
+
   // Inject a URL rewriter script that intercepts fetch, XHR, URL constructor,
   // location.assign/replace, navigation, and dynamic elements
   const urlRewriter = `<script>(function(){
@@ -130,13 +133,14 @@ return new T(args[0],args[1])}});
   // in the urlRewriter to silently drop HMR connections.
 
   rewritten = injectBridgeScript(rewritten);
-  // Insert URL rewriter right after <head> so it runs before any resources load
+  // Insert URL rewriter + proxy base var right after <head> so they run before any resources load
+  const headInject = proxyBaseScript + urlRewriter;
   if (rewritten.includes('<head>')) {
-    rewritten = rewritten.replace('<head>', '<head>' + urlRewriter);
+    rewritten = rewritten.replace('<head>', '<head>' + headInject);
   } else if (rewritten.includes('<head ')) {
-    rewritten = rewritten.replace(/<head\s[^>]*>/, '$&' + urlRewriter);
+    rewritten = rewritten.replace(/<head\s[^>]*>/, '$&' + headInject);
   } else {
-    rewritten = urlRewriter + rewritten;
+    rewritten = headInject + rewritten;
   }
 
   return rewritten;
