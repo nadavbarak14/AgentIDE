@@ -19,7 +19,7 @@ interface SessionQueueProps {
 export function SessionQueue({
   activeSessions,
   completedSessions,
-  failedSessions,
+  failedSessions: _failedSessions,
   workers: workersList,
   onRequestAddMachine,
   onCreateSession,
@@ -144,22 +144,6 @@ export function SessionQueue({
               Completed ({completedSessions.length})
             </h4>
             {completedSessions.map((session) => (
-              <SessionItem
-                key={session.id}
-                session={session}
-                workers={workersList}
-                onDelete={() => onDeleteSession(session.id)}
-              />
-            ))}
-          </div>
-        )}
-
-        {failedSessions.length > 0 && (
-          <div className="p-3 border-t border-gray-700">
-            <h4 className="text-xs font-semibold text-red-400 uppercase tracking-wide mb-2">
-              Failed ({failedSessions.length})
-            </h4>
-            {failedSessions.map((session) => (
               <SessionItem
                 key={session.id}
                 session={session}

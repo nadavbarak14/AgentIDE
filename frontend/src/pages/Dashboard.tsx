@@ -23,9 +23,7 @@ export function Dashboard() {
     activeSessions,
     focusSessions,
     completedSessions,
-    failedSessions,
     activeCount,
-    totalCount,
   } = useSession(sessions);
 
   const [appSettings, setAppSettings] = useState<Settings | null>(null);
@@ -140,14 +138,16 @@ export function Dashboard() {
     setDisplayedIds((prev) => {
       const allFocus = focusSessionsRef.current;
 
-      // Identify pinned sessions in current slots that are still active
-      const pinnedInSlots: (string | null)[] = prev.map((id) => {
+      // Identify protected sessions in current slots: pinned, focused, or waiting
+      const protectedInSlots: (string | null)[] = prev.map((id) => {
         const sess = allFocus.find((s) => s.id === id);
-        return sess?.lock ? id : null;
+        if (!sess) return null;
+        if (sess.lock || id === currentSessionIdRef.current || sess.needsInput) return id;
+        return null;
       });
 
-      // Collect IDs already placed (pinned)
-      const placed = new Set(pinnedInSlots.filter((id): id is string => id !== null));
+      // Collect IDs already placed (protected)
+      const placed = new Set(protectedInSlots.filter((id): id is string => id !== null));
 
       // Fill remaining slots from priority order, skipping already-placed
       const fillQueue = allFocus
@@ -156,10 +156,10 @@ export function Dashboard() {
 
       const result: string[] = [];
       let fillIdx = 0;
-      for (let i = 0; i < Math.max(maxVisible, pinnedInSlots.length); i++) {
+      for (let i = 0; i < Math.max(maxVisible, protectedInSlots.length); i++) {
         if (result.length >= maxVisible) break;
-        if (i < pinnedInSlots.length && pinnedInSlots[i] !== null) {
-          result.push(pinnedInSlots[i]!);
+        if (i < protectedInSlots.length && protectedInSlots[i] !== null) {
+          result.push(protectedInSlots[i]!);
         } else if (fillIdx < fillQueue.length) {
           result.push(fillQueue[fillIdx++]);
         }
@@ -238,6 +238,9 @@ export function Dashboard() {
     const swapId = swapEligibleSessionId.current;
     if (!swapId) return;
 
+    // Never swap out the focused session
+    if (swapId === currentSessionIdRef.current) return;
+
     // Check if the session we typed in still needs input — if so, wait
     const typedSession = sessions.find((s) => s.id === swapId);
     if (typedSession?.needsInput) return; // backend hasn't cleared yet, keep waiting
@@ -283,6 +286,7 @@ export function Dashboard() {
   // If all slots are pinned, replaces the last slot as fallback.
   const handleFocusSession = useCallback(
     (id: string) => {
+      userTriggeredSwapRef.current = true;
       setDisplayedIds((prev) => {
         if (prev.includes(id)) return prev;
         const next = [...prev];
@@ -318,17 +322,23 @@ export function Dashboard() {
   );
 
   const overflowSessions = useMemo(
-    () => activeSessions.filter((s) => !displayedIds.includes(s.id)),
+    () => activeSessions
+      .filter((s) => !displayedIds.includes(s.id))
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()),
     [activeSessions, displayedIds],
   );
 
-  // Auto-focus terminal when a new session swaps into view
+  // Track explicit user-triggered swaps (click, keyboard) vs automatic fills
+  const userTriggeredSwapRef = useRef(false);
+
+  // Auto-focus terminal ONLY when user explicitly triggered a swap (not on auto-fill)
   const prevDisplayedIdsRef = useRef<string[]>([]);
   useEffect(() => {
     const prev = new Set(prevDisplayedIdsRef.current);
     prevDisplayedIdsRef.current = displayedIds;
-    // Skip auto-focus when unzooming (restoring multiple sessions at once)
-    if (!zoomedSessionIdRef.current && prev.size <= 1 && displayedIds.length > 1) return;
+    // Only auto-focus on user-triggered swaps
+    if (!userTriggeredSwapRef.current) return;
+    userTriggeredSwapRef.current = false;
     // Find sessions that are newly displayed
     const newlyDisplayed = displayedIds.filter((id) => !prev.has(id));
     if (newlyDisplayed.length >= 1) {
@@ -418,6 +428,9 @@ export function Dashboard() {
       // Tab: open session switcher for all sessions (including overflow), sorted by queue priority
       case 'switch_next': {
         if (allSessions.length === 0) return;
+        if (zoomedSessionIdRef.current) {
+          handleToggleZoom(zoomedSessionIdRef.current);
+        }
         // Sort by queue: waiting sessions first (needsInput: true), then others
         const sorted = [...allSessions].sort((a, b) => {
           if (a.needsInput && !b.needsInput) return -1;
@@ -437,6 +450,9 @@ export function Dashboard() {
       }
       case 'switch_prev': {
         if (allSessions.length === 0) return;
+        if (zoomedSessionIdRef.current) {
+          handleToggleZoom(zoomedSessionIdRef.current);
+        }
         // Sort by queue: waiting sessions first (needsInput: true), then others
         const sorted = [...allSessions].sort((a, b) => {
           if (a.needsInput && !b.needsInput) return -1;
@@ -476,11 +492,30 @@ export function Dashboard() {
       case 'kill_session': {
         if (!curId) break;
         const sess = allSessions.find((s) => s.id === curId);
+        if (!sess || sess.status !== 'active') break;
+        killSession(curId).catch(() => {});
+        break;
+      }
+      case 'toggle_pin': {
+        if (!curId) break;
+        const sess = allSessions.find((s) => s.id === curId);
         if (!sess) break;
-        if (sess.status === 'active') {
-          killSession(curId).catch(() => {});
-        } else {
-          deleteSession(curId).catch(() => {});
+        toggleLock(curId, !sess.lock).catch(() => {});
+        break;
+      }
+      case 'jump_1': case 'jump_2': case 'jump_3':
+      case 'jump_4': case 'jump_5': case 'jump_6':
+      case 'jump_7': case 'jump_8': case 'jump_9': {
+        const num = parseInt(action.split('_')[1]);
+        // Find session by constant creation-order number
+        const byCreation = [...allSessions]
+          .filter((s) => s.status === 'active')
+          .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+        const target = byCreation[num - 1];
+        if (target) {
+          handleSetCurrentSession(target.id);
+          handleFocusSession(target.id);
+          focusTerminalInSession(target.id);
         }
         break;
       }
@@ -496,7 +531,7 @@ export function Dashboard() {
         }
         break;
     }
-  }, [handleSetCurrentSession, handleFocusSession, focusTerminalInSession, sessionSwitcherIndex, handleToggleZoom, killSession, deleteSession]);
+  }, [handleSetCurrentSession, handleFocusSession, focusTerminalInSession, sessionSwitcherIndex, handleToggleZoom, killSession, toggleLock]);
 
   const chordState = useKeyboardShortcuts({
     enabled: true,
@@ -520,6 +555,24 @@ export function Dashboard() {
     setSessionSwitcherOpen(false);
   }, []);
 
+  // Sort sessions for the switcher: needsInput first, preserving relative order
+  const switcherSessions = useMemo(
+    () => [...sessions].sort((a, b) => (b.needsInput ? 1 : 0) - (a.needsInput ? 1 : 0)),
+    [sessions],
+  );
+
+  // Map session ID → constant number (1-9) based on creation order (never changes)
+  const sessionNumbers = useMemo(() => {
+    const map: Record<string, number> = {};
+    const byCreation = [...activeSessions].sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+    );
+    byCreation.forEach((s, i) => {
+      if (i < 9) map[s.id] = i + 1;
+    });
+    return map;
+  }, [activeSessions]);
+
   return (
     <div className="flex h-screen bg-gray-900 text-white">
       {/* Main Area */}
@@ -529,7 +582,7 @@ export function Dashboard() {
           <div className="flex items-center gap-4">
             <h1 className="text-lg font-bold">Adyx</h1>
             <span className="text-sm text-gray-400">
-              {activeCount} active / {totalCount} total
+              {activeCount} active
             </span>
           </div>
           <div className="flex items-center gap-3">
@@ -574,6 +627,8 @@ export function Dashboard() {
           onSetCurrent={handleSetCurrentSession}
           zoomedSessionId={zoomedSessionId}
           onToggleZoom={handleToggleZoom}
+          chordArmed={chordState.isArmed}
+          sessionNumbers={sessionNumbers}
         />
       </div>
 
@@ -586,7 +641,7 @@ export function Dashboard() {
 
       {/* Session Switcher Overlay */}
       <SessionSwitcher
-        sessions={sessions}
+        sessions={switcherSessions}
         currentSessionId={currentSessionId}
         isOpen={sessionSwitcherOpen}
         highlightedIndex={sessionSwitcherIndex}
@@ -602,7 +657,7 @@ export function Dashboard() {
         <SessionQueue
           activeSessions={activeSessions}
           completedSessions={completedSessions}
-          failedSessions={failedSessions}
+          failedSessions={[]}
           workers={workersList}
           onRequestAddMachine={() => setAddMachineTrigger((n) => n + 1)}
           onCreateSession={createSession}
