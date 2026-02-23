@@ -931,13 +931,15 @@ export function SessionCard({
       data-session-id={session.id}
       onKeyDown={handleKeyDown}
       className={`rounded-lg border-2 ${
-        session.needsInput
-          ? 'border-amber-400 ring-2 ring-amber-400/50 bg-gray-800'
-          : isCurrent
-            ? 'border-blue-500 ring-2 ring-blue-500/50 bg-yellow-500/10'
-            : focused
-              ? 'border-gray-600'
-              : 'border-gray-700'
+        isCurrent && session.needsInput
+          ? 'border-blue-500 ring-2 ring-blue-500/50 bg-yellow-400/20'
+          : session.needsInput
+            ? 'border-amber-400 ring-2 ring-amber-400/50 bg-gray-800'
+            : isCurrent
+              ? 'border-blue-500 ring-2 ring-blue-500/50 bg-yellow-500/10'
+              : focused
+                ? 'border-gray-600'
+                : 'border-gray-700'
       } overflow-hidden flex flex-col`}
     >
       {/* Header + Toolbar (merged single row) */}
