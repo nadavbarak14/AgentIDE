@@ -41,6 +41,10 @@ export interface TestServer {
 export async function createTestServer(): Promise<TestServer> {
   const db = createTestDb();
   const repo = new Repository(db);
+
+  // Create a default local worker so sessions can be created
+  repo.createLocalWorker('local', 10);
+
   const ptySpawner = createMockPtySpawner();
   const sessionManager = new SessionManager(repo, ptySpawner);
 
