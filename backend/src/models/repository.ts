@@ -19,6 +19,9 @@ import type {
   ActivePanel,
   LeftPanel,
   RightPanel,
+  PanelContent,
+  TerminalPosition,
+  ViewportMode,
   Comment,
   CommentStatus,
   CommentSide,
@@ -90,11 +93,19 @@ function rowToPanelState(row: Record<string, unknown>): PanelState {
     rightPanel: (row.right_panel as RightPanel) || 'none',
     leftWidthPercent: (row.left_width_percent as number) ?? 25,
     rightWidthPercent: (row.right_width_percent as number) ?? 35,
+    bottomPanel: (row.bottom_panel as PanelContent) || 'none',
+    bottomHeightPercent: (row.bottom_height_percent as number) ?? 40,
+    terminalPosition: (row.terminal_position as TerminalPosition) || 'center',
+    terminalVisible: (row.terminal_visible as unknown) === 1 || true,
     fileTabs: JSON.parse(row.file_tabs as string),
     activeTabIndex: row.active_tab_index as number,
     tabScrollPositions: JSON.parse(row.tab_scroll_positions as string),
     gitScrollPosition: row.git_scroll_position as number,
     previewUrl: row.preview_url as string,
+    previewViewport: (row.preview_viewport as ViewportMode) || 'desktop',
+    customViewportWidth: row.custom_viewport_width as number | null,
+    customViewportHeight: row.custom_viewport_height as number | null,
+    fontSize: (row.font_size as number) ?? 14,
     panelWidthPercent: row.panel_width_percent as number,
     updatedAt: row.updated_at as string,
   };
@@ -480,6 +491,9 @@ export class Repository {
     const row = this.db
       .prepare('SELECT * FROM panel_states WHERE session_id = ?')
       .get(sessionId) as Record<string, unknown> | undefined;
+    if (row) {
+      console.log(`[DB] getPanelState for ${sessionId}:`, { preview_url: row.preview_url, preview_viewport: row.preview_viewport });
+    }
     return row ? rowToPanelState(row) : null;
   }
 
@@ -491,11 +505,19 @@ export class Repository {
       rightPanel?: RightPanel;
       leftWidthPercent?: number;
       rightWidthPercent?: number;
+      bottomPanel?: PanelContent;
+      bottomHeightPercent?: number;
+      terminalPosition?: TerminalPosition;
+      terminalVisible?: boolean;
       fileTabs: string[];
       activeTabIndex: number;
       tabScrollPositions: Record<string, { line: number; column: number }>;
       gitScrollPosition: number;
       previewUrl: string;
+      previewViewport?: ViewportMode;
+      customViewportWidth?: number | null;
+      customViewportHeight?: number | null;
+      fontSize?: number;
       panelWidthPercent: number;
     },
   ): void {
@@ -505,13 +527,17 @@ export class Repository {
       .get(sessionId) as { enabled_extensions: string } | undefined;
     const enabledExt = existing?.enabled_extensions || '[]';
 
+    console.log(`[DB] savePanelState for ${sessionId}:`, { previewUrl: input.previewUrl, previewViewport: input.previewViewport });
+
     this.db
       .prepare(
         `INSERT OR REPLACE INTO panel_states
          (session_id, active_panel, left_panel, right_panel, left_width_percent, right_width_percent,
+          bottom_panel, bottom_height_percent, terminal_position, terminal_visible,
           file_tabs, active_tab_index, tab_scroll_positions,
-          git_scroll_position, preview_url, panel_width_percent, enabled_extensions, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+          git_scroll_position, preview_url, preview_viewport, custom_viewport_width, custom_viewport_height, font_size,
+          panel_width_percent, enabled_extensions, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
       )
       .run(
         sessionId,
@@ -520,11 +546,19 @@ export class Repository {
         input.rightPanel || 'none',
         input.leftWidthPercent ?? 25,
         input.rightWidthPercent ?? 35,
+        input.bottomPanel || 'none',
+        input.bottomHeightPercent ?? 40,
+        input.terminalPosition || 'center',
+        input.terminalVisible ? 1 : 0,
         JSON.stringify(input.fileTabs),
         input.activeTabIndex,
         JSON.stringify(input.tabScrollPositions),
         input.gitScrollPosition,
         input.previewUrl,
+        input.previewViewport || 'desktop',
+        input.customViewportWidth ?? null,
+        input.customViewportHeight ?? null,
+        input.fontSize ?? 14,
         input.panelWidthPercent,
         enabledExt,
       );

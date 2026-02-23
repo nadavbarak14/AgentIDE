@@ -205,12 +205,24 @@ export const files = {
 
 export interface PanelStateData {
   sessionId: string;
-  activePanel: 'none' | 'files' | 'git' | 'preview';
+  activePanel: string;
+  leftPanel: string;
+  rightPanel: string;
+  leftWidthPercent: number;
+  rightWidthPercent: number;
+  bottomPanel: string;
+  bottomHeightPercent: number;
+  terminalPosition: string;
+  terminalVisible: boolean;
   fileTabs: string[];
   activeTabIndex: number;
   tabScrollPositions: Record<string, { line: number; column: number }>;
   gitScrollPosition: number;
   previewUrl: string;
+  previewViewport: string;
+  customViewportWidth: number | null;
+  customViewportHeight: number | null;
+  fontSize: number;
   panelWidthPercent: number;
 }
 

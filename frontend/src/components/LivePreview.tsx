@@ -21,6 +21,8 @@ interface LivePreviewProps {
   requestedUrl?: string;
   /** Bumped each time an external navigation is requested, to force re-nav even for same URL. */
   navCounter?: number;
+  /** Callback to save the URL when user navigates (to persist state across sessions) */
+  onUrlChange?: (url: string) => void;
 }
 
 /** Convert a user-facing URL to a proxy URL that the backend can reach */
@@ -48,7 +50,7 @@ function toProxyUrl(sessionId: string, displayUrl: string): string {
   return displayUrl;
 }
 
-export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose, refreshKey: _refreshKey = 0, viewportMode = 'desktop', onViewportChange, customViewportWidth, customViewportHeight, onCustomViewport, bridgeRef, requestedUrl, navCounter = 0 }: LivePreviewProps) {
+export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose, refreshKey: _refreshKey = 0, viewportMode = 'desktop', onViewportChange, customViewportWidth, customViewportHeight, onCustomViewport, bridgeRef, requestedUrl, navCounter = 0, onUrlChange }: LivePreviewProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [stopped, setStopped] = useState(false);
@@ -103,7 +105,10 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
     if (iframeRef.current) {
       iframeRef.current.src = proxyUrl;
     }
-  }, [sessionId]);
+
+    // Save the URL to panel state so it persists across session switches
+    onUrlChange?.(url);
+  }, [sessionId, onUrlChange]);
 
   // Update when detected port changes
   useEffect(() => {
@@ -112,13 +117,12 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
     }
   }, [port, localPort, navigateTo]);
 
-  // Navigate when requestedUrl changes (from open-preview skill or board command)
-  // navCounter is bumped each time to force navigation even for the same URL
+  // Navigate when requestedUrl changes (from saved panel state or board command)
   useEffect(() => {
-    if (requestedUrl && navCounter > 0) {
+    if (requestedUrl) {
       navigateTo(requestedUrl);
     }
-  }, [navCounter]);
+  }, [requestedUrl, navigateTo]);
 
   // File change auto-reload disabled — use the reload button instead.
   // Auto-reload was causing constant refreshing during active development,

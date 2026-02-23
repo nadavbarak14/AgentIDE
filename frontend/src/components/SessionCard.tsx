@@ -185,6 +185,7 @@ export function SessionCard({
           ensurePanelOpen(msg.params.panel);
           // If opening preview with a URL, navigate to it once the bridge is ready
           if (msg.params.panel === 'preview' && msg.params.url) {
+            console.log(`[BoardCommand] Setting preview URL to: "${msg.params.url}"`);
             panel.setPreviewUrl(msg.params.url);
             // The LivePreview navigateTo is driven by requestedUrl prop + a counter
             // Bump a counter to force re-navigation even if URL is same as before
@@ -819,6 +820,7 @@ export function SessionCard({
             bridgeRef={previewBridgeRef}
             requestedUrl={panel.previewUrl}
             navCounter={panel.previewNavCounter}
+            onUrlChange={(url) => panel.setPreviewUrl(url)}
           />
         );
       case 'issues':
@@ -923,20 +925,15 @@ export function SessionCard({
     <div
       data-session-id={session.id}
       onKeyDown={handleKeyDown}
-      onMouseDown={() => {
-        // Always set focus on any click within the card (mousedown fires before click propagation issues)
-        onSetCurrent?.(session.id);
-      }}
-      onClick={() => onSetCurrent?.(session.id)}
       className={`rounded-lg border-2 ${
         session.needsInput
-          ? 'border-amber-400 ring-2 ring-amber-400/50'
+          ? 'border-amber-400 ring-2 ring-amber-400/50 bg-gray-800'
           : isCurrent
-            ? 'border-blue-500 ring-2 ring-blue-500/50 bg-blue-950/20'
+            ? 'border-blue-500 ring-2 ring-blue-500/50 bg-yellow-500/10'
             : focused
-              ? 'border-gray-600 border'
-              : 'border-gray-700 border'
-      } bg-gray-800 overflow-hidden flex flex-col`}
+              ? 'border-gray-600'
+              : 'border-gray-700'
+      } overflow-hidden flex flex-col`}
     >
       {/* Header + Toolbar (merged single row) */}
       <div className="flex items-center px-2 py-1 border-b border-gray-700 bg-gray-800/50 gap-1 flex-shrink-0">

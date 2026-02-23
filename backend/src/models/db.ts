@@ -75,11 +75,21 @@ CREATE TABLE IF NOT EXISTS panel_states (
     CHECK(right_panel IN ('none', 'git', 'preview')),
   left_width_percent INTEGER NOT NULL DEFAULT 25,
   right_width_percent INTEGER NOT NULL DEFAULT 35,
+  bottom_panel TEXT NOT NULL DEFAULT 'none',
+  bottom_height_percent INTEGER NOT NULL DEFAULT 40,
+  terminal_position TEXT NOT NULL DEFAULT 'center'
+    CHECK(terminal_position IN ('center', 'bottom')),
+  terminal_visible INTEGER NOT NULL DEFAULT 1,
   file_tabs TEXT NOT NULL DEFAULT '[]',
   active_tab_index INTEGER NOT NULL DEFAULT 0,
   tab_scroll_positions TEXT NOT NULL DEFAULT '{}',
   git_scroll_position INTEGER NOT NULL DEFAULT 0,
   preview_url TEXT NOT NULL DEFAULT '',
+  preview_viewport TEXT NOT NULL DEFAULT 'desktop'
+    CHECK(preview_viewport IN ('desktop', 'mobile', 'custom')),
+  custom_viewport_width INTEGER,
+  custom_viewport_height INTEGER,
+  font_size INTEGER NOT NULL DEFAULT 14,
   panel_width_percent INTEGER NOT NULL DEFAULT 40,
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -213,6 +223,20 @@ function migrate(database: Database.Database): void {
   // Add enabled_extensions column to panel_states
   if (!colNames.has('enabled_extensions')) {
     database.exec("ALTER TABLE panel_states ADD COLUMN enabled_extensions TEXT NOT NULL DEFAULT '[]'");
+  }
+
+  // Add v6 panel state columns (bottom panel, viewport, etc.)
+  if (!colNames.has('bottom_panel')) {
+    database.exec(`
+      ALTER TABLE panel_states ADD COLUMN bottom_panel TEXT NOT NULL DEFAULT 'none';
+      ALTER TABLE panel_states ADD COLUMN bottom_height_percent INTEGER NOT NULL DEFAULT 40;
+      ALTER TABLE panel_states ADD COLUMN terminal_position TEXT NOT NULL DEFAULT 'center';
+      ALTER TABLE panel_states ADD COLUMN terminal_visible INTEGER NOT NULL DEFAULT 1;
+      ALTER TABLE panel_states ADD COLUMN preview_viewport TEXT NOT NULL DEFAULT 'desktop';
+      ALTER TABLE panel_states ADD COLUMN custom_viewport_width INTEGER;
+      ALTER TABLE panel_states ADD COLUMN custom_viewport_height INTEGER;
+      ALTER TABLE panel_states ADD COLUMN font_size INTEGER NOT NULL DEFAULT 14;
+    `);
   }
 
   // Migrate any leftover queued sessions to failed (queue feature removed)

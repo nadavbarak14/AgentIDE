@@ -240,7 +240,7 @@ export function createSessionsRouter(repo: Repository, sessionManager: SessionMa
       return;
     }
 
-    const { activePanel, leftPanel, rightPanel, leftWidthPercent, rightWidthPercent, fileTabs, activeTabIndex, tabScrollPositions, gitScrollPosition, previewUrl, panelWidthPercent } = req.body;
+    const { activePanel, leftPanel, rightPanel, leftWidthPercent, rightWidthPercent, fileTabs, activeTabIndex, tabScrollPositions, gitScrollPosition, previewUrl, panelWidthPercent, bottomPanel, bottomHeightPercent, terminalPosition, terminalVisible, previewViewport, customViewportWidth, customViewportHeight, fontSize } = req.body;
 
     // Validate activePanel
     const validPanels = ['none', 'files', 'git', 'preview'];
@@ -291,6 +291,14 @@ export function createSessionsRouter(repo: Repository, sessionManager: SessionMa
       rightPanel,
       leftWidthPercent,
       rightWidthPercent,
+      bottomPanel: bottomPanel || 'none',
+      bottomHeightPercent: bottomHeightPercent || 40,
+      terminalPosition: terminalPosition || 'center',
+      terminalVisible: terminalVisible ?? true,
+      previewViewport: previewViewport || 'desktop',
+      customViewportWidth: customViewportWidth || null,
+      customViewportHeight: customViewportHeight || null,
+      fontSize: fontSize || 14,
       fileTabs,
       activeTabIndex,
       tabScrollPositions,
