@@ -574,6 +574,18 @@ export function createFilesRouter(repo: Repository, agentTunnelManager?: AgentTu
         delete responseHeaders['set-cookie'];
         responseHeaders['access-control-allow-origin'] = '*';
 
+        // Rewrite redirect Location headers to route back through proxy
+        // This prevents redirects from escaping the proxy and hitting X-Frame-Options
+        if ((proxyRes.statusCode === 301 || proxyRes.statusCode === 302 || proxyRes.statusCode === 303 || proxyRes.statusCode === 307 || proxyRes.statusCode === 308) && responseHeaders.location) {
+          let redirectUrl = String(responseHeaders.location);
+          // Handle relative redirects by resolving against target URL
+          if (redirectUrl.startsWith('/')) {
+            redirectUrl = `${targetUrl.protocol}//${targetUrl.host}${redirectUrl}`;
+          }
+          // Route the redirect back through proxy
+          responseHeaders.location = `/api/sessions/${sessionId}/proxy-url/${encodeURIComponent(redirectUrl)}`;
+        }
+
         const contentType = (proxyRes.headers['content-type'] || '').toLowerCase();
         if (contentType.includes('text/html')) {
           // Buffer HTML responses to inject bridge script
