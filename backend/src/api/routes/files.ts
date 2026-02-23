@@ -551,6 +551,8 @@ export function createFilesRouter(repo: Repository, agentTunnelManager?: AgentTu
     const proxyHeaders = { ...req.headers, host: targetUrl.host };
     // Don't forward the dashboard's cookies to external sites
     delete proxyHeaders.cookie;
+    // Remove encoding header so responses aren't compressed (we pipe them directly)
+    delete proxyHeaders['accept-encoding'];
 
     const proxyReq = transport.request(
       targetUrl.href,

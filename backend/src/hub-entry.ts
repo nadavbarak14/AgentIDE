@@ -76,9 +76,9 @@ export interface HubOptions {
 
 export async function startHub(options: HubOptions = {}): Promise<http.Server> {
   const port = options.port || parseInt(process.env.PORT || '3000', 10);
-  const host = options.host || process.env.HOST || '127.0.0.1';
+  const host = options.host || process.env.HOST || '0.0.0.0';
 
-  const isLocalhost = host === '127.0.0.1' || host === 'localhost' || host === '::1';
+  const isLocalhost = host === '127.0.0.1' || host === 'localhost' || host === '::1' || host === '0.0.0.0';
 
   // Initialize database
   const db = initDb();
@@ -289,7 +289,7 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
     const isExtensionRoute = req.path.startsWith('/extensions/');
     if (!isProxyRoute && !isExtensionRoute) {
       res.setHeader('X-Frame-Options', 'DENY');
-      res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-eval' 'unsafe-inline' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: blob:; media-src 'self' data: blob:; connect-src 'self' ws: wss: https://cdn.jsdelivr.net; font-src 'self' data: https://cdn.jsdelivr.net");
+      res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-eval' 'unsafe-inline' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: blob:; media-src 'self' data: blob:; connect-src 'self' ws: wss: https://cdn.jsdelivr.net; font-src 'self' data: https://cdn.jsdelivr.net; frame-src 'self' http://localhost:* http: https:");
     }
     next();
   });
