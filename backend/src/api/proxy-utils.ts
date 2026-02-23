@@ -12,8 +12,8 @@ export function decompressBuffer(buf: Buffer, encoding: string): Buffer {
   return buf;
 }
 
-/** Clean Set-Cookie headers — only strip Domain and Secure so cookies work over HTTP proxy */
-export function cleanSetCookieHeaders(setCookieHeaders: string | string[] | undefined): string[] {
+/** Clean Set-Cookie headers — strip Domain/Secure, optionally rewrite Path to proxy base */
+export function cleanSetCookieHeaders(setCookieHeaders: string | string[] | undefined, proxyBase?: string): string[] {
   if (!setCookieHeaders) return [];
   const headers = Array.isArray(setCookieHeaders) ? setCookieHeaders : [setCookieHeaders];
   return headers.map((cookie) => {
@@ -22,6 +22,14 @@ export function cleanSetCookieHeaders(setCookieHeaders: string | string[] | unde
     c = c.replace(/;\s*secure/i, '');
     if (/samesite\s*=\s*none/i.test(c)) {
       c = c.replace(/;\s*samesite\s*=\s*[^;]*/i, '; SameSite=Lax');
+    }
+    // Rewrite cookie Path so the browser sends cookies back through the proxy
+    if (proxyBase) {
+      if (/;\s*path\s*=/i.test(c)) {
+        c = c.replace(/;\s*path\s*=\s*[^;]*/i, `; Path=${proxyBase}/`);
+      } else {
+        c += `; Path=${proxyBase}/`;
+      }
     }
     return c;
   });
@@ -77,6 +85,8 @@ export function rewriteHtmlForProxy(html: string, proxyBase: string): string {
   const urlRewriter = `<script>(function(){
 var b="${proxyBase}";
 function rw(u){if(typeof u!=="string")return u;if(u.startsWith("/")&&!u.startsWith(b)&&!u.startsWith("//"))return b+u;var o=window.location.origin;if(u.length>o.length+1&&u.startsWith(o+"/")&&!u.startsWith(o+b))return o+b+u.slice(o.length);return u}
+// Helper: strip proxy prefix from a path (for headers sent to the server)
+function stripProxy(u){if(typeof u!=="string")return u;if(u.startsWith(b+"/"))return u.slice(b.length);if(u===b)return"/";return u}
 try{var OU=window.URL;var proxyRe=/\\/api\\/sessions\\/[^\\/]+\\/proxy\\/\\d+/;
 window.URL=new Proxy(OU,{construct:function(T,args){
 if(args.length>=2&&typeof args[0]==="string"&&args[0].startsWith("/")&&!args[0].startsWith("//")){
@@ -85,10 +95,26 @@ var m=s.match(proxyRe);if(m&&!args[0].startsWith(m[0]))args[0]=m[0]+args[0]}
 return new T(args[0],args[1])},apply:function(T,t,args){return T.apply(t,args)}})}catch(e){}
 try{var oLA=location.assign.bind(location);location.assign=function(u){return oLA(rw(u))}}catch(e){}
 try{var oLR=location.replace.bind(location);location.replace=function(u){return oLR(rw(u))}}catch(e){}
-var oF=window.fetch;window.fetch=function(u,o){return oF.call(this,rw(u),o)};
 var oX=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,u){return oX.apply(this,[m,rw(u)].concat([].slice.call(arguments,2)))};
-var oPS=history.pushState.bind(history);history.pushState=function(s,t,u){return oPS(s,t,u?rw(u):u)};
+var oPS=history.pushState.bind(history);var _c3Nav=null;
+history.pushState=function(s,t,u){if(u&&_c3Nav){var up=stripProxy(typeof u==="string"?u:"");if(up===_c3Nav)_c3Nav=null}return oPS(s,t,u?rw(u):u)};
 var oRS=history.replaceState.bind(history);history.replaceState=function(s,t,u){return oRS(s,t,u?rw(u):u)};
+var oF=window.fetch;window.fetch=function(u,o){
+var hdrs=(o&&o.headers)?o.headers:(u&&typeof u==="object"&&u.headers)?u.headers:null;
+if(hdrs){if(hdrs instanceof Headers){if(hdrs.has("Next-URL"))hdrs.set("Next-URL",stripProxy(hdrs.get("Next-URL")))}
+else if(typeof hdrs==="object"&&hdrs!==null){if(hdrs["Next-URL"])hdrs["Next-URL"]=stripProxy(hdrs["Next-URL"])}}
+var ir=false;if(hdrs){if(hdrs instanceof Headers)ir=hdrs.has("RSC")||hdrs.has("rsc");else if(typeof hdrs==="object")ir=!!hdrs.RSC||!!hdrs.rsc}
+var oo=o;
+if(ir){if(o&&o.signal){oo=Object.assign({},o);delete oo.signal}
+if(typeof u==="object"&&u.signal&&!(oo&&oo.signal===null)){oo=oo||{};oo.signal=null}}
+var furl=typeof u==="string"?u:(u&&typeof u==="object")?(u.href||u.url||""):"";
+var p=oF.call(this,typeof u==="string"?rw(u):u,oo);
+if(ir){
+p=p.then(function(r){var rd=r.headers.get("x-proxy-redirect");if(rd){_c3Nav=null;setTimeout(function(){var pp=b+rd;if(window.location.pathname!==pp)oPS({},"",pp)},0)}return r});
+var tp=stripProxy(furl.split("?")[0].replace(window.location.origin,""));var cp=stripProxy(window.location.pathname);
+if(tp&&tp!==cp){_c3Nav=tp;setTimeout(function(){if(_c3Nav===tp){var np=stripProxy(window.location.pathname);if(np!==tp){_c3Nav=null;oLA(b+tp)}else{_c3Nav=null}}else{_c3Nav=null}},2000)}
+}
+return p};
 function rwEl(el){if(!el||el.nodeType!==1)return;
 if(el.hasAttribute&&el.hasAttribute("data-c3-bridge"))return;
 var tag=el.tagName;if(!tag)return;
