@@ -5,7 +5,7 @@ Multi-session Claude Code command center. Run multiple Claude AI sessions side-b
 ## Quick Start
 
 ```bash
-npm install -g adyx
+npm install -g adyx-ide
 adyx start
 ```
 
@@ -27,7 +27,7 @@ sudo apt-get install -y nodejs
 sudo apt-get install -y build-essential python3
 
 # Install Adyx
-npm install -g adyx
+npm install -g adyx-ide
 
 # Start with remote access enabled
 adyx start --host 0.0.0.0 --port 8080
@@ -152,7 +152,7 @@ npx adyx start
 mkdir ~/.npm-global
 npm config set prefix '~/.npm-global'
 export PATH=~/.npm-global/bin:$PATH
-npm install -g adyx
+npm install -g adyx-ide
 ```
 
 **Cannot access from remote browser:**

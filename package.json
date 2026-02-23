@@ -1,5 +1,5 @@
 {
-  "name": "adyx",
+  "name": "adyx-ide",
   "version": "0.1.0",
   "description": "Adyx — Multi-session Claude Code command center",
   "type": "module",
