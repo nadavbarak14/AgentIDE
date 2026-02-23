@@ -120,19 +120,6 @@ return r});
 if(navTarget){setTimeout(function(){if(_c3Nav===navTarget){var np=stripProxy(window.location.pathname);_c3Nav=null;if(np!==navTarget){oPS({},"",b+navTarget);window.dispatchEvent(new PopStateEvent("popstate",{state:{}}))}}},3000)}
 }
 return p};
-function rwEl(el){if(!el||el.nodeType!==1)return;
-if(el.hasAttribute&&el.hasAttribute("data-c3-bridge"))return;
-var tag=el.tagName;if(!tag)return;
-var attrs=tag==="A"?["src","action"]:["src","href","action"];
-attrs.forEach(function(a){var v=el.getAttribute(a);
-if(!v)return;var rwd=rw(v);if(rwd!==v)el.setAttribute(a,rwd)});
-if(el.children)for(var i=0;i<el.children.length;i++)rwEl(el.children[i])}
-var oAppend=Node.prototype.appendChild;
-Node.prototype.appendChild=function(c){rwEl(c);return oAppend.call(this,c)};
-var oInsert=Node.prototype.insertBefore;
-Node.prototype.insertBefore=function(c,r){rwEl(c);return oInsert.call(this,c,r)};
-var oAppendEl=Element.prototype.append;
-if(oAppendEl)Element.prototype.append=function(){for(var i=0;i<arguments.length;i++)if(arguments[i]&&arguments[i].nodeType)rwEl(arguments[i]);return oAppendEl.apply(this,arguments)};
 var oSetAttr=Element.prototype.setAttribute;
 Element.prototype.setAttribute=function(a,v){
 if((a==="src"||a==="action"||(a==="href"&&this.tagName!=="A"))&&typeof v==="string")return oSetAttr.call(this,a,rw(v));
@@ -141,7 +128,6 @@ document.addEventListener("click",function(e){if(e.defaultPrevented)return;
 var a=e.target&&e.target.closest?e.target.closest("a[href]"):null;if(!a)return;
 var h=a.getAttribute("href");
 if(h&&h.startsWith("/")&&!h.startsWith(b)&&!h.startsWith("//")){e.preventDefault();location.assign(b+h)}});
-new MutationObserver(function(ms){ms.forEach(function(m){m.addedNodes.forEach(function(n){rwEl(n)})})}).observe(document.documentElement,{childList:true,subtree:true});
 var OWS=window.WebSocket;
 window.WebSocket=new Proxy(OWS,{construct:function(T,args){
 var wu=args[0]||"";
