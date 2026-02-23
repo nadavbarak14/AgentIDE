@@ -809,7 +809,11 @@ export function SessionCard({
             refreshKey={fileChangeVersion}
           />
         );
-      case 'preview':
+      case 'preview': {
+        const worker = session.workerId && workers
+          ? workers.find((w) => w.id === session.workerId)
+          : null;
+        const isLocalSession = !worker || worker.type === 'local';
         return (
           <LivePreview
             sessionId={session.id}
@@ -826,8 +830,10 @@ export function SessionCard({
             requestedUrl={panel.previewUrl}
             navCounter={panel.previewNavCounter}
             onUrlChange={handleUrlChange}
+            isLocalSession={isLocalSession}
           />
         );
+      }
       case 'issues':
         return (
           <GitHubIssues

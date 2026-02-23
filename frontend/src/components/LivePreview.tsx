@@ -23,10 +23,12 @@ interface LivePreviewProps {
   navCounter?: number;
   /** Callback to save the URL when user navigates (to persist state across sessions) */
   onUrlChange?: (url: string) => void;
+  /** When true, the session runs on a local worker (not remote). */
+  isLocalSession?: boolean;
 }
 
 /** Convert a user-facing URL to a proxy URL that the backend can reach */
-function toProxyUrl(sessionId: string, displayUrl: string): string {
+export function toProxyUrl(sessionId: string, displayUrl: string, isLocalDirect: boolean): string {
   // project:// scheme — serve local files
   if (displayUrl.startsWith('project://')) {
     const filePath = displayUrl.replace('project://', '') || '';
@@ -34,9 +36,14 @@ function toProxyUrl(sessionId: string, displayUrl: string): string {
     return `/api/sessions/${sessionId}/serve/${servePath}`;
   }
 
-  // localhost URLs — proxy through backend so browser can reach them
+  // localhost URLs
   const localhostMatch = displayUrl.match(/^https?:\/\/(?:localhost|127\.0\.0\.1):(\d+)(\/.*)?$/);
   if (localhostMatch) {
+    // When hub is accessed via localhost and session is local, use direct iframe
+    if (isLocalDirect) {
+      return displayUrl;
+    }
+    // Otherwise proxy through backend so the browser can reach them
     const port = localhostMatch[1];
     const pathPart = localhostMatch[2] || '/';
     return `/api/sessions/${sessionId}/proxy/${port}${pathPart}`;
@@ -50,7 +57,11 @@ function toProxyUrl(sessionId: string, displayUrl: string): string {
   return displayUrl;
 }
 
-export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose, refreshKey: _refreshKey = 0, viewportMode = 'desktop', onViewportChange, customViewportWidth, customViewportHeight, onCustomViewport, bridgeRef, requestedUrl, onUrlChange }: LivePreviewProps) {
+export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose, refreshKey: _refreshKey = 0, viewportMode = 'desktop', onViewportChange, customViewportWidth, customViewportHeight, onCustomViewport, bridgeRef, requestedUrl, onUrlChange, navCounter = 0, isLocalSession = true }: LivePreviewProps) {
+  // Skip proxy when hub is accessed via localhost and session is local
+  const isLocalDirect = isLocalSession &&
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [stopped, setStopped] = useState(false);
@@ -87,7 +98,7 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
   const [addressInput, setAddressInput] = useState(detectedUrl || 'http://localhost:3000');
 
   // Compute the iframe URL from displayUrl
-  const iframeUrl = displayUrl ? toProxyUrl(sessionId, displayUrl) : '';
+  const iframeUrl = displayUrl ? toProxyUrl(sessionId, displayUrl, isLocalDirect) : '';
   // Keep a ref so effects/callbacks can read current value without re-triggering
   const iframeUrlRef = useRef(iframeUrl);
   iframeUrlRef.current = iframeUrl;
@@ -107,11 +118,11 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
     setStopped(false);
 
     // Directly set iframe src — don't rely on React re-render
-    const proxyUrl = toProxyUrl(sessionId, url);
+    const targetUrl = toProxyUrl(sessionId, url, isLocalDirect);
     if (iframeRef.current) {
-      iframeRef.current.src = proxyUrl;
+      iframeRef.current.src = targetUrl;
     }
-  }, [sessionId]);
+  }, [sessionId, isLocalDirect]);
 
   // Update when detected port changes
   useEffect(() => {
@@ -140,6 +151,17 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
     try {
       const iframeLoc = iframeRef.current?.contentWindow?.location;
       if (!iframeLoc) return;
+
+      if (isLocalDirect) {
+        // Direct iframe — read the real URL directly
+        const realUrl = iframeLoc.href;
+        if (realUrl && realUrl !== 'about:blank') {
+          setDisplayUrl((prev) => prev === realUrl ? prev : realUrl);
+          setAddressInput((prev) => prev === realUrl ? prev : realUrl);
+        }
+        return;
+      }
+
       const path = iframeLoc.pathname;
       // Extract the real path from proxy URL: /api/sessions/{id}/proxy/{port}/path...
       const proxyMatch = path.match(/\/api\/sessions\/[^/]+\/proxy\/(\d+)(\/.*)?$/);
@@ -159,7 +181,7 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
     } catch (_e) {
       // Cross-origin — can't read iframe location, ignore
     }
-  }, []);
+  }, [isLocalDirect]);
 
   const handleReload = useCallback(() => {
     const url = iframeUrlRef.current;
