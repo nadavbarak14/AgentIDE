@@ -110,9 +110,14 @@ if(typeof u==="object"&&u.signal&&!(oo&&oo.signal===null)){oo=oo||{};oo.signal=n
 var furl=typeof u==="string"?u:(u&&typeof u==="object")?(u.href||u.url||""):"";
 var p=oF.call(this,typeof u==="string"?rw(u):u,oo);
 if(ir){
-p=p.then(function(r){var rd=r.headers.get("x-proxy-redirect");if(rd){_c3Nav=null;setTimeout(function(){var pp=b+rd;if(window.location.pathname!==pp)oPS({},"",pp)},0)}return r});
 var tp=stripProxy(furl.split("?")[0].replace(window.location.origin,""));var cp=stripProxy(window.location.pathname);
-if(tp&&tp!==cp){_c3Nav=tp;setTimeout(function(){if(_c3Nav===tp){var np=stripProxy(window.location.pathname);if(np!==tp){_c3Nav=null;oLA(b+tp)}else{_c3Nav=null}}else{_c3Nav=null}},800)}
+var navTarget=(tp&&tp!==cp)?tp:null;
+if(navTarget)_c3Nav=navTarget;
+p=p.then(function(r){var rd=r.headers.get("x-proxy-redirect");
+if(rd){_c3Nav=null;setTimeout(function(){var pp=b+rd;if(window.location.pathname!==pp)oPS({},"",pp)},0)}
+else if(navTarget&&_c3Nav===navTarget){setTimeout(function(){if(_c3Nav===navTarget){var np=stripProxy(window.location.pathname);_c3Nav=null;if(np!==navTarget)oLA(b+navTarget)}},50)}
+return r});
+if(navTarget){setTimeout(function(){if(_c3Nav===navTarget){var np=stripProxy(window.location.pathname);_c3Nav=null;if(np!==navTarget)oLA(b+navTarget)}},3000)}
 }
 return p};
 function rwEl(el){if(!el||el.nodeType!==1)return;
