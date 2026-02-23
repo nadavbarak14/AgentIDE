@@ -39,13 +39,16 @@ export function toProxyUrl(sessionId: string, displayUrl: string, isLocalDirect:
   // localhost URLs
   const localhostMatch = displayUrl.match(/^https?:\/\/(?:localhost|127\.0\.0\.1):(\d+)(\/.*)?$/);
   if (localhostMatch) {
-    // When hub is accessed via localhost and session is local, use direct iframe
-    if (isLocalDirect) {
+    const port = localhostMatch[1];
+    const pathPart = localhostMatch[2] || '/';
+    // Skip proxy when hub is accessed via localhost and session is local —
+    // UNLESS the target port is the hub itself (which sets X-Frame-Options: DENY
+    // and would block the iframe if loaded directly).
+    const isSelfReferential = port === window.location.port;
+    if (isLocalDirect && !isSelfReferential) {
       return displayUrl;
     }
     // Otherwise proxy through backend so the browser can reach them
-    const port = localhostMatch[1];
-    const pathPart = localhostMatch[2] || '/';
     return `/api/sessions/${sessionId}/proxy/${port}${pathPart}`;
   }
 
