@@ -104,8 +104,8 @@ function symlinkCustomSkills(manifest) {
       continue;
     }
 
-    // Create symlink
-    if (fs.existsSync(target)) fs.rmSync(target, { recursive: true, force: true });
+    // Create symlink — use lstatSync (not existsSync) so broken symlinks are detected too
+    try { fs.lstatSync(target); fs.rmSync(target, { recursive: true, force: true }); } catch {}
     fs.symlinkSync(source, target, 'dir');
     console.info(`[register] Custom skill: ${skillName} → ${source}`);
   }
