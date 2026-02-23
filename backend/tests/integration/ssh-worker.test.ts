@@ -4,6 +4,11 @@ import request from 'supertest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+
+/** On WSL2 the tmpdir lives on NTFS (/mnt/…) where chmod 000 doesn't restrict reads */
+function isWSL(): boolean {
+  try { return /microsoft/i.test(fs.readFileSync('/proc/version', 'utf8')); } catch { return false; }
+}
 import { createTestDb, closeDb } from '../../src/models/db.js';
 import { Repository } from '../../src/models/repository.js';
 import { WorkerManager } from '../../src/services/worker-manager.js';
@@ -98,7 +103,7 @@ describe('SSH Worker Validation', () => {
         .toThrow('does not appear to be a private key');
     });
 
-    it('rejects an unreadable file', () => {
+    it.skipIf(isWSL())('rejects an unreadable file', () => {
       const keyPath = createTestKey('unreadable.pem', VALID_KEY);
       fs.chmodSync(keyPath, 0o000);
       expect(() => workerManager.validateSshKeyFile(keyPath))
