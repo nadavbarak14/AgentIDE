@@ -112,7 +112,7 @@ var p=oF.call(this,typeof u==="string"?rw(u):u,oo);
 if(ir){
 p=p.then(function(r){var rd=r.headers.get("x-proxy-redirect");if(rd){_c3Nav=null;setTimeout(function(){var pp=b+rd;if(window.location.pathname!==pp)oPS({},"",pp)},0)}return r});
 var tp=stripProxy(furl.split("?")[0].replace(window.location.origin,""));var cp=stripProxy(window.location.pathname);
-if(tp&&tp!==cp){_c3Nav=tp;setTimeout(function(){if(_c3Nav===tp){var np=stripProxy(window.location.pathname);if(np!==tp){_c3Nav=null;oLA(b+tp)}else{_c3Nav=null}}else{_c3Nav=null}},2000)}
+if(tp&&tp!==cp){_c3Nav=tp;setTimeout(function(){if(_c3Nav===tp){var np=stripProxy(window.location.pathname);if(np!==tp){_c3Nav=null;oLA(b+tp)}else{_c3Nav=null}}else{_c3Nav=null}},800)}
 }
 return p};
 function rwEl(el){if(!el||el.nodeType!==1)return;

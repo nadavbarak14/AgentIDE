@@ -441,7 +441,8 @@ export function createFilesRouter(repo: Repository, agentTunnelManager?: AgentTu
     delete forwardHeaders['host'];
     delete forwardHeaders['connection'];
     delete forwardHeaders['upgrade'];
-    delete forwardHeaders['accept-encoding']; // Request uncompressed so we can rewrite HTML
+    // Keep accept-encoding for non-rewritten content (images, fonts stream compressed).
+    // For HTML/JS/CSS we decompress in the buffering path before rewriting.
     forwardHeaders['host'] = `localhost:${targetPort}`;
     // Strip proxy prefix from Next.js headers so the server sees real app paths
     if (forwardHeaders['next-url'] && typeof forwardHeaders['next-url'] === 'string') {
