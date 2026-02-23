@@ -415,15 +415,21 @@ export function Dashboard() {
         focusTerminalInSession(prevId);
         break;
       }
-      // Tab: open session switcher for all sessions (including overflow)
+      // Tab: open session switcher for all sessions (including overflow), sorted by queue priority
       case 'switch_next': {
         if (allSessions.length === 0) return;
+        // Sort by queue: waiting sessions first (needsInput: true), then others
+        const sorted = [...allSessions].sort((a, b) => {
+          if (a.needsInput && !b.needsInput) return -1;
+          if (!a.needsInput && b.needsInput) return 1;
+          return 0;
+        });
         setSessionSwitcherOpen((wasOpen) => {
           if (!wasOpen) {
-            const curIdx = curId ? allSessions.findIndex((s) => s.id === curId) : -1;
-            setSessionSwitcherIndex((curIdx + 1) % allSessions.length);
+            const curIdx = curId ? sorted.findIndex((s) => s.id === curId) : -1;
+            setSessionSwitcherIndex((curIdx + 1) % sorted.length);
           } else {
-            setSessionSwitcherIndex((prev) => (prev + 1) % allSessions.length);
+            setSessionSwitcherIndex((prev) => (prev + 1) % sorted.length);
           }
           return true;
         });
@@ -431,12 +437,18 @@ export function Dashboard() {
       }
       case 'switch_prev': {
         if (allSessions.length === 0) return;
+        // Sort by queue: waiting sessions first (needsInput: true), then others
+        const sorted = [...allSessions].sort((a, b) => {
+          if (a.needsInput && !b.needsInput) return -1;
+          if (!a.needsInput && b.needsInput) return 1;
+          return 0;
+        });
         setSessionSwitcherOpen((wasOpen) => {
           if (!wasOpen) {
-            const curIdx = curId ? allSessions.findIndex((s) => s.id === curId) : 0;
-            setSessionSwitcherIndex((curIdx - 1 + allSessions.length) % allSessions.length);
+            const curIdx = curId ? sorted.findIndex((s) => s.id === curId) : 0;
+            setSessionSwitcherIndex((curIdx - 1 + sorted.length) % sorted.length);
           } else {
-            setSessionSwitcherIndex((prev) => (prev - 1 + allSessions.length) % allSessions.length);
+            setSessionSwitcherIndex((prev) => (prev - 1 + sorted.length) % sorted.length);
           }
           return true;
         });

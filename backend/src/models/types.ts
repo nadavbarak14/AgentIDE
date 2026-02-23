@@ -147,11 +147,19 @@ export interface PanelState {
   rightPanel: RightPanel;
   leftWidthPercent: number;
   rightWidthPercent: number;
+  bottomPanel: PanelContent;
+  bottomHeightPercent: number;
+  terminalPosition: TerminalPosition;
+  terminalVisible: boolean;
   fileTabs: string[];
   activeTabIndex: number;
   tabScrollPositions: Record<string, ScrollPosition>;
   gitScrollPosition: number;
   previewUrl: string;
+  previewViewport: ViewportMode;
+  customViewportWidth: number | null;
+  customViewportHeight: number | null;
+  fontSize: number;
   panelWidthPercent: number;
   updatedAt: string;
 }

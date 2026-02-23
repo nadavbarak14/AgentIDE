@@ -134,6 +134,7 @@ export function usePanel(sessionId: string | null) {
   }), [leftPanel, rightPanel, leftWidthPercent, rightWidthPercent, bottomPanel, bottomHeightPercent, terminalPosition, terminalVisible, previewViewport, customViewportWidth, customViewportHeight, fileTabs, activeTabIndex, tabScrollPositions, gitScrollPosition, previewUrl]);
 
   const restoreState = useCallback((state: PanelStateValues) => {
+    console.log(`[RestoreState] Restoring with:`, { previewUrl: state.previewUrl, previewViewport: state.previewViewport });
     // Normalize legacy 'search' panel to 'files' (search is now inside files sidebar)
     const normalizePanel = (p: string): PanelContent => (p === 'search' ? 'files' : p) as PanelContent;
 
@@ -164,6 +165,7 @@ export function usePanel(sessionId: string | null) {
     setActiveTabIndex(state.activeTabIndex);
     setTabScrollPositions(state.tabScrollPositions);
     setGitScrollPosition(state.gitScrollPosition);
+    console.log(`[RestoreState] Setting previewUrl to: "${state.previewUrl}"`);
     setPreviewUrl(state.previewUrl);
   }, []);
 
@@ -177,10 +179,11 @@ export function usePanel(sessionId: string | null) {
       clearTimeout(saveTimerRef.current);
     }
     saveTimerRef.current = setTimeout(() => {
-      panelStateApi.save(sid, state).catch(() => {
-        // Silently ignore save errors
+      console.log(`[Panel Save] Session ${sid}:`, { previewUrl: state.previewUrl, previewViewport: state.previewViewport });
+      panelStateApi.save(sid, state).catch((err) => {
+        console.error(`[Panel Save Error] Failed to save panel state:`, err);
       });
-    }, 500);
+    }, 100);
   }, []);
 
   // Load state on session change
@@ -194,11 +197,13 @@ export function usePanel(sessionId: string | null) {
 
     // Load new session state
     panelStateApi.get(sessionId).then((loaded) => {
+      console.log(`[Panel Load] Session ${sessionId}:`, { previewUrl: loaded.previewUrl, previewViewport: loaded.previewViewport });
       if (currentSessionRef.current === sessionId) {
         restoreState(loaded as unknown as PanelStateValues);
       }
-    }).catch(() => {
+    }).catch((err) => {
       // No saved state — use defaults
+      console.error(`[Panel Load Error] Failed to load panel state for ${sessionId}:`, err);
       if (currentSessionRef.current === sessionId) {
         resetToDefaults();
       }
@@ -265,9 +270,14 @@ export function usePanel(sessionId: string | null) {
     // Skip the very first effect run after mount or session change
     if (saveGeneration.current < 2) {
       saveGeneration.current++;
+      console.log(`[Panel Effect] Skip gen ${saveGeneration.current}`);
       return;
     }
-    if (!currentSessionRef.current) return;
+    if (!currentSessionRef.current) {
+      console.log(`[Panel Effect] No current session`);
+      return;
+    }
+    console.log(`[Panel Effect] Running save for session ${currentSessionRef.current}`);
     const state: PanelStateValues = {
       leftPanel,
       rightPanel,
