@@ -5,19 +5,28 @@ const SESSION_ID = 'test-session-123';
 
 describe('toProxyUrl', () => {
   describe('isLocalDirect = true (localhost hub + local session)', () => {
+    // Use port 8080 — a port that won't match jsdom's window.location.port
     it('returns original localhost URL unchanged', () => {
-      expect(toProxyUrl(SESSION_ID, 'http://localhost:3000/', true))
-        .toBe('http://localhost:3000/');
+      expect(toProxyUrl(SESSION_ID, 'http://localhost:8080/', true))
+        .toBe('http://localhost:8080/');
     });
 
     it('returns original localhost URL with path unchanged', () => {
-      expect(toProxyUrl(SESSION_ID, 'http://localhost:3000/dashboard/settings', true))
-        .toBe('http://localhost:3000/dashboard/settings');
+      expect(toProxyUrl(SESSION_ID, 'http://localhost:8080/dashboard/settings', true))
+        .toBe('http://localhost:8080/dashboard/settings');
     });
 
     it('returns original 127.0.0.1 URL unchanged', () => {
       expect(toProxyUrl(SESSION_ID, 'http://127.0.0.1:5173/app', true))
         .toBe('http://127.0.0.1:5173/app');
+    });
+
+    it('proxies self-referential URL (same port as hub) even in direct mode', () => {
+      // window.location.port in jsdom matches the test env port (e.g. 3000),
+      // so hitting that port should always go through the proxy to strip X-Frame-Options
+      const hubPort = window.location.port || '80';
+      expect(toProxyUrl(SESSION_ID, `http://localhost:${hubPort}/`, true))
+        .toBe(`/api/sessions/${SESSION_ID}/proxy/${hubPort}/`);
     });
 
     it('still proxies project:// URLs', () => {
@@ -65,8 +74,8 @@ describe('toProxyUrl', () => {
     });
 
     it('localhost without trailing slash preserved in direct mode', () => {
-      expect(toProxyUrl(SESSION_ID, 'http://localhost:3000', true))
-        .toBe('http://localhost:3000');
+      expect(toProxyUrl(SESSION_ID, 'http://localhost:8080', true))
+        .toBe('http://localhost:8080');
     });
 
     it('returns non-matching URLs as-is', () => {
