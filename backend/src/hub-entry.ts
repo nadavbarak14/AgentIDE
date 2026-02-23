@@ -791,6 +791,7 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
 
     const widgets = Array.from(session.values()).map(w => ({
       name: w.name,
+      html: w.html,
       createdAt: w.createdAt,
       hasResult: w.result !== null,
     }));

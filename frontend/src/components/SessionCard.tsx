@@ -58,6 +58,19 @@ export function SessionCard({
   const [enabledExtensions, setEnabledExtensions] = useState<string[]>([]);
   const [showExtPicker, setShowExtPicker] = useState(false);
 
+  // Load canvas state from server on mount (covers page refresh & completed sessions)
+  useEffect(() => {
+    fetch(`/api/sessions/${session.id}/widgets`)
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data.widgets) && data.widgets.length > 0) {
+          const w = data.widgets[0];
+          if (w.name && w.html) addWidget(w.name, w.html);
+        }
+      })
+      .catch(() => {});
+  }, [session.id, addWidget]);
+
   // Load enabled extensions from server on mount
   useEffect(() => {
     fetch(`/api/sessions/${session.id}/extensions`)

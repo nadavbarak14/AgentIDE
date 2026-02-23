@@ -15,7 +15,7 @@ done
 HTML="${ARGS[0]:?Usage: widget-create.sh <html-content> [--wait]}"
 
 # Fixed internal name — there's only one canvas
-NAME="_canvas"
+NAME="canvas"
 
 # Build JSON payload using node for safe escaping
 PAYLOAD=$(node -e "

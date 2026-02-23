@@ -5,7 +5,7 @@ import type { WidgetData } from '../../src/hooks/useWidgets';
 
 function createWidget(overrides: Partial<WidgetData> = {}): WidgetData {
   return {
-    name: '_canvas',
+    name: 'canvas',
     html: '<html><body><h1>Hello</h1></body></html>',
     createdAt: Date.now(),
     ...overrides,
@@ -98,7 +98,7 @@ describe('WidgetPanel (Canvas)', () => {
         <WidgetPanel {...defaultProps({ widgets: [widget], activeWidget: widget, onDismissWidget })} />,
       );
       fireEvent.click(screen.getByTitle('Dismiss canvas'));
-      expect(onDismissWidget).toHaveBeenCalledWith('_canvas');
+      expect(onDismissWidget).toHaveBeenCalledWith('canvas');
     });
   });
 

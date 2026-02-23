@@ -12,7 +12,7 @@ describe('useWidgets (canvas)', () => {
 
   it('addWidget shows canvas content', () => {
     const { result } = renderHook(() => useWidgets());
-    act(() => result.current.addWidget('_canvas', '<p>Hello</p>'));
+    act(() => result.current.addWidget('canvas', '<p>Hello</p>'));
     expect(result.current.activeWidget).not.toBeNull();
     expect(result.current.activeWidget!.html).toBe('<p>Hello</p>');
     expect(result.current.widgetCount).toBe(1);
@@ -20,24 +20,24 @@ describe('useWidgets (canvas)', () => {
 
   it('addWidget replaces existing canvas', () => {
     const { result } = renderHook(() => useWidgets());
-    act(() => result.current.addWidget('_canvas', '<p>First</p>'));
-    act(() => result.current.addWidget('_canvas', '<p>Second</p>'));
+    act(() => result.current.addWidget('canvas', '<p>First</p>'));
+    act(() => result.current.addWidget('canvas', '<p>Second</p>'));
     expect(result.current.widgetCount).toBe(1);
     expect(result.current.activeWidget!.html).toBe('<p>Second</p>');
   });
 
   it('removeWidget clears the canvas', () => {
     const { result } = renderHook(() => useWidgets());
-    act(() => result.current.addWidget('_canvas', '<p>Hello</p>'));
+    act(() => result.current.addWidget('canvas', '<p>Hello</p>'));
     expect(result.current.widgetCount).toBe(1);
-    act(() => result.current.removeWidget('_canvas'));
+    act(() => result.current.removeWidget('canvas'));
     expect(result.current.activeWidget).toBeNull();
     expect(result.current.widgetCount).toBe(0);
   });
 
   it('widgets array has one entry when canvas is open', () => {
     const { result } = renderHook(() => useWidgets());
-    act(() => result.current.addWidget('_canvas', '<p>Hello</p>'));
+    act(() => result.current.addWidget('canvas', '<p>Hello</p>'));
     expect(result.current.widgets).toHaveLength(1);
     expect(result.current.widgets[0].html).toBe('<p>Hello</p>');
   });

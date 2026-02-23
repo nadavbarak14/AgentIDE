@@ -3,7 +3,7 @@
 # Usage: widget-get-result.sh
 
 # Fixed internal name — there's only one canvas
-NAME="_canvas"
+NAME="canvas"
 
 TIMEOUT=60
 INTERVAL=1
