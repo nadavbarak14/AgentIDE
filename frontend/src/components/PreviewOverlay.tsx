@@ -18,9 +18,11 @@ export function PreviewOverlay({ sessionId, bridge, containerWidth, containerHei
   const [sending, setSending] = useState(false);
   // Screenshot state
   const [screenshotDataUrl, setScreenshotDataUrl] = useState<string | null>(null);
+  const [screenshotMode, setScreenshotMode] = useState<'full' | 'viewport'>('full');
   // Recording state
   const [showRecordingPlayer, setShowRecordingPlayer] = useState(false);
   const [recordingTimer, setRecordingTimer] = useState(0);
+  const [recordingMode, setRecordingMode] = useState<'full' | 'viewport'>('full');
   const recordingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Handle element selection from bridge
@@ -69,8 +71,8 @@ export function PreviewOverlay({ sessionId, bridge, containerWidth, containerHei
   }, [bridge.screenshotDataUrl]);
 
   const handleCaptureScreenshot = useCallback(() => {
-    bridge.captureScreenshot();
-  }, [bridge]);
+    bridge.captureScreenshot(screenshotMode);
+  }, [bridge, screenshotMode]);
 
   const handleSaveAnnotatedScreenshot = useCallback(async (annotatedDataUrl: string) => {
     try {
@@ -93,13 +95,13 @@ export function PreviewOverlay({ sessionId, bridge, containerWidth, containerHei
       // Player will show when videoDataUrl arrives from bridge
       setShowRecordingPlayer(true);
     } else {
-      bridge.startRecording();
+      bridge.startRecording(recordingMode);
       setRecordingTimer(0);
       recordingIntervalRef.current = setInterval(() => {
         setRecordingTimer((t) => t + 1);
       }, 1000);
     }
-  }, [bridge]);
+  }, [bridge, recordingMode]);
 
   const handleSendRecording = useCallback(async () => {
     // For video recordings, save the video data URL as a screenshot (it's a data URL)
@@ -141,6 +143,32 @@ export function PreviewOverlay({ sessionId, bridge, containerWidth, containerHei
           👁️
         </button>
 
+        {/* Screenshot mode selector */}
+        <div className="flex gap-0.5 border border-gray-600 rounded">
+          <button
+            onClick={() => setScreenshotMode('viewport')}
+            className={`px-2 py-1 text-xs rounded-l ${
+              screenshotMode === 'viewport'
+                ? 'bg-blue-600 text-white'
+                : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+            }`}
+            title="Screenshot: current view only"
+          >
+            View
+          </button>
+          <button
+            onClick={() => setScreenshotMode('full')}
+            className={`px-2 py-1 text-xs rounded-r ${
+              screenshotMode === 'full'
+                ? 'bg-blue-600 text-white'
+                : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+            }`}
+            title="Screenshot: full page"
+          >
+            Full
+          </button>
+        </div>
+
         {/* Screenshot button */}
         <button
           onClick={handleCaptureScreenshot}
@@ -150,6 +178,34 @@ export function PreviewOverlay({ sessionId, bridge, containerWidth, containerHei
         >
           📸
         </button>
+
+        {/* Recording mode selector */}
+        <div className="flex gap-0.5 border border-gray-600 rounded">
+          <button
+            onClick={() => setRecordingMode('viewport')}
+            className={`px-2 py-1 text-xs rounded-l ${
+              recordingMode === 'viewport'
+                ? 'bg-blue-600 text-white'
+                : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+            }`}
+            title="Record: current view only"
+            disabled={bridge.isRecording}
+          >
+            View
+          </button>
+          <button
+            onClick={() => setRecordingMode('full')}
+            className={`px-2 py-1 text-xs rounded-r ${
+              recordingMode === 'full'
+                ? 'bg-blue-600 text-white'
+                : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+            }`}
+            title="Record: full page"
+            disabled={bridge.isRecording}
+          >
+            Full
+          </button>
+        </div>
 
         {/* Record button */}
         <button
