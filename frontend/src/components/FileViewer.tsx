@@ -598,7 +598,7 @@ export function FileViewer({
       )}
 
       {/* Editor Area (T013) */}
-      <div ref={containerRef} className="flex-1 overflow-hidden bg-gray-900 relative">
+      <div ref={containerRef} className="flex-1 overflow-hidden bg-gray-900 relative" data-testid="file-viewer">
         {loading ? (
           <div className="flex items-center justify-center h-full text-gray-500">
             Loading...

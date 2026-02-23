@@ -47,6 +47,8 @@
     "test:release:e2e": "npx vitest run --config release-tests/vitest.config.ts e2e/",
     "test:release:upgrade": "npx vitest run --config release-tests/vitest.config.ts upgrade/",
     "test:release:config": "npx vitest run --config release-tests/vitest.config.ts config/",
+    "test:release:browser": "npx playwright test --config release-tests/browser/playwright.config.ts",
+    "test:release:all": "npm run test:release && npm run test:release:browser",
     "lint": "npm run lint --workspace=backend && npm run lint --workspace=frontend",
     "typecheck": "npm run typecheck --workspace=backend && npm run typecheck --workspace=frontend"
   },
@@ -56,6 +58,7 @@
     "commander": "^14.0.3",
     "diff2html": "^3.4.0",
     "express": "^4.21.0",
+    "multer": "^2.0.2",
     "node-pty": "^1.0.0",
     "pino": "^9.6.0",
     "pino-pretty": "^13.0.0",
@@ -64,6 +67,7 @@
     "ws": "^8.18.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@typescript-eslint/eslint-plugin": "^7.18.0",
     "@typescript-eslint/parser": "^7.18.0",
     "eslint": "^8.57.1"

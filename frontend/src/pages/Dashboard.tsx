@@ -679,6 +679,7 @@ export function Dashboard() {
                   : 'text-gray-300 hover:text-white bg-blue-600/20 hover:bg-blue-600/40 border border-blue-500/30 hover:border-blue-500/50'
               }`}
               title={sidebarOpen ? 'Close sidebar (Ctrl+. N)' : 'New session (Ctrl+. N)'}
+              data-testid="sidebar-toggle"
             >
               {sidebarOpen ? (
                 <>

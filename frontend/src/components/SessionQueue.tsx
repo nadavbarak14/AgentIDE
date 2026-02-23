@@ -67,13 +67,14 @@ export function SessionQueue({
       {/* Create Session Form */}
       <div className="p-3 border-b border-gray-700 flex-shrink-0">
         <h3 className="text-sm font-semibold text-gray-300 mb-2">New Session</h3>
-        <form onSubmit={handleCreate} className="space-y-2">
+        <form onSubmit={handleCreate} className="space-y-2" data-testid="new-session-form">
           <input
             type="text"
             placeholder="Title (e.g., Refactor Auth)"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             className="w-full px-2 py-1.5 text-sm bg-gray-900 border border-gray-600 rounded text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+            data-testid="session-title-input"
           />
           <ProjectPicker
             selectedDirectory={directory}
@@ -110,6 +111,7 @@ export function SessionQueue({
             type="submit"
             disabled={creating || !directory.trim() || !title.trim()}
             className="w-full px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            data-testid="create-session-btn"
           >
             {creating ? 'Creating...' : 'Create Session'}
           </button>

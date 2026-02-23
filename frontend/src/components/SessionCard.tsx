@@ -978,6 +978,7 @@ export function SessionCard({
                   : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
               }`}
               title="File Explorer (Ctrl+., E)"
+              data-testid="files-btn"
             >
               Files
               {chordArmed && isCurrent && <span className="ml-1 px-1 py-px bg-blue-600 text-white text-[10px] rounded font-mono animate-pulse">E</span>}
@@ -990,6 +991,7 @@ export function SessionCard({
                   : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
               }`}
               title="Git Changes (Ctrl+., G)"
+              data-testid="git-btn"
             >
               Git
               {chordArmed && isCurrent && <span className="ml-1 px-1 py-px bg-blue-600 text-white text-[10px] rounded font-mono animate-pulse">G</span>}

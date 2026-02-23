@@ -57,7 +57,7 @@ export function SessionGrid({
 
   if (displayedSessions.length === 0 && overflowSessions.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center text-gray-500">
+      <div data-testid="session-grid" className="flex-1 flex items-center justify-center text-gray-500">
         <div className="text-center">
           <p className="text-xl mb-2">No active sessions</p>
           <p className="text-sm">Create a session from the sidebar to get started</p>
@@ -70,7 +70,7 @@ export function SessionGrid({
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Overflow: sessions beyond max_visible — at top */}
       {overflowSessions.length > 0 && (
-        <div className="border-b border-gray-700 flex-shrink-0">
+        <div data-testid="overflow-bar" className="border-b border-gray-700 flex-shrink-0">
           <button
             onClick={() => {
               setUserCollapsed((prev) => {
@@ -139,6 +139,7 @@ export function SessionGrid({
 
       {/* Focus Area: Main visible sessions (frozen order) */}
       <div
+        data-testid="session-grid"
         className="flex-1 grid gap-3 p-3 auto-rows-fr overflow-auto"
         style={{
           gridTemplateColumns: `repeat(${cols || 1}, 1fr)`,

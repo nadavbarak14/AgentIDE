@@ -124,7 +124,7 @@ export function FileTree({ sessionId, onFileSelect, refreshKey = 0 }: FileTreePr
   const filteredRoots = filterNodes(roots, searchFilter);
 
   return (
-    <div className="flex flex-col h-full text-sm">
+    <div className="flex flex-col h-full text-sm" data-testid="file-tree">
       {/* Breadcrumb + Search */}
       <div className="px-2 py-1.5 border-b border-gray-700 space-y-1">
         <div className="flex items-center gap-1 text-xs text-gray-400">
