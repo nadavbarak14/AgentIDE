@@ -123,11 +123,9 @@ describe('SessionCard', () => {
     expect(closeBtn.getAttribute('title')).toBe('Kill session (Ctrl+. K)');
   });
 
-  it('shows X close button for completed sessions with remove tooltip', () => {
+  it('does not show X close button for completed sessions', () => {
     render(<SessionCard session={createMockSession({ status: 'completed' })} />);
-    const closeBtn = screen.getByTestId('close-button');
-    expect(closeBtn).toBeInTheDocument();
-    expect(closeBtn.getAttribute('title')).toBe('Remove session');
+    expect(screen.queryByTestId('close-button')).not.toBeInTheDocument();
   });
 
   it('X button calls onKill for active sessions', () => {
@@ -140,18 +138,6 @@ describe('SessionCard', () => {
     );
     fireEvent.click(screen.getByTestId('close-button'));
     expect(onKill).toHaveBeenCalledWith('sess-1');
-  });
-
-  it('X button calls onDelete for completed sessions', () => {
-    const onDelete = vi.fn();
-    render(
-      <SessionCard
-        session={createMockSession({ status: 'completed', id: 'sess-1' })}
-        onDelete={onDelete}
-      />,
-    );
-    fireEvent.click(screen.getByTestId('close-button'));
-    expect(onDelete).toHaveBeenCalledWith('sess-1');
   });
 
   it('shows Continue button for completed sessions with claudeSessionId', () => {
