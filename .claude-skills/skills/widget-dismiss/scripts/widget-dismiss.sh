@@ -3,7 +3,7 @@
 # Usage: widget-dismiss.sh
 
 # Fixed internal name — there's only one canvas
-NAME="_canvas"
+NAME="canvas"
 
 RESPONSE=$(curl -s -w "\n%{http_code}" -X DELETE "http://localhost:${C3_HUB_PORT}/api/sessions/${C3_SESSION_ID}/widget/${NAME}")
 

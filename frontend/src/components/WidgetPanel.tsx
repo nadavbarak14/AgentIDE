@@ -33,6 +33,10 @@ export function WidgetPanel({ activeWidget, sessionId, onClose, onDismissWidget 
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ data: msg.data ?? {} }),
         }).catch(() => {});
+
+        // Auto-close canvas and panel after result is submitted
+        onDismissWidget(widgetName);
+        onClose();
       } else if (msg.type === 'widget-ready') {
         if (iframeRef.current?.contentWindow && activeWidget) {
           iframeRef.current.contentWindow.postMessage({
