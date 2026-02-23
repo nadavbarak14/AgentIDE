@@ -237,7 +237,7 @@ export function DiffViewer({ sessionId, onClose, refreshKey = 0 }: DiffViewerPro
       ) : (
         <div className="flex-1 flex overflow-hidden">
           {/* File Sidebar — vertical list */}
-          <div className="w-[180px] min-w-[140px] flex-shrink-0 border-r border-gray-700 overflow-y-auto bg-gray-800/30">
+          <div data-testid="diff-file-list" className="w-[180px] min-w-[140px] flex-shrink-0 border-r border-gray-700 overflow-y-auto bg-gray-800/30">
             <div className="px-2 py-1 text-[10px] text-gray-500 uppercase tracking-wide border-b border-gray-700">
               Files
             </div>
@@ -527,7 +527,7 @@ function SideBySideDiff({
   }, [floatingBtn]);
 
   return (
-    <div ref={containerRef} className="relative" style={{ cursor: isDragging ? 'row-resize' : undefined }}>
+    <div ref={containerRef} className="relative" data-testid="diff-viewer" style={{ cursor: isDragging ? 'row-resize' : undefined }}>
       {/* Column headers */}
       {isNewFile ? (
         <div className="border-b border-gray-700 text-[10px] text-gray-500 uppercase tracking-wide">
@@ -678,6 +678,7 @@ function SideBySideDiff({
                   className="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-gray-300 placeholder-gray-600 focus:outline-none focus:border-blue-500 resize-none"
                   rows={3}
                   autoFocus
+                  data-testid="comment-input"
                 />
                 <div className="flex gap-2 mt-1">
                   <button
@@ -691,6 +692,7 @@ function SideBySideDiff({
                     onClick={onCommentSubmit}
                     disabled={!commentText.trim() || savingComment}
                     className="px-2 py-1 text-xs bg-yellow-500 text-black rounded hover:bg-yellow-400 disabled:opacity-50"
+                    data-testid="add-comment-btn"
                   >
                     Add to Review
                   </button>
