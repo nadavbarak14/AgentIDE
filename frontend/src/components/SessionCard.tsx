@@ -54,6 +54,11 @@ export function SessionCard({
   const { extensionsWithPanel, getExtension, refresh: refreshExtensions } = useExtensions();
   const { widgets, activeWidget, addWidget, removeWidget, widgetCount } = useWidgets();
 
+  // Memoize the onUrlChange callback to prevent infinite loops in LivePreview effects
+  const handleUrlChange = useCallback((url: string) => {
+    panel.setPreviewUrl(url);
+  }, [panel]);
+
   // Per-session extension opt-in (persisted server-side for real skill isolation)
   const [enabledExtensions, setEnabledExtensions] = useState<string[]>([]);
   const [showExtPicker, setShowExtPicker] = useState(false);
@@ -820,7 +825,7 @@ export function SessionCard({
             bridgeRef={previewBridgeRef}
             requestedUrl={panel.previewUrl}
             navCounter={panel.previewNavCounter}
-            onUrlChange={(url) => panel.setPreviewUrl(url)}
+            onUrlChange={handleUrlChange}
           />
         );
       case 'issues':
