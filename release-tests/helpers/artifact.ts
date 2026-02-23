@@ -79,7 +79,7 @@ function getInstalledVersion(env: ReleaseEnvironment): string {
     env.npmPrefix,
     'lib',
     'node_modules',
-    'adyx',
+    'adyx-ide',
     'package.json',
   );
   if (fs.existsSync(pkgJsonPath)) {

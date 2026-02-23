@@ -33,7 +33,7 @@ describe('Install: Package contents verification', { timeout: 60_000 }, () => {
     const pkg = result.packageJson!;
     const bin = pkg.bin as Record<string, string>;
     expect(bin?.adyx).toBe('./backend/dist/cli.js');
-    expect(pkg.name).toBe('adyx');
+    expect(pkg.name).toBe('adyx-ide');
     expect(pkg.version).toBeDefined();
   });
 });
