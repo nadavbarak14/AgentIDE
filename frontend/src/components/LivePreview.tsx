@@ -93,9 +93,10 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
   }, []);
 
   // displayUrl is what the user sees. Empty string = no content loaded yet.
-  const detectedUrl = (localPort || port) > 0 ? `http://localhost:${localPort || port}` : '';
+  const currentHost = window.location.hostname;
+  const detectedUrl = (localPort || port) > 0 ? `http://${currentHost}:${localPort || port}` : '';
   const [displayUrl, setDisplayUrl] = useState(detectedUrl);
-  const [addressInput, setAddressInput] = useState(detectedUrl || 'http://localhost:3000');
+  const [addressInput, setAddressInput] = useState(detectedUrl || `http://${currentHost}:3000`);
 
   // Compute the iframe URL from displayUrl
   const iframeUrl = displayUrl ? toProxyUrl(sessionId, displayUrl, isLocalDirect) : '';
@@ -127,9 +128,9 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
   // Update when detected port changes
   useEffect(() => {
     if (localPort > 0 || port > 0) {
-      navigateTo(`http://localhost:${localPort || port}`);
+      navigateTo(`http://${currentHost}:${localPort || port}`);
     }
-  }, [port, localPort, navigateTo]);
+  }, [port, localPort, navigateTo, currentHost]);
 
   // Navigate when requestedUrl changes (from saved panel state or board command)
   // BUT: only navigate if it's different from what we just navigated to (prevents infinite loops)
