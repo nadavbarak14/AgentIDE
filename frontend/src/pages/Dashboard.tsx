@@ -4,6 +4,7 @@ import { SessionQueue } from '../components/SessionQueue';
 import { SettingsPanel } from '../components/SettingsPanel';
 import { ShortcutsHelp } from '../components/ShortcutsHelp';
 import { SessionSwitcher } from '../components/SessionSwitcher';
+import { CommandPalette, BUTTON_ONLY_COMMANDS } from '../components/CommandPalette';
 import { useSessionQueue } from '../hooks/useSessionQueue';
 import { useSession } from '../hooks/useSession';
 import { useKeyboardShortcuts, type ShortcutAction } from '../hooks/useKeyboardShortcuts';
@@ -359,6 +360,7 @@ export function Dashboard() {
 
   // ── Keyboard Shortcuts ──────────────────────────────────────────
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const [sessionSwitcherOpen, setSessionSwitcherOpen] = useState(false);
   const [sessionSwitcherIndex, setSessionSwitcherIndex] = useState(0);
 
@@ -484,6 +486,9 @@ export function Dashboard() {
       case 'show_help':
         setShortcutsHelpOpen((prev) => !prev);
         break;
+      case 'command_palette':
+        setPaletteOpen((prev) => !prev);
+        break;
       case 'zoom_session':
         if (curId) {
           handleToggleZoom(curId);
@@ -541,6 +546,54 @@ export function Dashboard() {
     }
   }, [handleSetCurrentSession, handleFocusSession, focusTerminalInSession, sessionSwitcherIndex, handleToggleZoom, killSession, toggleLock]);
 
+  // Handle actions from command palette — covers both shortcut-bound and button-only actions
+  const handlePaletteAction = useCallback((action: string) => {
+    const curId = currentSessionIdRef.current;
+    switch (action) {
+      // Shortcut-bound actions — delegate to existing handler
+      case 'toggle_files':
+      case 'toggle_git':
+      case 'toggle_preview':
+      case 'toggle_claude':
+      case 'toggle_issues':
+      case 'toggle_shell':
+      case 'search_files':
+      case 'focus_next':
+      case 'focus_prev':
+      case 'switch_next':
+      case 'switch_prev':
+      case 'confirm_session':
+      case 'show_help':
+      case 'command_palette':
+      case 'zoom_session':
+      case 'kill_session':
+      case 'toggle_pin':
+      case 'toggle_sidebar':
+        handleShortcutAction(action as ShortcutAction);
+        break;
+      // Button-only actions
+      case 'open_settings':
+        (document.querySelector('[data-testid="settings-button"], [title*="Settings"]') as HTMLElement)?.click();
+        break;
+      case 'toggle_terminal_position':
+      case 'font_size_decrease':
+      case 'font_size_increase':
+      case 'toggle_file_search':
+        if (curId) {
+          window.dispatchEvent(new CustomEvent('c3:shortcut', { detail: { action, sessionId: curId } }));
+        }
+        break;
+      case 'continue_session':
+        if (curId) {
+          window.dispatchEvent(new CustomEvent('c3:shortcut', { detail: { action: 'continue_session', sessionId: curId } }));
+        }
+        break;
+      case 'new_session':
+        (document.querySelector('[data-testid="session-input"], input[placeholder*="session"], input[placeholder*="Session"]') as HTMLElement)?.focus();
+        break;
+    }
+  }, [handleShortcutAction]);
+
   const chordState = useKeyboardShortcuts({
     enabled: true,
     onAction: handleShortcutAction,
@@ -594,6 +647,21 @@ export function Dashboard() {
             </span>
           </div>
           <div className="flex items-center gap-3">
+            <button
+              onClick={() => setPaletteOpen((prev) => !prev)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-300 hover:text-white bg-gray-700/50 hover:bg-gray-700 border border-gray-600 hover:border-gray-500 rounded-md transition-colors"
+              title="Help &amp; Commands (Ctrl+. H)"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+                <line x1="12" y1="17" x2="12.01" y2="17" />
+              </svg>
+              <span>Help</span>
+              {chordState.isArmed && (
+                <span className="ml-0.5 px-1 py-px bg-blue-600 text-white text-[10px] rounded font-mono font-bold animate-pulse">H</span>
+              )}
+            </button>
             {workersList.length > 1 && (
               <WorkerHealth workers={workersList} />
             )}
@@ -676,6 +744,17 @@ export function Dashboard() {
 
       {/* Shortcuts Help Overlay */}
       <ShortcutsHelp open={shortcutsHelpOpen} onClose={() => setShortcutsHelpOpen(false)} />
+
+      {/* Command Palette */}
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        onAction={(action) => {
+          setPaletteOpen(false);
+          handlePaletteAction(action);
+        }}
+        extraCommands={BUTTON_ONLY_COMMANDS}
+      />
 
       {/* Sidebar */}
       <div className={`transition-all duration-200 flex-shrink-0 ${sidebarOpen ? 'w-80' : 'w-0 overflow-hidden'}`}>

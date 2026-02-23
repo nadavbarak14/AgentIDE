@@ -166,6 +166,10 @@ export function ShortcutsHelp({ open, onClose }: ShortcutsHelpProps) {
           </button>
         </div>
 
+        <div className="px-4 py-2.5 bg-blue-900/20 border-b border-gray-700 text-sm text-gray-300">
+          Press <kbd className={KBD_CLASSES}>Ctrl+.</kbd> first, then a key below. Example: <kbd className={KBD_CLASSES}>Ctrl+.</kbd> then <kbd className={KBD_CLASSES}>H</kbd> opens Help.
+        </div>
+
         {conflict && (
           <div className="px-4 py-2 bg-red-900/30 text-red-400 text-sm border-b border-gray-700">
             {conflict}

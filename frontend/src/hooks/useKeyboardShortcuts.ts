@@ -19,37 +19,40 @@ export type ShortcutAction =
   | 'toggle_pin'
   | 'toggle_sidebar'
   | 'jump_1' | 'jump_2' | 'jump_3' | 'jump_4' | 'jump_5'
-  | 'jump_6' | 'jump_7' | 'jump_8' | 'jump_9';
+  | 'jump_6' | 'jump_7' | 'jump_8' | 'jump_9'
+  | 'command_palette';
 
 export interface Shortcut {
   key: string;
   action: ShortcutAction;
   category: string;
   description: string;
+  label: string;
   /** If true, chord stays armed after this action (for repeated navigation) */
   keepArmed?: boolean;
 }
 
 export const DEFAULT_SHORTCUT_MAP: Shortcut[] = [
-  { key: 'e', action: 'toggle_files', category: 'Panels', description: 'Toggle Files panel' },
-  { key: 'g', action: 'toggle_git', category: 'Panels', description: 'Toggle Git panel' },
-  { key: 'v', action: 'toggle_preview', category: 'Panels', description: 'Toggle Preview panel' },
-  { key: '\\', action: 'toggle_claude', category: 'Panels', description: 'Toggle Claude terminal' },
-  { key: 'i', action: 'toggle_issues', category: 'Panels', description: 'Toggle Issues panel' },
-  { key: 's', action: 'toggle_shell', category: 'Panels', description: 'Toggle Shell terminal' },
-  { key: 'ArrowRight', action: 'focus_next', category: 'Navigation', description: 'Focus next session', keepArmed: true },
-  { key: 'ArrowDown', action: 'focus_next', category: 'Navigation', description: 'Focus next session', keepArmed: true },
-  { key: 'ArrowLeft', action: 'focus_prev', category: 'Navigation', description: 'Focus previous session', keepArmed: true },
-  { key: 'ArrowUp', action: 'focus_prev', category: 'Navigation', description: 'Focus previous session', keepArmed: true },
-  { key: 'Tab', action: 'switch_next', category: 'Navigation', description: 'Switch to next session (waiting first)', keepArmed: true },
-  { key: 'Shift+Tab', action: 'switch_prev', category: 'Navigation', description: 'Switch to previous session', keepArmed: true },
-  { key: 'Enter', action: 'confirm_session', category: 'Navigation', description: 'Confirm session switch' },
-  { key: '?', action: 'show_help', category: 'Navigation', description: 'Show keyboard shortcuts' },
-  { key: 'f', action: 'search_files', category: 'Files', description: 'Search in files' },
-  { key: 'z', action: 'zoom_session', category: 'Session Actions', description: 'Zoom / unzoom session' },
-  { key: 'k', action: 'kill_session', category: 'Session Actions', description: 'Kill / remove session' },
-  { key: 'p', action: 'toggle_pin', category: 'Session Actions', description: 'Pin / unpin session' },
-  { key: 'n', action: 'toggle_sidebar', category: 'Session Actions', description: 'New session panel' },
+  { key: 'e', action: 'toggle_files', category: 'Panels', description: 'Toggle Files panel', label: 'Toggle Files' },
+  { key: 'g', action: 'toggle_git', category: 'Panels', description: 'Toggle Git panel', label: 'Toggle Git' },
+  { key: 'v', action: 'toggle_preview', category: 'Panels', description: 'Toggle Preview panel', label: 'Toggle Preview' },
+  { key: '\\', action: 'toggle_claude', category: 'Panels', description: 'Toggle Claude terminal', label: 'Toggle Claude' },
+  { key: 'i', action: 'toggle_issues', category: 'Panels', description: 'Toggle Issues panel', label: 'Toggle Issues' },
+  { key: 's', action: 'toggle_shell', category: 'Panels', description: 'Toggle Shell terminal', label: 'Toggle Shell' },
+  { key: 'ArrowRight', action: 'focus_next', category: 'Navigation', description: 'Focus next session', label: 'Focus Next Session', keepArmed: true },
+  { key: 'ArrowDown', action: 'focus_next', category: 'Navigation', description: 'Focus next session', label: 'Focus Next Session', keepArmed: true },
+  { key: 'ArrowLeft', action: 'focus_prev', category: 'Navigation', description: 'Focus previous session', label: 'Focus Previous Session', keepArmed: true },
+  { key: 'ArrowUp', action: 'focus_prev', category: 'Navigation', description: 'Focus previous session', label: 'Focus Previous Session', keepArmed: true },
+  { key: 'Tab', action: 'switch_next', category: 'Navigation', description: 'Switch to next session (waiting first)', label: 'Switch Next Session', keepArmed: true },
+  { key: 'Shift+Tab', action: 'switch_prev', category: 'Navigation', description: 'Switch to previous session', label: 'Switch Previous Session', keepArmed: true },
+  { key: 'Enter', action: 'confirm_session', category: 'Navigation', description: 'Confirm session switch', label: 'Confirm Session' },
+  { key: '?', action: 'show_help', category: 'Navigation', description: 'Show keyboard shortcuts', label: 'Show Shortcuts Help' },
+  { key: 'f', action: 'search_files', category: 'Files', description: 'Search in files', label: 'Search Files' },
+  { key: 'z', action: 'zoom_session', category: 'Session Actions', description: 'Zoom / unzoom session', label: 'Zoom Session' },
+  { key: 'k', action: 'kill_session', category: 'Session Actions', description: 'Kill / remove session', label: 'Kill Session' },
+  { key: 'p', action: 'toggle_pin', category: 'Session Actions', description: 'Pin / unpin session', label: 'Pin/Unpin Session' },
+  { key: 'n', action: 'toggle_sidebar', category: 'Session Actions', description: 'New session panel', label: 'New Session Panel' },
+  { key: 'h', action: 'command_palette', category: 'Navigation', description: 'Open command palette', label: 'Command Palette' },
 ];
 
 export interface ChordIndicatorState {
@@ -61,7 +64,7 @@ interface UseKeyboardShortcutsOptions {
   onAction: (action: ShortcutAction) => void;
 }
 
-function getEffectiveShortcuts(): Shortcut[] {
+export function getEffectiveShortcuts(): Shortcut[] {
   try {
     const raw = localStorage.getItem('c3-keybindings');
     if (!raw) return DEFAULT_SHORTCUT_MAP;
