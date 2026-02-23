@@ -1,51 +1,61 @@
 ---
 name: widget-create
-description: Create an interactive HTML widget displayed to the user
+description: Show HTML/JS UI to the user in the canvas panel
 ---
 
-# widget-create
+# widget-create — Show UI to the User
 
-Creates a named interactive widget in the Widgets panel. The widget content is provided as HTML markup and rendered in a sandboxed iframe. If a widget with the same name already exists, it will be replaced (and any previous result cleared).
+Opens the canvas panel and displays your HTML/JS content to the user. Use this whenever you need to show something visual or collect input that plain text can't handle — color pickers, forms, confirmations, diagrams, etc.
 
-The C3 bridge SDK (`C3.sendResult`, `C3.ready`, etc.) is **automatically injected** — do NOT include `<script src="/api/widget-bridge.js">`.
+There is only **one canvas**. Calling this again replaces whatever was showing before.
+
+The `C3` bridge SDK is **automatically injected** — do NOT include any script tags for it. Just use `C3.sendResult(data)` in your HTML.
 
 ## Usage
 
 ```bash
-./scripts/widget-create.sh <widget-name> <html-content> [--wait]
+./scripts/widget-create.sh <html-content> [--wait]
 ```
 
 ## Parameters
 
-- `widget-name` (required): A lowercase identifier using only letters, numbers, and hyphens (e.g., "color-picker", "feedback-form")
-- `html-content` (required): The HTML markup for the widget. Can include inline styles and scripts. Max 512KB.
-- `--wait` (optional): After creating the widget, poll for the user's result (up to 60s). Outputs the result JSON when received.
+- `html-content` (required): The HTML markup to display. Can include inline styles and scripts. Max 512KB.
+- `--wait` (optional): After showing the UI, block and wait for the user's response (up to 60s). Outputs the result JSON when received.
 
-## Sending Results Back
+## How to Collect User Input
 
-The `C3` global is always available — just call `C3.sendResult(data)`:
+Use `C3.sendResult(data)` — it's always available:
 
 ```html
 <button onclick="C3.sendResult({ chosen: 'red' })">Red</button>
+<button onclick="C3.sendResult({ chosen: 'blue' })">Blue</button>
 ```
 
-Or use raw postMessage if preferred:
-
-```html
-<script>
-  window.parent.postMessage({ type: 'widget-result', data: { chosen: 'red' } }, '*');
-</script>
-```
-
-## Example
+## Example — Show a Simple UI
 
 ```bash
-./scripts/widget-create.sh "color-picker" '<div style="padding:20px"><h2>Pick a color</h2><button onclick="C3.sendResult({color:\"blue\"})">Blue</button></div>'
+./scripts/widget-create.sh '<div style="padding:20px;font-family:sans-serif"><h2>Pick a color</h2><button onclick="C3.sendResult({color:\"blue\"})">Blue</button> <button onclick="C3.sendResult({color:\"red\"})">Red</button></div>'
 ```
 
-## Example with --wait
+## Example — Show UI and Wait for Response
 
 ```bash
-# Creates the widget and blocks until the user clicks, then outputs the result JSON
-./scripts/widget-create.sh "confirm" '<div style="padding:20px;font-family:sans-serif"><p>Are you sure?</p><button onclick="C3.sendResult({ok:true})">Yes</button> <button onclick="C3.sendResult({ok:false})">No</button></div>' --wait
+# Blocks until the user clicks, then outputs the result JSON
+RESULT=$(./scripts/widget-create.sh '<div style="padding:20px;font-family:sans-serif"><p>Deploy to production?</p><button onclick="C3.sendResult({ok:true})">Yes</button> <button onclick="C3.sendResult({ok:false})">No</button></div>' --wait)
+echo "$RESULT"  # e.g. {"ok":true}
 ```
+
+## When to Use This
+
+- You need the user to pick from visual options (colors, layouts, icons)
+- You need a confirmation dialog with structured response
+- You want to show a preview or diagram
+- You need form input (multiple fields, sliders, toggles)
+- Any time plain text input/output is insufficient
+
+## Important
+
+- **Always close the canvas** when you're done using `widget-dismiss.sh`
+- The `--wait` flag is the easiest pattern: show → wait → get result → close
+- If showing new content, the old content is automatically replaced
+- The user can also dismiss the canvas using the trash icon in the panel header

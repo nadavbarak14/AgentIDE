@@ -1,14 +1,16 @@
 #!/bin/bash
-# Skill: Poll for a widget result
-NAME="${1:?Usage: widget-get-result.sh <widget-name>}"
-ENCODED_NAME=$(node -e "process.stdout.write(encodeURIComponent(process.argv[1]))" "$NAME")
+# Skill: Wait for the user's response from the canvas UI
+# Usage: widget-get-result.sh
+
+# Fixed internal name — there's only one canvas
+NAME="_canvas"
 
 TIMEOUT=60
 INTERVAL=1
 ELAPSED=0
 
 while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
-  RESPONSE=$(curl -s "http://localhost:${C3_HUB_PORT}/api/sessions/${C3_SESSION_ID}/widget/${ENCODED_NAME}/result")
+  RESPONSE=$(curl -s "http://localhost:${C3_HUB_PORT}/api/sessions/${C3_SESSION_ID}/widget/${NAME}/result")
 
   STATUS=$(echo "$RESPONSE" | node -e "
     let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{
@@ -26,7 +28,7 @@ while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
   fi
 
   if [ "$STATUS" = "error" ]; then
-    echo "Widget \"$NAME\" not found" >&2
+    echo "No canvas is open" >&2
     exit 1
   fi
 
@@ -34,5 +36,5 @@ while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
   ELAPSED=$((ELAPSED + INTERVAL))
 done
 
-echo "Timeout waiting for widget \"$NAME\" result after ${TIMEOUT}s" >&2
+echo "Timeout waiting for user response after ${TIMEOUT}s" >&2
 exit 1

@@ -1,6 +1,6 @@
 #!/bin/bash
-# Skill: Create an interactive HTML widget
-# Usage: widget-create.sh <widget-name> <html-content> [--wait]
+# Skill: Show HTML/JS UI to the user in the canvas panel
+# Usage: widget-create.sh <html-content> [--wait]
 
 WAIT=false
 ARGS=()
@@ -12,8 +12,10 @@ for arg in "$@"; do
   fi
 done
 
-NAME="${ARGS[0]:?Usage: widget-create.sh <widget-name> <html-content> [--wait]}"
-HTML="${ARGS[1]:?Usage: widget-create.sh <widget-name> <html-content> [--wait]}"
+HTML="${ARGS[0]:?Usage: widget-create.sh <html-content> [--wait]}"
+
+# Fixed internal name — there's only one canvas
+NAME="_canvas"
 
 # Build JSON payload using node for safe escaping
 PAYLOAD=$(node -e "
@@ -29,21 +31,20 @@ HTTP_CODE=$(echo "$RESPONSE" | tail -1)
 BODY=$(echo "$RESPONSE" | sed '$d')
 
 if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
-  echo "Widget \"$NAME\" created successfully"
+  echo "Canvas opened"
 else
-  echo "Failed to create widget \"$NAME\": $BODY" >&2
+  echo "Failed to open canvas: $BODY" >&2
   exit 1
 fi
 
 # If --wait flag, poll for result
 if [ "$WAIT" = true ]; then
-  echo "Waiting for user interaction..."
   TIMEOUT=60
-  INTERVAL=0.5
+  INTERVAL=1
   ELAPSED=0
 
-  while (( $(echo "$ELAPSED < $TIMEOUT" | bc -l) )); do
-    RESULT_RESPONSE=$(curl -s "http://localhost:${C3_HUB_PORT}/api/sessions/${C3_SESSION_ID}/widget/$(printf '%s' "$NAME" | jq -sRr @uri)/result")
+  while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
+    RESULT_RESPONSE=$(curl -s "http://localhost:${C3_HUB_PORT}/api/sessions/${C3_SESSION_ID}/widget/${NAME}/result")
 
     STATUS=$(echo "$RESULT_RESPONSE" | node -e "
       let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{
@@ -61,9 +62,9 @@ if [ "$WAIT" = true ]; then
     fi
 
     sleep "$INTERVAL"
-    ELAPSED=$(echo "$ELAPSED + $INTERVAL" | bc)
+    ELAPSED=$((ELAPSED + INTERVAL))
   done
 
-  echo "Timeout waiting for widget \"$NAME\" result after ${TIMEOUT}s" >&2
+  echo "Timeout waiting for user response after ${TIMEOUT}s" >&2
   exit 1
 fi

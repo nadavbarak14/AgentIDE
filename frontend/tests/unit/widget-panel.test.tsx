@@ -3,17 +3,15 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { WidgetPanel } from '../../src/components/WidgetPanel';
 import type { WidgetData } from '../../src/hooks/useWidgets';
 
-// Helper to create a WidgetData object
 function createWidget(overrides: Partial<WidgetData> = {}): WidgetData {
   return {
-    name: 'test-widget',
-    html: '<html><body><h1>Hello Widget</h1></body></html>',
+    name: '_canvas',
+    html: '<html><body><h1>Hello</h1></body></html>',
     createdAt: Date.now(),
     ...overrides,
   };
 }
 
-// Default props helper
 function defaultProps(overrides: Partial<Parameters<typeof WidgetPanel>[0]> = {}) {
   return {
     widgets: [] as WidgetData[],
@@ -26,179 +24,92 @@ function defaultProps(overrides: Partial<Parameters<typeof WidgetPanel>[0]> = {}
   };
 }
 
-describe('WidgetPanel', () => {
-  // ---------------------------------------------------------------
-  // Empty state
-  // ---------------------------------------------------------------
+describe('WidgetPanel (Canvas)', () => {
   describe('empty state', () => {
-    it('shows empty state when no widgets are provided', () => {
+    it('shows empty state when no canvas content', () => {
       render(<WidgetPanel {...defaultProps()} />);
-
-      expect(screen.getByText('Widgets')).toBeInTheDocument();
-      expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
-    });
-
-    it('shows empty state message text', () => {
-      render(<WidgetPanel {...defaultProps()} />);
-
-      expect(
-        screen.getByText(/No widgets — the agent can create interactive widgets here/),
-      ).toBeInTheDocument();
-    });
-
-    it('shows empty state when activeWidget is null even with widgets in the list', () => {
-      const widget = createWidget();
-      render(
-        <WidgetPanel {...defaultProps({ widgets: [widget], activeWidget: null })} />,
-      );
-
-      expect(
-        screen.getByText(/No widgets — the agent can create interactive widgets here/),
-      ).toBeInTheDocument();
-    });
-  });
-
-  // ---------------------------------------------------------------
-  // Iframe rendering
-  // ---------------------------------------------------------------
-  describe('iframe rendering', () => {
-    it('renders iframe with srcDoc when a widget is provided', () => {
-      const widget = createWidget({ html: '<p>Widget Content</p>' });
-      render(
-        <WidgetPanel
-          {...defaultProps({ widgets: [widget], activeWidget: widget })}
-        />,
-      );
-
-      const iframe = screen.getByTitle('Widget: test-widget') as HTMLIFrameElement;
-      expect(iframe).toBeInTheDocument();
-      expect(iframe.tagName).toBe('IFRAME');
-      // Bridge SDK is prepended to srcDoc
-      const srcDoc = iframe.getAttribute('srcdoc') ?? '';
-      expect(srcDoc).toContain('<p>Widget Content</p>');
-      expect(srcDoc).toContain('C3.ready');
-    });
-
-    it('iframe has no sandbox attribute (removed for CSP compatibility)', () => {
-      const widget = createWidget();
-      render(
-        <WidgetPanel
-          {...defaultProps({ widgets: [widget], activeWidget: widget })}
-        />,
-      );
-
-      const iframe = screen.getByTitle('Widget: test-widget') as HTMLIFrameElement;
-      expect(iframe.getAttribute('sandbox')).toBeNull();
-    });
-  });
-
-  // ---------------------------------------------------------------
-  // Header: single widget vs. multiple widgets
-  // ---------------------------------------------------------------
-  describe('header display', () => {
-    it('shows widget name in header when single widget', () => {
-      const widget = createWidget({ name: 'My Chart' });
-      render(
-        <WidgetPanel
-          {...defaultProps({ widgets: [widget], activeWidget: widget })}
-        />,
-      );
-
-      expect(screen.getByText('My Chart')).toBeInTheDocument();
-      // Should not show a dropdown for a single widget
-      expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
-    });
-
-    it('shows select dropdown when multiple widgets', () => {
-      const widget1 = createWidget({ name: 'Chart' });
-      const widget2 = createWidget({ name: 'Table' });
-      render(
-        <WidgetPanel
-          {...defaultProps({
-            widgets: [widget1, widget2],
-            activeWidget: widget1,
-          })}
-        />,
-      );
-
-      const select = screen.getByRole('combobox') as HTMLSelectElement;
-      expect(select).toBeInTheDocument();
-      expect(select.value).toBe('Chart');
-
-      // Both options should be present
-      const options = select.querySelectorAll('option');
-      expect(options).toHaveLength(2);
-      expect(options[0].textContent).toBe('Chart');
-      expect(options[1].textContent).toBe('Table');
-    });
-  });
-
-  // ---------------------------------------------------------------
-  // Interactions
-  // ---------------------------------------------------------------
-  describe('interactions', () => {
-    it('calls onSetActiveWidget when dropdown changes', () => {
-      const onSetActiveWidget = vi.fn();
-      const widget1 = createWidget({ name: 'Chart' });
-      const widget2 = createWidget({ name: 'Table' });
-      render(
-        <WidgetPanel
-          {...defaultProps({
-            widgets: [widget1, widget2],
-            activeWidget: widget1,
-            onSetActiveWidget,
-          })}
-        />,
-      );
-
-      const select = screen.getByRole('combobox');
-      fireEvent.change(select, { target: { value: 'Table' } });
-
-      expect(onSetActiveWidget).toHaveBeenCalledTimes(1);
-      expect(onSetActiveWidget).toHaveBeenCalledWith('Table');
+      expect(screen.getByText('Canvas')).toBeInTheDocument();
+      expect(screen.getByText(/Claude's UI canvas/)).toBeInTheDocument();
     });
 
     it('calls onClose when close button clicked in empty state', () => {
       const onClose = vi.fn();
       render(<WidgetPanel {...defaultProps({ onClose })} />);
-
-      const closeButton = screen.getByTitle('Close panel');
-      fireEvent.click(closeButton);
-
-      expect(onClose).toHaveBeenCalledTimes(1);
-    });
-
-    it('calls onClose when close button clicked with active widget', () => {
-      const onClose = vi.fn();
-      const widget = createWidget();
-      render(
-        <WidgetPanel
-          {...defaultProps({ widgets: [widget], activeWidget: widget, onClose })}
-        />,
-      );
-
-      const closeButton = screen.getByTitle('Close panel');
-      fireEvent.click(closeButton);
-
-      expect(onClose).toHaveBeenCalledTimes(1);
+      fireEvent.click(screen.getByTitle('Close panel'));
+      expect(onClose).toHaveBeenCalledOnce();
     });
   });
 
-  // ---------------------------------------------------------------
-  // Edge cases
-  // ---------------------------------------------------------------
-  describe('edge cases', () => {
-    it('handles widget with empty HTML gracefully', () => {
-      const widget = createWidget({ name: 'Empty Widget', html: '' });
+  describe('canvas rendering', () => {
+    it('renders iframe with canvas content', () => {
+      const widget = createWidget({ html: '<p>Pick a color</p>' });
       render(
-        <WidgetPanel
-          {...defaultProps({ widgets: [widget], activeWidget: widget })}
-        />,
+        <WidgetPanel {...defaultProps({ widgets: [widget], activeWidget: widget })} />,
       );
-
-      const iframe = screen.getByTitle('Widget: Empty Widget') as HTMLIFrameElement;
+      const iframe = screen.getByTitle('Canvas') as HTMLIFrameElement;
       expect(iframe).toBeInTheDocument();
-      // Even empty HTML gets the bridge SDK prepended
+      expect(iframe.tagName).toBe('IFRAME');
+      const srcDoc = iframe.getAttribute('srcdoc') ?? '';
+      expect(srcDoc).toContain('<p>Pick a color</p>');
+      expect(srcDoc).toContain('C3.ready');
+    });
+
+    it('has no sandbox attribute', () => {
+      const widget = createWidget();
+      render(
+        <WidgetPanel {...defaultProps({ widgets: [widget], activeWidget: widget })} />,
+      );
+      const iframe = screen.getByTitle('Canvas') as HTMLIFrameElement;
+      expect(iframe.getAttribute('sandbox')).toBeNull();
+    });
+
+    it('shows "Canvas" header label', () => {
+      const widget = createWidget();
+      render(
+        <WidgetPanel {...defaultProps({ widgets: [widget], activeWidget: widget })} />,
+      );
+      expect(screen.getByText('Canvas')).toBeInTheDocument();
+    });
+
+    it('has no widget selector dropdown', () => {
+      const widget = createWidget();
+      render(
+        <WidgetPanel {...defaultProps({ widgets: [widget], activeWidget: widget })} />,
+      );
+      expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('interactions', () => {
+    it('calls onClose when close button clicked', () => {
+      const onClose = vi.fn();
+      const widget = createWidget();
+      render(
+        <WidgetPanel {...defaultProps({ widgets: [widget], activeWidget: widget, onClose })} />,
+      );
+      fireEvent.click(screen.getByTitle('Close panel'));
+      expect(onClose).toHaveBeenCalledOnce();
+    });
+
+    it('calls onDismissWidget when dismiss button clicked', () => {
+      const onDismissWidget = vi.fn();
+      const widget = createWidget();
+      render(
+        <WidgetPanel {...defaultProps({ widgets: [widget], activeWidget: widget, onDismissWidget })} />,
+      );
+      fireEvent.click(screen.getByTitle('Dismiss canvas'));
+      expect(onDismissWidget).toHaveBeenCalledWith('_canvas');
+    });
+  });
+
+  describe('edge cases', () => {
+    it('handles empty HTML — still injects bridge SDK', () => {
+      const widget = createWidget({ html: '' });
+      render(
+        <WidgetPanel {...defaultProps({ widgets: [widget], activeWidget: widget })} />,
+      );
+      const iframe = screen.getByTitle('Canvas') as HTMLIFrameElement;
+      expect(iframe).toBeInTheDocument();
       const srcDoc = iframe.getAttribute('srcdoc') ?? '';
       expect(srcDoc).toContain('C3.ready');
     });
