@@ -588,15 +588,29 @@ export function createFilesRouter(repo: Repository, agentTunnelManager?: AgentTu
 
         const contentType = (proxyRes.headers['content-type'] || '').toLowerCase();
         if (contentType.includes('text/html')) {
-          // Buffer HTML responses to inject bridge script and base tag
+          // Buffer HTML responses to inject scripts and base tag
           const chunks: Buffer[] = [];
           proxyRes.on('data', (chunk: Buffer) => chunks.push(chunk));
           proxyRes.on('end', () => {
             let body = Buffer.concat(chunks).toString('utf-8');
             // Inject <base> tag to make relative URLs resolve against the remote server
-            // This ensures CSS, JS, images load from the correct origin
             const baseTag = `<base href="${targetUrl.href}">`;
             body = body.replace(/<head[^>]*>/i, (match) => `${match}\n${baseTag}`);
+
+            // Inject script to prevent cross-origin history/WebSocket errors in iframed content
+            const preventionScript = `<script>
+// Stub out history API to prevent cross-origin errors in iframed content
+window.history.replaceState = function() { return null; };
+window.history.pushState = function() { return null; };
+// Prevent WebSocket connections from failing (they won't work in iframe anyway)
+var OriginalWebSocket = window.WebSocket;
+window.WebSocket = function(url) {
+  try { return new OriginalWebSocket(url); }
+  catch(e) { console.warn('[Proxy] WebSocket blocked:', url); return null; }
+};
+</script>`;
+            body = body.replace(/<head[^>]*>/i, (match) => `${match}\n${preventionScript}`);
+
             const modified = injectBridgeScript(body);
             delete responseHeaders['content-length'];
             responseHeaders['content-length'] = String(Buffer.byteLength(modified));
