@@ -197,6 +197,7 @@ function rowToVideoRecording(row: Record<string, unknown>): VideoRecording {
 
 function rowToSettings(row: Record<string, unknown>): Settings {
   return {
+    maxConcurrentSessions: row.max_concurrent_sessions as number,
     maxVisibleSessions: row.max_visible_sessions as number,
     autoApprove: Boolean(row.auto_approve),
     gridLayout: row.grid_layout as GridLayout,
@@ -462,6 +463,10 @@ export class Repository {
   updateSettings(input: UpdateSettingsInput): Settings {
     const updates: string[] = [];
     const params: unknown[] = [];
+    if (input.maxConcurrentSessions !== undefined) {
+      updates.push('max_concurrent_sessions = ?');
+      params.push(input.maxConcurrentSessions);
+    }
     if (input.maxVisibleSessions !== undefined) {
       updates.push('max_visible_sessions = ?');
       params.push(input.maxVisibleSessions);

@@ -87,6 +87,19 @@ describe('E2E: Session lifecycle', { timeout: 120_000 }, () => {
     const sessions = await listRes.json();
     const lastSession = sessions[sessions.length - 1];
 
+    // Kill if active — DELETE returns 409 for active sessions
+    if (lastSession.status === 'active') {
+      await fetch(`${server.baseUrl}/api/sessions/${lastSession.id}/kill`, { method: 'POST' });
+      // Wait for the session to transition out of active (poll the list endpoint)
+      for (let i = 0; i < 20; i++) {
+        await new Promise((r) => setTimeout(r, 500));
+        const listRes2 = await fetch(`${server.baseUrl}/api/sessions`);
+        const all = await listRes2.json() as Array<{ id: string; status: string }>;
+        const s = all.find((x) => x.id === lastSession.id);
+        if (!s || s.status !== 'active') break;
+      }
+    }
+
     const delRes = await fetch(
       `${server.baseUrl}/api/sessions/${lastSession.id}`,
       { method: 'DELETE' },

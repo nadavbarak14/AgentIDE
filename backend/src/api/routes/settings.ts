@@ -10,9 +10,16 @@ export function createSettingsRouter(repo: Repository): Router {
   });
 
   router.patch('/', (req, res) => {
-    const { maxVisibleSessions, autoApprove, gridLayout, theme } = req.body;
+    const { maxConcurrentSessions, maxVisibleSessions, autoApprove, gridLayout, theme } = req.body;
     const input: Record<string, unknown> = {};
 
+    if (maxConcurrentSessions !== undefined) {
+      if (typeof maxConcurrentSessions !== 'number' || maxConcurrentSessions < 1) {
+        res.status(400).json({ error: 'maxConcurrentSessions must be a positive number' });
+        return;
+      }
+      input.maxConcurrentSessions = maxConcurrentSessions;
+    }
     if (maxVisibleSessions !== undefined) {
       if (typeof maxVisibleSessions !== 'number' || maxVisibleSessions < 1) {
         res.status(400).json({ error: 'maxVisibleSessions must be a positive number' });

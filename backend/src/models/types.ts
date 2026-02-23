@@ -114,6 +114,7 @@ export type GridLayout = 'auto' | '1x1' | '2x2' | '3x3';
 export type Theme = 'dark' | 'light';
 
 export interface Settings {
+  maxConcurrentSessions: number;
   maxVisibleSessions: number;
   autoApprove: boolean;
   gridLayout: GridLayout;
@@ -121,6 +122,7 @@ export interface Settings {
 }
 
 export interface UpdateSettingsInput {
+  maxConcurrentSessions?: number;
   maxVisibleSessions?: number;
   autoApprove?: boolean;
   gridLayout?: GridLayout;
