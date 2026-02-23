@@ -21,8 +21,9 @@ describe('E2E: File operations', { timeout: 120_000 }, () => {
     env = await createReleaseEnvironment();
     artifact = installArtifact(env, tarball);
 
-    // Create a temp project dir with known files
-    projectDir = path.join(env.tempDir, 'test-project');
+    // Create a temp project dir with known files (must be inside env.dataDir which is
+    // within the server's home directory — directory validation rejects paths outside HOME)
+    projectDir = path.join(env.dataDir, 'test-project');
     fs.mkdirSync(projectDir, { recursive: true });
     fs.writeFileSync(path.join(projectDir, 'test.txt'), 'hello world\n');
     fs.writeFileSync(path.join(projectDir, 'README.md'), '# Test Project\n');
