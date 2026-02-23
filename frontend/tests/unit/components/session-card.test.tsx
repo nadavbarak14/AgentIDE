@@ -222,15 +222,14 @@ describe('SessionCard', () => {
     expect(screen.getByTitle(/GitHub Issues/)).toBeInTheDocument();
   });
 
-  it('calls onSetCurrent when card is clicked', () => {
-    const onSetCurrent = vi.fn();
+  it('does not auto-switch session on card click', () => {
+    // Sessions no longer auto-switch on click - use Ctrl+.+N instead
     render(
       <SessionCard
         session={createMockSession({ status: 'active', id: 'sess-1' })}
-        onSetCurrent={onSetCurrent}
       />,
     );
-    fireEvent.click(screen.getByText('active').closest('div')!.parentElement!);
-    expect(onSetCurrent).toHaveBeenCalledWith('sess-1');
+    // Card should render without error, but not trigger any session switch
+    expect(screen.getByText('active')).toBeInTheDocument();
   });
 });

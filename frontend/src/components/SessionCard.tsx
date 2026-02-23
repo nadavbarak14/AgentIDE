@@ -46,7 +46,7 @@ export function SessionCard({
   onKill,
   onToggleLock,
   onDelete,
-  onSetCurrent,
+  onSetCurrent: _onSetCurrent,
   isZoomed = false,
   onToggleZoom,
 }: SessionCardProps) {

@@ -53,10 +53,12 @@ describe('IDE Panels API', () => {
   });
 
   describe('Panel State', () => {
-    it('returns 404 for session with no saved panel state', async () => {
+    it('returns default panel state for session with no saved panel state', async () => {
       const session = repo.createSession({ workingDirectory: path.join(tmpDir, 'p1'), title: 'S1' });
       const res = await request(app).get(`/api/sessions/${session.id}/panel-state`);
-      expect(res.status).toBe(404);
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty('activePanel');
+      expect(res.body).toHaveProperty('fileTabs');
     });
 
     it('saves and retrieves panel state', async () => {
