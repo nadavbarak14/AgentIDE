@@ -378,6 +378,40 @@ export function createFilesRouter(repo: Repository, agentTunnelManager?: AgentTu
     }
   });
 
+  // Server-side cookie jar: stores upstream cookies per session+port so the browser never sees them.
+  // Key: "sessionId:port", Value: Map of cookie name → full "name=value" string
+  const cookieJar = new Map<string, Map<string, string>>();
+
+  function getCookieJarKey(sessionId: string, port: number): string {
+    return `${sessionId}:${port}`;
+  }
+
+  /** Parse Set-Cookie headers and store in the jar; returns nothing (cookies are stripped from response) */
+  function storeCookies(sessionId: string, port: number, setCookieHeaders: string | string[] | undefined): void {
+    if (!setCookieHeaders) return;
+    const headers = Array.isArray(setCookieHeaders) ? setCookieHeaders : [setCookieHeaders];
+    const key = getCookieJarKey(sessionId, port);
+    if (!cookieJar.has(key)) cookieJar.set(key, new Map());
+    const jar = cookieJar.get(key)!;
+    for (const header of headers) {
+      // Extract "name=value" from the cookie string (everything before first ";")
+      const nameValue = header.split(';')[0].trim();
+      const eqIdx = nameValue.indexOf('=');
+      if (eqIdx > 0) {
+        const name = nameValue.substring(0, eqIdx);
+        jar.set(name, nameValue);
+      }
+    }
+  }
+
+  /** Build a Cookie header string from the jar for outgoing requests */
+  function getStoredCookies(sessionId: string, port: number): string {
+    const key = getCookieJarKey(sessionId, port);
+    const jar = cookieJar.get(key);
+    if (!jar || jar.size === 0) return '';
+    return Array.from(jar.values()).join('; ');
+  }
+
   // ALL /api/sessions/:id/proxy/:port/* — reverse proxy to localhost:<port> for preview
   router.all('/:id/proxy/:port/*', validateUuid('id'), (req, res) => {
     if (agentTunnelManager && proxyToAgent(req, res, agentTunnelManager, repo)) return;
@@ -402,16 +436,46 @@ export function createFilesRouter(repo: Repository, agentTunnelManager?: AgentTu
 
     logger.debug({ method: req.method, targetPath }, `proxy ${req.method} ${targetPath}`);
 
-    // Strip hop-by-hop headers; forward only proxy-scoped cookies
+    // Strip hop-by-hop headers; inject server-side cookie jar
     const forwardHeaders: Record<string, string | string[] | undefined> = { ...req.headers };
     delete forwardHeaders['host'];
     delete forwardHeaders['connection'];
     delete forwardHeaders['upgrade'];
     delete forwardHeaders['accept-encoding']; // Request uncompressed so we can rewrite HTML
     forwardHeaders['host'] = `localhost:${targetPort}`;
-    // Forward all cookies — the browser scopes cookies by path, so cookies
-    // on the proxy path were set by the proxied app (via Set-Cookie or JS).
-    // We leave req.headers.cookie as-is.
+    // Strip proxy prefix from Next.js headers so the server sees real app paths
+    if (forwardHeaders['next-url'] && typeof forwardHeaders['next-url'] === 'string') {
+      const nextUrl = forwardHeaders['next-url'];
+      if (nextUrl.startsWith(proxyBase + '/')) {
+        forwardHeaders['next-url'] = nextUrl.slice(proxyBase.length);
+      } else if (nextUrl === proxyBase) {
+        forwardHeaders['next-url'] = '/';
+      }
+    }
+    if (forwardHeaders['referer'] && typeof forwardHeaders['referer'] === 'string') {
+      forwardHeaders['referer'] = forwardHeaders['referer'].replace(proxyBase, '');
+    }
+    // Merge browser cookies (set via document.cookie by JS like Supabase)
+    // with server-side jar cookies (captured from Set-Cookie headers).
+    // Jar cookies take priority for same-name cookies.
+    const browserCookies = typeof req.headers.cookie === 'string' ? req.headers.cookie : '';
+    const jarCookies = getStoredCookies(sessionId, targetPort);
+    // Parse browser cookies into a map
+    const merged = new Map<string, string>();
+    for (const pair of browserCookies.split(';').map(s => s.trim()).filter(Boolean)) {
+      const eqIdx = pair.indexOf('=');
+      if (eqIdx > 0) merged.set(pair.substring(0, eqIdx), pair);
+    }
+    // Overlay jar cookies (take priority)
+    for (const pair of jarCookies.split(';').map(s => s.trim()).filter(Boolean)) {
+      const eqIdx = pair.indexOf('=');
+      if (eqIdx > 0) merged.set(pair.substring(0, eqIdx), pair);
+    }
+    if (merged.size > 0) {
+      forwardHeaders['cookie'] = Array.from(merged.values()).join('; ');
+    } else {
+      delete forwardHeaders['cookie'];
+    }
 
     const proxyReq = http.request(
       {
@@ -424,6 +488,70 @@ export function createFilesRouter(repo: Repository, agentTunnelManager?: AgentTu
       (proxyRes) => {
         logger.debug({ status: proxyRes.statusCode }, `proxy ${proxyRes.statusCode} ${req.method} ${targetPath}`);
 
+        // For RSC requests that result in a redirect, follow the redirect server-side.
+        // Next.js uses redirect:'manual' for RSC fetches, producing opaque responses.
+        // Through a reverse proxy, timing issues cause router.push() to be aborted
+        // while router.refresh() doesn't update the URL bar. By following the redirect
+        // here, we return final content + a header signaling the URL change.
+        const isRscRequest = !!req.headers['rsc'];
+        const isRedirect = (proxyRes.statusCode || 0) >= 300 && (proxyRes.statusCode || 0) < 400;
+        if (isRedirect && isRscRequest && proxyRes.headers['location']) {
+          const loc = proxyRes.headers['location'] as string;
+          let followPath: string;
+          if (loc.startsWith('/')) {
+            followPath = loc;
+          } else {
+            try { followPath = new URL(loc).pathname + new URL(loc).search; } catch { followPath = '/'; }
+          }
+
+          const followReqHeaders: Record<string, string | string[] | undefined> = { ...forwardHeaders };
+          followReqHeaders['next-url'] = followPath.split('?')[0];
+
+          const followReq = http.request({
+            hostname: '127.0.0.1',
+            port: targetPort,
+            path: followPath,
+            method: 'GET',
+            headers: followReqHeaders as http.OutgoingHttpHeaders,
+          }, (followRes) => {
+            res.removeHeader('x-frame-options');
+            res.removeHeader('content-security-policy');
+            const fHeaders = { ...followRes.headers };
+            delete fHeaders['x-frame-options'];
+            delete fHeaders['content-security-policy'];
+            storeCookies(sessionId, targetPort, followRes.headers['set-cookie']);
+            const fCookies = cleanSetCookieHeaders(followRes.headers['set-cookie'], proxyBase);
+            if (fCookies.length > 0) {
+              fHeaders['set-cookie'] = fCookies;
+            } else {
+              delete fHeaders['set-cookie'];
+            }
+            fHeaders['access-control-allow-origin'] = '*';
+            fHeaders['x-proxy-redirect'] = followPath;
+            fHeaders['access-control-expose-headers'] = 'x-proxy-redirect';
+            res.writeHead(followRes.statusCode || 200, fHeaders);
+            followRes.pipe(res);
+          });
+
+          followReq.on('error', (err) => {
+            logger.warn({ error: err.message }, 'proxy RSC redirect follow failed');
+            res.removeHeader('x-frame-options');
+            res.removeHeader('content-security-policy');
+            const fbHeaders = { ...proxyRes.headers };
+            delete fbHeaders['x-frame-options'];
+            delete fbHeaders['content-security-policy'];
+            if (fbHeaders['location'] && typeof fbHeaders['location'] === 'string' && fbHeaders['location'].startsWith('/')) {
+              fbHeaders['location'] = proxyBase + fbHeaders['location'];
+            }
+            res.writeHead(proxyRes.statusCode || 307, fbHeaders);
+            proxyRes.pipe(res);
+          });
+
+          followReq.end();
+          proxyRes.resume();
+          return;
+        }
+
         // Remove restrictive headers set by the global security middleware —
         // these would otherwise merge into writeHead() and block iframe embedding
         res.removeHeader('x-frame-options');
@@ -433,14 +561,18 @@ export function createFilesRouter(repo: Repository, agentTunnelManager?: AgentTu
         const responseHeaders = { ...proxyRes.headers };
         delete responseHeaders['x-frame-options'];
         delete responseHeaders['content-security-policy'];
-        // Rewrite Set-Cookie headers to scope cookies to the proxy path
-        // Pass through cookies — only strip Domain/Secure so they work over HTTP
-        const cleanedCookies = cleanSetCookieHeaders(proxyRes.headers['set-cookie']);
+        // Store upstream cookies in server-side jar AND pass to browser with rewritten Path
+        storeCookies(sessionId, targetPort, proxyRes.headers['set-cookie']);
+        const cleanedCookies = cleanSetCookieHeaders(proxyRes.headers['set-cookie'], proxyBase);
         if (cleanedCookies.length > 0) {
           responseHeaders['set-cookie'] = cleanedCookies;
+        } else {
+          delete responseHeaders['set-cookie'];
         }
         // Allow cross-origin access for fonts/scripts loaded by the iframe
         responseHeaders['access-control-allow-origin'] = '*';
+        // Rewrite Location headers for browser-followed redirects.
+        // RSC redirects are already handled above (server-side follow).
         if (responseHeaders['location']) {
           const loc = responseHeaders['location'] as string;
           if (loc.startsWith('/')) {
