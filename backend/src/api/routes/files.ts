@@ -588,11 +588,15 @@ export function createFilesRouter(repo: Repository, agentTunnelManager?: AgentTu
 
         const contentType = (proxyRes.headers['content-type'] || '').toLowerCase();
         if (contentType.includes('text/html')) {
-          // Buffer HTML responses to inject bridge script
+          // Buffer HTML responses to inject bridge script and base tag
           const chunks: Buffer[] = [];
           proxyRes.on('data', (chunk: Buffer) => chunks.push(chunk));
           proxyRes.on('end', () => {
-            const body = Buffer.concat(chunks).toString('utf-8');
+            let body = Buffer.concat(chunks).toString('utf-8');
+            // Inject <base> tag to make relative URLs resolve against the remote server
+            // This ensures CSS, JS, images load from the correct origin
+            const baseTag = `<base href="${targetUrl.href}">`;
+            body = body.replace(/<head[^>]*>/i, (match) => `${match}\n${baseTag}`);
             const modified = injectBridgeScript(body);
             delete responseHeaders['content-length'];
             responseHeaders['content-length'] = String(Buffer.byteLength(modified));
