@@ -66,20 +66,51 @@ function proxyToAgent(
     (proxyRes) => {
       // Forward all response headers
       const responseHeaders = { ...proxyRes.headers };
-      // Always strip transfer-encoding — Node handles chunked encoding
-      // automatically when piping. Forwarding it causes double-encoding
-      // or Content-Length + Transfer-Encoding conflicts.
+      // Strip transfer-encoding to avoid double-chunking when piping.
+      // Keep content-length when present so the browser knows response size.
       delete responseHeaders['transfer-encoding'];
-      delete responseHeaders['content-length'];
       // Remove restrictive headers for proxy/serve routes
-      if (agentPath.includes('/proxy/') || agentPath.includes('/serve/')) {
+      const isProxyRoute = agentPath.includes('/proxy/') || agentPath.includes('/serve/');
+      if (isProxyRoute) {
         res.removeHeader('x-frame-options');
         res.removeHeader('content-security-policy');
         delete responseHeaders['x-frame-options'];
         delete responseHeaders['content-security-policy'];
       }
-      res.writeHead(proxyRes.statusCode || 200, responseHeaders);
-      proxyRes.pipe(res);
+
+      // For HTML proxy responses, buffer and ensure __c3ProxyBase__ is injected
+      // (remote agent may have an older version that doesn't inject it)
+      const contentType = (proxyRes.headers['content-type'] || '').toLowerCase();
+      const isHtmlProxy = isProxyRoute && contentType.includes('text/html') &&
+        req.method === 'GET' && req.headers['accept']?.includes('text/html');
+
+      if (isHtmlProxy) {
+        const chunks: Buffer[] = [];
+        proxyRes.on('data', (chunk: Buffer) => chunks.push(chunk));
+        proxyRes.on('end', () => {
+          let body = Buffer.concat(chunks).toString('utf-8');
+          // Extract proxy base from the agent path
+          const proxyMatch = agentPath.match(/\/api\/sessions\/[^/]+\/proxy\/\d+/);
+          if (proxyMatch && !body.includes('__c3ProxyBase__')) {
+            const proxyBase = proxyMatch[0];
+            const proxyBaseScript = `<script>window.__c3ProxyBase__="${proxyBase}";</script>`;
+            if (body.includes('<head>')) {
+              body = body.replace('<head>', '<head>' + proxyBaseScript);
+            } else if (body.includes('<head ')) {
+              body = body.replace(/<head\s[^>]*>/, '$&' + proxyBaseScript);
+            } else {
+              body = proxyBaseScript + body;
+            }
+          }
+          delete responseHeaders['content-length'];
+          responseHeaders['content-length'] = String(Buffer.byteLength(body));
+          res.writeHead(proxyRes.statusCode || 200, responseHeaders);
+          res.end(body);
+        });
+      } else {
+        res.writeHead(proxyRes.statusCode || 200, responseHeaders);
+        proxyRes.pipe(res);
+      }
     },
   );
 
