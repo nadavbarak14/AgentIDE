@@ -322,25 +322,53 @@ export function Dashboard() {
   }, []);
 
   // Trigger 3: User switches to a session → swap it into view + focus its terminal.
-  // Replaces the last non-pinned slot to preserve pinned sessions.
+  // Replaces the FOCUSED session's slot (the one the user was looking at).
+  // Falls back to last non-pinned slot if focused session is pinned or not in view.
   const handleFocusSession = useCallback(
     (id: string) => {
+      // Capture the previously focused session BEFORE updating currentSessionId
+      const previousFocusedId = currentSessionIdRef.current;
+      console.log('[handleFocusSession] switching to:', id, '| previously focused:', previousFocusedId);
+
       handleSetCurrentSession(id);
       markManualSwitch();
       setDisplayedIds((prev) => {
-        if (prev.includes(id)) return prev;
+        if (prev.includes(id)) {
+          console.log('[handleFocusSession] target already displayed, no swap needed. displayed:', prev);
+          return prev;
+        }
         const next = [...prev];
         if (next.length >= maxVisible) {
-          let replaceIdx = -1;
-          for (let i = next.length - 1; i >= 0; i--) {
-            const sess = sessionsRef.current.find((s) => s.id === next[i]);
-            if (!sess?.lock) { replaceIdx = i; break; }
+          // First: try to replace the previously focused session's slot
+          let replaceIdx = previousFocusedId ? next.indexOf(previousFocusedId) : -1;
+          console.log('[handleFocusSession] focused slot index:', replaceIdx, '| displayed:', next);
+
+          // Don't replace a pinned session — fall back instead
+          if (replaceIdx !== -1) {
+            const sess = sessionsRef.current.find((s) => s.id === next[replaceIdx]);
+            if (sess?.lock) {
+              console.log('[handleFocusSession] focused slot is pinned, falling back');
+              replaceIdx = -1;
+            }
           }
+
+          // Fallback: last non-pinned slot (original behavior)
+          if (replaceIdx === -1) {
+            for (let i = next.length - 1; i >= 0; i--) {
+              const sess = sessionsRef.current.find((s) => s.id === next[i]);
+              if (!sess?.lock) { replaceIdx = i; break; }
+            }
+            console.log('[handleFocusSession] fallback to last non-pinned slot:', replaceIdx);
+          }
+
           if (replaceIdx === -1) replaceIdx = next.length - 1;
+          console.log('[handleFocusSession] replacing slot', replaceIdx, '(was:', next[replaceIdx], ') with:', id);
           next[replaceIdx] = id;
         } else {
+          console.log('[handleFocusSession] slots available, appending. displayed:', next);
           next.push(id);
         }
+        console.log('[handleFocusSession] new displayed:', next);
         return next;
       });
       focusTerminalInSession(id);
@@ -430,6 +458,7 @@ export function Dashboard() {
 
         const waiting = activeSessionsRef.current.find((s) => s.needsInput && s.id !== card.dataset.sessionId);
         if (!waiting) return;
+        console.log('[auto-switch on focusout] from:', card.dataset.sessionId, '→ waiting:', waiting.id);
         handleFocusSession(waiting.id);
       }, 150);
     };
@@ -468,6 +497,7 @@ export function Dashboard() {
         const curIdx = allActive.findIndex((s) => s.id === curId);
         const nextIdx = curIdx === -1 ? 0 : (curIdx + 1) % allActive.length;
         const nextId = allActive[nextIdx].id;
+        console.log('[focus_next] curId:', curId, '| curIdx:', curIdx, '| nextIdx:', nextIdx, '| nextId:', nextId, '| displayed:', displayed);
         handleFocusSession(nextId);
         break;
       }
@@ -484,6 +514,7 @@ export function Dashboard() {
         const curIdx2 = allActive2.findIndex((s) => s.id === curId);
         const prevIdx = curIdx2 === -1 ? allActive2.length - 1 : (curIdx2 - 1 + allActive2.length) % allActive2.length;
         const prevId = allActive2[prevIdx].id;
+        console.log('[focus_prev] curId:', curId, '| curIdx:', curIdx2, '| prevIdx:', prevIdx, '| prevId:', prevId, '| displayed:', displayed);
         handleFocusSession(prevId);
         break;
       }
@@ -499,12 +530,19 @@ export function Dashboard() {
           if (!a.needsInput && b.needsInput) return 1;
           return 0;
         });
+        console.log('[switch_next] sorted:', sorted.map(s => `${s.id}(${s.needsInput ? 'waiting' : 'busy'})`));
         setSessionSwitcherOpen((wasOpen) => {
           if (!wasOpen) {
             const curIdx = curId ? sorted.findIndex((s) => s.id === curId) : -1;
-            setSessionSwitcherIndex((curIdx + 1) % sorted.length);
+            const newIdx = (curIdx + 1) % sorted.length;
+            console.log('[switch_next] opening switcher. curIdx:', curIdx, '→ newIdx:', newIdx);
+            setSessionSwitcherIndex(newIdx);
           } else {
-            setSessionSwitcherIndex((prev) => (prev + 1) % sorted.length);
+            setSessionSwitcherIndex((prev) => {
+              const newIdx = (prev + 1) % sorted.length;
+              console.log('[switch_next] advancing in switcher. prev:', prev, '→ new:', newIdx);
+              return newIdx;
+            });
           }
           return true;
         });
@@ -521,12 +559,19 @@ export function Dashboard() {
           if (!a.needsInput && b.needsInput) return 1;
           return 0;
         });
+        console.log('[switch_prev] sorted:', sorted.map(s => `${s.id}(${s.needsInput ? 'waiting' : 'busy'})`));
         setSessionSwitcherOpen((wasOpen) => {
           if (!wasOpen) {
             const curIdx = curId ? sorted.findIndex((s) => s.id === curId) : 0;
-            setSessionSwitcherIndex((curIdx - 1 + sorted.length) % sorted.length);
+            const newIdx = (curIdx - 1 + sorted.length) % sorted.length;
+            console.log('[switch_prev] opening switcher. curIdx:', curIdx, '→ newIdx:', newIdx);
+            setSessionSwitcherIndex(newIdx);
           } else {
-            setSessionSwitcherIndex((prev) => (prev - 1 + sorted.length) % sorted.length);
+            setSessionSwitcherIndex((prev) => {
+              const newIdx = (prev - 1 + sorted.length) % sorted.length;
+              console.log('[switch_prev] backing in switcher. prev:', prev, '→ new:', newIdx);
+              return newIdx;
+            });
           }
           return true;
         });
@@ -534,9 +579,12 @@ export function Dashboard() {
       }
       case 'confirm_session': {
         const idx = sessionSwitcherIndex;
-        if (allSessions[idx]) {
-          const id = allSessions[idx].id;
-          handleFocusSession(id);
+        // Use same sorted order as the switcher UI (needsInput first)
+        const sortedForConfirm = [...allSessions].sort((a, b) => (b.needsInput ? 1 : 0) - (a.needsInput ? 1 : 0));
+        const target = sortedForConfirm[idx];
+        console.log('[confirm_session] idx:', idx, '| target:', target?.id, '| sorted:', sortedForConfirm.map(s => s.id));
+        if (target) {
+          handleFocusSession(target.id);
         }
         setSessionSwitcherOpen(false);
         break;
@@ -586,6 +634,7 @@ export function Dashboard() {
           .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
         const target = byCreation[num - 1];
         if (target) {
+          console.log('[jump_' + num + '] target:', target.id, '| displayed:', displayed);
           handleFocusSession(target.id);
         }
         break;
@@ -665,6 +714,7 @@ export function Dashboard() {
   }, [chordState.isArmed, sessionSwitcherOpen]);
 
   const handleSessionSwitcherSelect = useCallback((id: string) => {
+    console.log('[handleSessionSwitcherSelect] clicked session:', id);
     handleFocusSession(id);
     setSessionSwitcherOpen(false);
   }, [handleFocusSession]);
