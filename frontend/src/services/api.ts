@@ -240,7 +240,8 @@ export const panelState = {
     return request<{ success: boolean }>(`/sessions/${sessionId}/panel-state${qs}`, {
       method: 'PUT',
       body: JSON.stringify(state),
-    }),
+    });
+  },
 
   saveLayoutConfig: (sessionId: string, layoutConfig: unknown) =>
     request<{ success: boolean }>(`/sessions/${sessionId}/panel-state/layout`, {

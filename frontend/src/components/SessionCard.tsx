@@ -566,16 +566,7 @@ export function SessionCard({
     panel.updateScrollPosition(filePath, { line, column: 1 });
   }, [panel]);
 
-  // Panel width calculations kept for potential future use (FlexiblePanelGrid now handles layout)
-
-  // Check if viewport can accommodate opening a panel
-  const canOpenPanel = useCallback((side: 'left' | 'right'): boolean => {
-    if (!containerRef.current) return true;
-    const containerWidth = containerRef.current.getBoundingClientRect().width;
-    const otherPanelOpen = side === 'left' ? showRightPanel : showLeftPanel;
-    const neededWidth = MIN_PANEL_PX + MIN_TERMINAL_PX + (otherPanelOpen ? MIN_PANEL_PX : 0);
-    return containerWidth >= neededWidth;
-  }, [showLeftPanel, showRightPanel]);
+  // Panel width calculations handled by FlexiblePanelGrid
 
   const handleTogglePanel = useCallback((panelType: string) => {
     const pt = panelType as import('../hooks/usePanel').PanelContent;
