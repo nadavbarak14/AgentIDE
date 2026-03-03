@@ -239,6 +239,49 @@ function migrate(database: Database.Database): void {
     `);
   }
 
+  // v7: Rebuild panel_states to remove FK constraint (allows "{uuid}:zoomed" keys for dual layout)
+  // and relax CHECK constraints on left_panel/right_panel (allow 'issues', 'shell', extensions, etc.)
+  const hasFk = (database.prepare(
+    "SELECT sql FROM sqlite_master WHERE name='panel_states' AND type='table'"
+  ).get() as { sql: string } | undefined)?.sql?.includes('REFERENCES sessions');
+  if (hasFk) {
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS panel_states_v7 (
+        session_id TEXT PRIMARY KEY,
+        active_panel TEXT NOT NULL DEFAULT 'none',
+        left_panel TEXT NOT NULL DEFAULT 'none',
+        right_panel TEXT NOT NULL DEFAULT 'none',
+        left_width_percent INTEGER NOT NULL DEFAULT 25,
+        right_width_percent INTEGER NOT NULL DEFAULT 35,
+        bottom_panel TEXT NOT NULL DEFAULT 'none',
+        bottom_height_percent INTEGER NOT NULL DEFAULT 40,
+        terminal_position TEXT NOT NULL DEFAULT 'center',
+        terminal_visible INTEGER NOT NULL DEFAULT 1,
+        file_tabs TEXT NOT NULL DEFAULT '[]',
+        active_tab_index INTEGER NOT NULL DEFAULT 0,
+        tab_scroll_positions TEXT NOT NULL DEFAULT '{}',
+        git_scroll_position INTEGER NOT NULL DEFAULT 0,
+        preview_url TEXT NOT NULL DEFAULT '',
+        preview_viewport TEXT NOT NULL DEFAULT 'desktop',
+        custom_viewport_width INTEGER,
+        custom_viewport_height INTEGER,
+        font_size INTEGER NOT NULL DEFAULT 14,
+        panel_width_percent INTEGER NOT NULL DEFAULT 40,
+        enabled_extensions TEXT NOT NULL DEFAULT '[]',
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      INSERT OR IGNORE INTO panel_states_v7
+        SELECT session_id, active_panel, left_panel, right_panel, left_width_percent, right_width_percent,
+               bottom_panel, bottom_height_percent, terminal_position, terminal_visible,
+               file_tabs, active_tab_index, tab_scroll_positions, git_scroll_position,
+               preview_url, preview_viewport, custom_viewport_width, custom_viewport_height,
+               font_size, panel_width_percent, enabled_extensions, updated_at
+        FROM panel_states;
+      DROP TABLE panel_states;
+      ALTER TABLE panel_states_v7 RENAME TO panel_states;
+    `);
+  }
+
   // Migrate any leftover queued sessions to failed (queue feature removed)
   database.exec("UPDATE sessions SET status = 'failed' WHERE status = 'queued'");
 

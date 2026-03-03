@@ -201,7 +201,9 @@ export function createSessionsRouter(repo: Repository, sessionManager: SessionMa
       res.status(404).json({ error: 'Session not found' });
       return;
     }
-    const state = repo.getPanelState(id);
+    const viewMode = req.query.viewMode as string | undefined;
+    const storageKey = viewMode ? `${id}:${viewMode}` : id;
+    const state = repo.getPanelState(storageKey);
     if (!state) {
       // Return default state for new sessions instead of 404
       res.json({
@@ -239,13 +241,14 @@ export function createSessionsRouter(repo: Repository, sessionManager: SessionMa
       res.status(404).json({ error: 'Session not found' });
       return;
     }
+    const viewMode = req.query.viewMode as string | undefined;
+    const storageKey = viewMode ? `${id}:${viewMode}` : id;
 
     const { activePanel, leftPanel, rightPanel, leftWidthPercent, rightWidthPercent, fileTabs, activeTabIndex, tabScrollPositions, gitScrollPosition, previewUrl, panelWidthPercent, bottomPanel, bottomHeightPercent, terminalPosition, terminalVisible, previewViewport, customViewportWidth, customViewportHeight, fontSize } = req.body;
 
-    // Validate activePanel
-    const validPanels = ['none', 'files', 'git', 'preview'];
-    if (!activePanel || !validPanels.includes(activePanel)) {
-      res.status(400).json({ error: 'Invalid activePanel value. Must be one of: none, files, git, preview' });
+    // Validate activePanel (accept any string — extensions and custom panels like 'issues', 'shell' etc.)
+    if (typeof activePanel !== 'string') {
+      res.status(400).json({ error: 'activePanel must be a string' });
       return;
     }
 
@@ -285,20 +288,20 @@ export function createSessionsRouter(repo: Repository, sessionManager: SessionMa
       return;
     }
 
-    repo.savePanelState(id, {
+    repo.savePanelState(storageKey, {
       activePanel,
       leftPanel,
       rightPanel,
       leftWidthPercent,
       rightWidthPercent,
-      bottomPanel: bottomPanel || 'none',
-      bottomHeightPercent: bottomHeightPercent || 40,
-      terminalPosition: terminalPosition || 'center',
+      bottomPanel: bottomPanel ?? 'none',
+      bottomHeightPercent: bottomHeightPercent ?? 40,
+      terminalPosition: terminalPosition ?? 'center',
       terminalVisible: terminalVisible ?? true,
-      previewViewport: previewViewport || 'desktop',
-      customViewportWidth: customViewportWidth || null,
-      customViewportHeight: customViewportHeight || null,
-      fontSize: fontSize || 14,
+      previewViewport: previewViewport ?? 'desktop',
+      customViewportWidth: customViewportWidth ?? null,
+      customViewportHeight: customViewportHeight ?? null,
+      fontSize: fontSize ?? 14,
       fileTabs,
       activeTabIndex,
       tabScrollPositions,

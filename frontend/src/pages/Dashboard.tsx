@@ -73,6 +73,9 @@ export function Dashboard() {
   const displayedIdsRef = useRef(displayedIds);
   displayedIdsRef.current = displayedIds;
 
+  const activeSessionsRef = useRef(activeSessions);
+  activeSessionsRef.current = activeSessions;
+
   const handleToggleZoom = useCallback((sessionId: string) => {
     if (zoomedSessionIdRef.current === sessionId) {
       // Unzoom: restore previous layout
@@ -194,15 +197,27 @@ export function Dashboard() {
     }
   }, [activeSessions, displayedIds, rebuildDisplay]);
 
+  // Only count active sessions in displayed slots — completed ones don't occupy space
+  const activeDisplayedIds = useMemo(
+    () => {
+      const activeIds = new Set(activeSessions.map((s) => s.id));
+      return displayedIds.filter((id) => activeIds.has(id));
+    },
+    [displayedIds, activeSessions],
+  );
+
   // Add newly activated sessions when slots are available
   useEffect(() => {
     if (zoomedSessionIdRef.current) return; // Skip during zoom
     if (activeSessions.length === 0) return;
-    const displayed = new Set(displayedIds);
+    const displayed = new Set(activeDisplayedIds);
     const newActive = activeSessions.filter((s) => !displayed.has(s.id));
-    if (newActive.length > 0 && displayedIds.length < maxVisible) {
+    if (newActive.length > 0 && activeDisplayedIds.length < maxVisible) {
       setDisplayedIds((prev) => {
-        const slots = maxVisible - prev.length;
+        // Count only active sessions in current displayedIds for slot calculation
+        const activeIdSet = new Set(activeSessions.map((s) => s.id));
+        const activeInPrev = prev.filter((id) => activeIdSet.has(id));
+        const slots = maxVisible - activeInPrev.length;
         if (slots <= 0) return prev;
         const prevSet = new Set(prev);
         const toAdd = newActive
@@ -213,7 +228,7 @@ export function Dashboard() {
         return [...prev, ...toAdd];
       });
     }
-  }, [activeSessions, displayedIds, maxVisible]);
+  }, [activeSessions, activeDisplayedIds, maxVisible]);
 
   // Trigger 1: User sent input (Enter key) → mark that slot as eligible for swap.
   // The slot stays marked until the backend confirms needsInput=false AND
@@ -282,104 +297,19 @@ export function Dashboard() {
     }
   }, [maxVisible, displayedIds.length, rebuildDisplay]);
 
-  // Trigger 3: User clicks a session → swap it into view
-  // Replaces the last non-pinned slot to preserve pinned sessions.
-  // If all slots are pinned, replaces the last slot as fallback.
-  const handleFocusSession = useCallback(
-    (id: string) => {
-      userTriggeredSwapRef.current = true;
-      setDisplayedIds((prev) => {
-        if (prev.includes(id)) return prev;
-        const next = [...prev];
-        if (next.length >= maxVisible) {
-          // Find the last non-pinned slot to replace
-          let replaceIdx = -1;
-          for (let i = next.length - 1; i >= 0; i--) {
-            const sess = sessionsRef.current.find((s) => s.id === next[i]);
-            if (!sess?.lock) {
-              replaceIdx = i;
-              break;
-            }
-          }
-          // If all slots are pinned, replace the last one anyway
-          if (replaceIdx === -1) replaceIdx = next.length - 1;
-          next[replaceIdx] = id;
-        } else {
-          next.push(id);
-        }
-        return next;
-      });
-    },
-    [maxVisible],
-  );
+  // Guard: suppress focusout auto-switch for 800ms after any manual switch.
+  const manualSwitchPendingRef = useRef(false);
+  const manualSwitchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Build session objects from frozen IDs (data updates on polls, order stays frozen)
-  const displayedSessions = useMemo(
-    () =>
-      displayedIds
-        .map((id) => sessions.find((s) => s.id === id))
-        .filter((s): s is Session => !!s),
-    [displayedIds, sessions],
-  );
-
-  const overflowSessions = useMemo(
-    () => activeSessions
-      .filter((s) => !displayedIds.includes(s.id))
-      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()),
-    [activeSessions, displayedIds],
-  );
-
-  // Track explicit user-triggered swaps (click, keyboard) vs automatic fills
-  const userTriggeredSwapRef = useRef(false);
-
-  // Auto-focus terminal ONLY when user explicitly triggered a swap (not on auto-fill)
-  const prevDisplayedIdsRef = useRef<string[]>([]);
-  useEffect(() => {
-    const prev = new Set(prevDisplayedIdsRef.current);
-    prevDisplayedIdsRef.current = displayedIds;
-    // Only auto-focus on user-triggered swaps
-    if (!userTriggeredSwapRef.current) return;
-    userTriggeredSwapRef.current = false;
-    // Find sessions that are newly displayed
-    const newlyDisplayed = displayedIds.filter((id) => !prev.has(id));
-    if (newlyDisplayed.length >= 1) {
-      const newId = newlyDisplayed[0];
-      handleSetCurrentSession(newId);
-      // Focus terminal with retries — terminal may take time to mount
-      const tryFocus = (attempt: number) => {
-        const textarea = document.querySelector(`[data-session-id="${newId}"] .xterm-helper-textarea`) as HTMLElement | null;
-        if (textarea) {
-          textarea.focus();
-        } else if (attempt < 5) {
-          setTimeout(() => tryFocus(attempt + 1), 200);
-        }
-      };
-      setTimeout(() => tryFocus(0), 200);
-    }
-  }, [displayedIds, handleSetCurrentSession]);
-
-  // ── Keyboard Shortcuts ──────────────────────────────────────────
-  const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
-  const [paletteOpen, setPaletteOpen] = useState(false);
-  const [sessionSwitcherOpen, setSessionSwitcherOpen] = useState(false);
-  const [sessionSwitcherIndex, setSessionSwitcherIndex] = useState(0);
-
-  // Auto-set current session to first displayed if none set
-  useEffect(() => {
-    if (!currentSessionId && displayedIds.length > 0) {
-      handleSetCurrentSession(displayedIds[0]);
-    }
-  }, [currentSessionId, displayedIds, handleSetCurrentSession]);
-
-  // Keep a ref to currentSessionId for the shortcut handler
-  const currentSessionIdRef = useRef(currentSessionId);
-  currentSessionIdRef.current = currentSessionId;
-
-  const sessionSwitcherOpenRef = useRef(sessionSwitcherOpen);
-  sessionSwitcherOpenRef.current = sessionSwitcherOpen;
+  const markManualSwitch = useCallback(() => {
+    manualSwitchPendingRef.current = true;
+    if (manualSwitchTimerRef.current !== null) clearTimeout(manualSwitchTimerRef.current);
+    manualSwitchTimerRef.current = setTimeout(() => {
+      manualSwitchPendingRef.current = false;
+    }, 800);
+  }, []);
 
   // Focus the terminal in a specific session — synchronous DOM focus + delayed retry.
-  // Called only from keyboard shortcuts — NOT from mouse clicks.
   const focusTerminalInSession = useCallback((sessionId: string) => {
     const doFocus = () => {
       const textarea = document.querySelector(`[data-session-id="${sessionId}"] .xterm-helper-textarea`) as HTMLElement | null;
@@ -388,9 +318,133 @@ export function Dashboard() {
       }
     };
     doFocus();
-    // Retry after React re-renders (disarm causes re-render that can steal focus)
     setTimeout(doFocus, 200);
   }, []);
+
+  // Trigger 3: User switches to a session → swap it into view + focus its terminal.
+  // Replaces the last non-pinned slot to preserve pinned sessions.
+  const handleFocusSession = useCallback(
+    (id: string) => {
+      handleSetCurrentSession(id);
+      markManualSwitch();
+      setDisplayedIds((prev) => {
+        if (prev.includes(id)) return prev;
+        const next = [...prev];
+        if (next.length >= maxVisible) {
+          let replaceIdx = -1;
+          for (let i = next.length - 1; i >= 0; i--) {
+            const sess = sessionsRef.current.find((s) => s.id === next[i]);
+            if (!sess?.lock) { replaceIdx = i; break; }
+          }
+          if (replaceIdx === -1) replaceIdx = next.length - 1;
+          next[replaceIdx] = id;
+        } else {
+          next.push(id);
+        }
+        return next;
+      });
+      focusTerminalInSession(id);
+    },
+    [maxVisible, focusTerminalInSession, markManualSwitch, handleSetCurrentSession],
+  );
+
+
+  const displayedSessions = useMemo(
+    () =>
+      activeDisplayedIds
+        .map((id) => sessions.find((s) => s.id === id))
+        .filter((s): s is Session => !!s),
+    [activeDisplayedIds, sessions],
+  );
+
+  const overflowSessions = useMemo(
+    () => activeSessions
+      .filter((s) => !activeDisplayedIds.includes(s.id))
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()),
+    [activeSessions, activeDisplayedIds],
+  );
+
+
+  // ── Keyboard Shortcuts ──────────────────────────────────────────
+  const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [sessionSwitcherOpen, setSessionSwitcherOpen] = useState(false);
+  const [sessionSwitcherIndex, setSessionSwitcherIndex] = useState(0);
+
+  // Auto-set current session to first displayed if none set or points to a deleted/completed session.
+  // Only runs when activeDisplayedIds changes (not on every poll), to avoid fighting explicit jumps.
+  useEffect(() => {
+    if (activeDisplayedIds.length === 0) return;
+    // Check validity using ref so we don't add activeSessions as a dep (re-fires every poll)
+    const activeIds = new Set(activeSessionsRef.current.map((s) => s.id));
+    const isValid = currentSessionId && activeIds.has(currentSessionId);
+    if (!isValid) {
+      handleSetCurrentSession(activeDisplayedIds[0]);
+    }
+  }, [activeDisplayedIds, handleSetCurrentSession]);
+
+  // Track whether the most recent mousedown landed inside a session card
+  // (used to suppress auto-switch when clicking between sessions).
+  const mouseDownInSessionRef = useRef(false);
+  useEffect(() => {
+    const track = (e: MouseEvent) => {
+      const card = (e.target as HTMLElement).closest('[data-session-id]') as HTMLElement | null;
+      mouseDownInSessionRef.current = !!card;
+    };
+    document.addEventListener('mousedown', track, true);
+    return () => document.removeEventListener('mousedown', track, true);
+  }, []);
+
+  // Keep currentSessionId in sync with actual keyboard focus.
+  useEffect(() => {
+    const handleFocusIn = (e: FocusEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.classList.contains('xterm-helper-textarea')) return;
+      const card = target.closest('[data-session-id]') as HTMLElement | null;
+      if (card?.dataset.sessionId) {
+        handleSetCurrentSession(card.dataset.sessionId);
+      }
+    };
+    document.addEventListener('focusin', handleFocusIn, true);
+    return () => document.removeEventListener('focusin', handleFocusIn, true);
+  }, [handleSetCurrentSession]);
+
+  // Auto-switch to a waiting (needsInput) session when the current terminal loses focus
+  // and no manual switch is in progress. Never fires during manual session switching.
+  useEffect(() => {
+    const handleFocusOut = (e: FocusEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.classList.contains('xterm-helper-textarea')) return;
+      const card = target.closest('[data-session-id]') as HTMLElement | null;
+      if (!card) return;
+      const related = e.relatedTarget as HTMLElement | null;
+      const relatedCard = related?.closest('[data-session-id]') as HTMLElement | null;
+      if (manualSwitchPendingRef.current) return;
+      if (mouseDownInSessionRef.current) return;
+      if (relatedCard) return;
+
+      setTimeout(() => {
+        if (manualSwitchPendingRef.current) return;
+        if (mouseDownInSessionRef.current) return;
+        if ((document.activeElement as HTMLElement | null)?.closest('[data-session-id]')) return;
+
+        const waiting = activeSessionsRef.current.find((s) => s.needsInput && s.id !== card.dataset.sessionId);
+        if (!waiting) return;
+        handleFocusSession(waiting.id);
+      }, 150);
+    };
+
+    document.addEventListener('focusout', handleFocusOut, true);
+    return () => document.removeEventListener('focusout', handleFocusOut, true);
+  }, [handleFocusSession]);
+
+  // Keep a ref to currentSessionId for the shortcut handler
+  const currentSessionIdRef = useRef(currentSessionId);
+  currentSessionIdRef.current = currentSessionId;
+
+  const sessionSwitcherOpenRef = useRef(sessionSwitcherOpen);
+  sessionSwitcherOpenRef.current = sessionSwitcherOpen;
+
 
   const handleShortcutAction = useCallback((action: ShortcutAction) => {
     const curId = currentSessionIdRef.current;
@@ -406,12 +460,15 @@ export function Dashboard() {
           setSessionSwitcherIndex((prev) => (prev + 1) % allSessions.length);
           return;
         }
-        if (displayed.length <= 1) return;
-        const curIdx = curId ? displayed.indexOf(curId) : -1;
-        const nextIdx = (curIdx + 1) % displayed.length;
-        const nextId = displayed[nextIdx];
-        handleSetCurrentSession(nextId);
-        focusTerminalInSession(nextId);
+        // Cycle through ALL active sessions by creation order (including overflow)
+        const allActive = [...activeSessionsRef.current].sort(
+          (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+        );
+        if (allActive.length <= 1) return;
+        const curIdx = allActive.findIndex((s) => s.id === curId);
+        const nextIdx = curIdx === -1 ? 0 : (curIdx + 1) % allActive.length;
+        const nextId = allActive[nextIdx].id;
+        handleFocusSession(nextId);
         break;
       }
       case 'focus_prev': {
@@ -419,12 +476,15 @@ export function Dashboard() {
           setSessionSwitcherIndex((prev) => (prev - 1 + allSessions.length) % allSessions.length);
           return;
         }
-        if (displayed.length <= 1) return;
-        const curIdx = curId ? displayed.indexOf(curId) : 0;
-        const prevIdx = (curIdx - 1 + displayed.length) % displayed.length;
-        const prevId = displayed[prevIdx];
-        handleSetCurrentSession(prevId);
-        focusTerminalInSession(prevId);
+        // Cycle through ALL active sessions by creation order (including overflow)
+        const allActive2 = [...activeSessionsRef.current].sort(
+          (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+        );
+        if (allActive2.length <= 1) return;
+        const curIdx2 = allActive2.findIndex((s) => s.id === curId);
+        const prevIdx = curIdx2 === -1 ? allActive2.length - 1 : (curIdx2 - 1 + allActive2.length) % allActive2.length;
+        const prevId = allActive2[prevIdx].id;
+        handleFocusSession(prevId);
         break;
       }
       // Tab: open session switcher for all sessions (including overflow), sorted by queue priority
@@ -476,9 +536,7 @@ export function Dashboard() {
         const idx = sessionSwitcherIndex;
         if (allSessions[idx]) {
           const id = allSessions[idx].id;
-          handleSetCurrentSession(id);
           handleFocusSession(id);
-          focusTerminalInSession(id);
         }
         setSessionSwitcherOpen(false);
         break;
@@ -489,11 +547,13 @@ export function Dashboard() {
       case 'command_palette':
         setPaletteOpen((prev) => !prev);
         break;
-      case 'zoom_session':
-        if (curId) {
-          handleToggleZoom(curId);
+      case 'zoom_session': {
+        const zoomTarget = curId && displayed.includes(curId) ? curId : displayed[0];
+        if (zoomTarget) {
+          handleToggleZoom(zoomTarget);
         }
         break;
+      }
       case 'kill_session': {
         if (!curId) break;
         const sess = allSessions.find((s) => s.id === curId);
@@ -526,9 +586,7 @@ export function Dashboard() {
           .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
         const target = byCreation[num - 1];
         if (target) {
-          handleSetCurrentSession(target.id);
           handleFocusSession(target.id);
-          focusTerminalInSession(target.id);
         }
         break;
       }
@@ -544,7 +602,7 @@ export function Dashboard() {
         }
         break;
     }
-  }, [handleSetCurrentSession, handleFocusSession, focusTerminalInSession, sessionSwitcherIndex, handleToggleZoom, killSession, toggleLock]);
+  }, [handleSetCurrentSession, handleFocusSession, sessionSwitcherIndex, handleToggleZoom, killSession, toggleLock]);
 
   // Handle actions from command palette — covers both shortcut-bound and button-only actions
   const handlePaletteAction = useCallback((action: string) => {
@@ -607,10 +665,9 @@ export function Dashboard() {
   }, [chordState.isArmed, sessionSwitcherOpen]);
 
   const handleSessionSwitcherSelect = useCallback((id: string) => {
-    handleSetCurrentSession(id);
     handleFocusSession(id);
     setSessionSwitcherOpen(false);
-  }, [handleSetCurrentSession, handleFocusSession]);
+  }, [handleFocusSession]);
 
   const handleSessionSwitcherClose = useCallback(() => {
     setSessionSwitcherOpen(false);

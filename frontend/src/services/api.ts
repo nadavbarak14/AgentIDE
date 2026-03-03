@@ -227,14 +227,21 @@ export interface PanelStateData {
 }
 
 export const panelState = {
-  get: (sessionId: string) =>
-    request<PanelStateData>(`/sessions/${sessionId}/panel-state`),
+  get: (storageKey: string) => {
+    // storageKey can be "{uuid}" or "{uuid}:zoomed"
+    const [sessionId, viewMode] = storageKey.includes(':') ? storageKey.split(':') : [storageKey, undefined];
+    const qs = viewMode ? `?viewMode=${viewMode}` : '';
+    return request<PanelStateData>(`/sessions/${sessionId}/panel-state${qs}`);
+  },
 
-  save: (sessionId: string, state: Omit<PanelStateData, 'sessionId'>) =>
-    request<{ success: boolean }>(`/sessions/${sessionId}/panel-state`, {
+  save: (storageKey: string, state: Omit<PanelStateData, 'sessionId'>) => {
+    const [sessionId, viewMode] = storageKey.includes(':') ? storageKey.split(':') : [storageKey, undefined];
+    const qs = viewMode ? `?viewMode=${viewMode}` : '';
+    return request<{ success: boolean }>(`/sessions/${sessionId}/panel-state${qs}`, {
       method: 'PUT',
       body: JSON.stringify(state),
-    }),
+    });
+  },
 };
 
 // ─── Comments ───

@@ -84,12 +84,12 @@ describe('IDE Panels API', () => {
       expect(getRes.body.fileTabs).toEqual(['src/index.ts']);
     });
 
-    it('rejects invalid activePanel', async () => {
+    it('accepts any string activePanel (supports extension panels)', async () => {
       const session = repo.createSession({ workingDirectory: path.join(tmpDir, 'p1'), title: 'S1' });
       const res = await request(app)
         .put(`/api/sessions/${session.id}/panel-state`)
         .send({
-          activePanel: 'invalid',
+          activePanel: 'ext:my-extension',
           fileTabs: [],
           activeTabIndex: 0,
           tabScrollPositions: {},
@@ -97,7 +97,7 @@ describe('IDE Panels API', () => {
           previewUrl: '',
           panelWidthPercent: 40,
         });
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(200);
     });
 
     it('rejects panelWidthPercent outside 20-80', async () => {
