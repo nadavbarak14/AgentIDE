@@ -271,6 +271,12 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
   // Resume sessions that were active before restart
   sessionManager.resumeSessions(ptySpawner);
 
+  // Clean up stale completed/failed sessions from before this server start
+  const cleanedUp = repo.deleteNonActiveSessions();
+  if (cleanedUp > 0) {
+    logger.info({ count: cleanedUp }, 'cleaned up stale non-active sessions on startup');
+  }
+
   // Create Express app
   const app = express();
   // Parse JSON bodies for all routes EXCEPT proxy routes (proxy needs raw stream for piping)

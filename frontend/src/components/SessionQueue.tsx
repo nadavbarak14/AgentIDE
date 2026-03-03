@@ -6,24 +6,18 @@ import { WorkerBadge } from './WorkerBadge';
 
 interface SessionQueueProps {
   activeSessions: Session[];
-  completedSessions: Session[];
-  failedSessions: Session[];
   workers: Worker[];
   onRequestAddMachine?: () => void;
   onCreateSession: (workingDirectory: string, title: string, targetWorker?: string | null, worktree?: boolean, startFresh?: boolean) => Promise<unknown>;
-  onDeleteSession: (id: string) => Promise<void>;
   onFocusSession: (id: string) => void;
   onKillSession: (id: string) => void;
 }
 
 export function SessionQueue({
   activeSessions,
-  completedSessions,
-  failedSessions: _failedSessions,
   workers: workersList,
   onRequestAddMachine,
   onCreateSession,
-  onDeleteSession,
   onFocusSession,
   onKillSession,
 }: SessionQueueProps) {
@@ -140,21 +134,6 @@ export function SessionQueue({
           </div>
         )}
 
-        {completedSessions.length > 0 && (
-          <div className="p-3 border-t border-gray-700">
-            <h4 className="text-xs font-semibold text-blue-400 uppercase tracking-wide mb-2">
-              Completed ({completedSessions.length})
-            </h4>
-            {completedSessions.map((session) => (
-              <SessionItem
-                key={session.id}
-                session={session}
-                workers={workersList}
-                onDelete={() => onDeleteSession(session.id)}
-              />
-            ))}
-          </div>
-        )}
       </div>
     </div>
   );

@@ -340,6 +340,29 @@ export class Repository {
     return result.count;
   }
 
+  deleteNonActiveSessions(): number {
+    // Get IDs of sessions to delete (for panel_states cascade)
+    const rows = this.db
+      .prepare("SELECT id FROM sessions WHERE status != 'active'")
+      .all() as { id: string }[];
+
+    if (rows.length === 0) return 0;
+
+    // Delete the sessions
+    const result = this.db
+      .prepare("DELETE FROM sessions WHERE status != 'active'")
+      .run();
+
+    // Manually cascade: remove panel_states for deleted sessions
+    for (const row of rows) {
+      this.db
+        .prepare('DELETE FROM panel_states WHERE session_id = ? OR session_id = ?')
+        .run(row.id, `${row.id}:zoomed`);
+    }
+
+    return result.changes;
+  }
+
   setSessionScrollback(id: string, scrollbackPath: string): void {
     this.db
       .prepare("UPDATE sessions SET terminal_scrollback = ?, updated_at = datetime('now') WHERE id = ?")

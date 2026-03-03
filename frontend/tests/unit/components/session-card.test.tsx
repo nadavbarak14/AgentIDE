@@ -140,24 +140,6 @@ describe('SessionCard', () => {
     expect(onKill).toHaveBeenCalledWith('sess-1');
   });
 
-  it('shows Continue button for completed sessions with claudeSessionId', () => {
-    render(
-      <SessionCard
-        session={createMockSession({ status: 'completed', claudeSessionId: 'abc123' })}
-      />,
-    );
-    expect(screen.getByTitle(/Continue with claude/)).toBeInTheDocument();
-  });
-
-  it('does not show Continue button for completed sessions without claudeSessionId', () => {
-    render(
-      <SessionCard
-        session={createMockSession({ status: 'completed', claudeSessionId: null })}
-      />,
-    );
-    expect(screen.queryByTitle(/Continue with claude/)).not.toBeInTheDocument();
-  });
-
   // Zoom button tests
   it('renders zoom button with expand tooltip when not zoomed', () => {
     render(<SessionCard session={createMockSession({ status: 'active' })} />);

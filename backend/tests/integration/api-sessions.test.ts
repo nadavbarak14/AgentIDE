@@ -196,6 +196,131 @@ describe('Sessions API', () => {
     });
   });
 
+  // ─── Auto-deletion on session completion/failure ───
+
+  describe('Auto-deletion on session completion', () => {
+    it('auto-deletes session after completion via session-manager', async () => {
+      const createRes = await request(app)
+        .post('/api/sessions')
+        .send({ workingDirectory: path.join(tmpDir, 'p1'), title: 'Auto-delete test' });
+      const sessionId = createRes.body.id;
+
+      // Session should exist and be active
+      expect(repo.getSession(sessionId)).not.toBeNull();
+      expect(repo.getSession(sessionId)!.status).toBe('active');
+
+      // Kill the session (mock spawner emits exit with code 0 → completes)
+      sessionManager.killSession(sessionId);
+
+      // Session should be auto-deleted after completion
+      expect(repo.getSession(sessionId)).toBeNull();
+    });
+
+    it('auto-deletes session after failure via session-manager', async () => {
+      // Create a session directly via repo to control the flow
+      const session = repo.createSession({ workingDirectory: path.join(tmpDir, 'p2'), title: 'Fail test' });
+      repo.activateSession(session.id, 99999);
+
+      // Manually fail and delete (simulating what session-manager does)
+      repo.failSession(session.id);
+      const deleted = repo.deleteSession(session.id);
+
+      expect(deleted).toBe(true);
+      expect(repo.getSession(session.id)).toBeNull();
+    });
+
+    it('cleans up panel_states when session is auto-deleted', async () => {
+      const session = repo.createSession({ workingDirectory: path.join(tmpDir, 'p3'), title: 'Panel cleanup' });
+      repo.activateSession(session.id, 99999);
+
+      // Create panel state for this session
+      repo.savePanelState(session.id, {
+        activePanel: 'terminal',
+        fileTabs: [],
+        activeTabIndex: 0,
+        tabScrollPositions: {},
+        gitScrollPosition: 0,
+        previewUrl: '',
+        panelWidthPercent: 50,
+      });
+
+      expect(repo.getPanelState(session.id)).not.toBeNull();
+
+      // Complete and delete
+      repo.completeSession(session.id, null);
+      repo.deleteSession(session.id);
+
+      // Panel state should be gone
+      expect(repo.getPanelState(session.id)).toBeNull();
+    });
+  });
+
+  describe('Startup cleanup (deleteNonActiveSessions)', () => {
+    it('deletes completed and failed sessions but preserves active ones', () => {
+      // Create sessions in various states
+      const active = repo.createSession({ workingDirectory: path.join(tmpDir, 'a1'), title: 'Active' });
+      repo.activateSession(active.id, 11111);
+
+      const completed = repo.createSession({ workingDirectory: path.join(tmpDir, 'a2'), title: 'Completed' });
+      repo.activateSession(completed.id, 22222);
+      repo.completeSession(completed.id, 'claude-123');
+
+      const failed = repo.createSession({ workingDirectory: path.join(tmpDir, 'a3'), title: 'Failed' });
+      repo.activateSession(failed.id, 33333);
+      repo.failSession(failed.id);
+
+      // Run startup cleanup
+      const count = repo.deleteNonActiveSessions();
+
+      expect(count).toBe(2); // completed + failed
+      expect(repo.getSession(active.id)).not.toBeNull();
+      expect(repo.getSession(completed.id)).toBeNull();
+      expect(repo.getSession(failed.id)).toBeNull();
+    });
+
+    it('returns 0 when no non-active sessions exist', () => {
+      const count = repo.deleteNonActiveSessions();
+      expect(count).toBe(0);
+    });
+
+    it('cleans up panel_states for deleted sessions', () => {
+      const session = repo.createSession({ workingDirectory: path.join(tmpDir, 'a4'), title: 'Panel test' });
+      repo.activateSession(session.id, 44444);
+
+      // Save panel state
+      repo.savePanelState(session.id, {
+        activePanel: 'terminal',
+        fileTabs: [],
+        activeTabIndex: 0,
+        tabScrollPositions: {},
+        gitScrollPosition: 0,
+        previewUrl: '',
+        panelWidthPercent: 50,
+      });
+
+      // Also save zoomed panel state
+      repo.savePanelState(`${session.id}:zoomed`, {
+        activePanel: 'terminal',
+        fileTabs: [],
+        activeTabIndex: 0,
+        tabScrollPositions: {},
+        gitScrollPosition: 0,
+        previewUrl: '',
+        panelWidthPercent: 100,
+      });
+
+      // Complete the session
+      repo.completeSession(session.id, null);
+
+      // Run cleanup
+      repo.deleteNonActiveSessions();
+
+      // Both panel states should be gone
+      expect(repo.getPanelState(session.id)).toBeNull();
+      expect(repo.getPanelState(`${session.id}:zoomed`)).toBeNull();
+    });
+  });
+
   // ─── Comment endpoints ───
 
   describe('POST /api/sessions/:id/comments with side', () => {
