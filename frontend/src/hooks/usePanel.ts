@@ -29,7 +29,7 @@ export interface PanelStateValues {
   customViewportHeight: number | null;
   fontSize: number;
   // Backward-compatible legacy field (derived from left/right)
-  activePanel: ActivePanel;
+  activePanel: string;
   // Shared fields
   fileTabs: string[];
   activeTabIndex: number;
@@ -70,14 +70,16 @@ function migrateFromLegacy(activePanel: ActivePanel): { leftPanel: LeftPanel; ri
 }
 
 /** Derive legacy activePanel from left/right (for backward compat) */
-function deriveActivePanel(left: LeftPanel, right: RightPanel): ActivePanel {
+function deriveActivePanel(left: string, right: string): string {
   // If both are active, prefer right for legacy single-value compat
   if (right !== 'none') return right;
   if (left !== 'none') return left;
   return 'none';
 }
 
-export function usePanel(sessionId: string | null) {
+export type ViewMode = 'grid' | 'zoomed';
+
+export function usePanel(sessionId: string | null, viewMode: ViewMode = 'grid') {
   const [leftPanel, setLeftPanelRaw] = useState<PanelContent>('none');
   const [rightPanel, setRightPanelRaw] = useState<PanelContent>('none');
   const [leftWidthPercent, setLeftWidthPercent] = useState(25);
@@ -111,6 +113,10 @@ export function usePanel(sessionId: string | null) {
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentSessionRef = useRef<string | null>(null);
 
+  // Dual layout: compute storage key from sessionId + viewMode
+  const storageKey = sessionId ? (viewMode === 'zoomed' ? `${sessionId}:zoomed` : sessionId) : null;
+  const storageKeyRef = useRef<string | null>(null);
+
   const getState = useCallback((): PanelStateValues => ({
     leftPanel,
     rightPanel,
@@ -133,6 +139,10 @@ export function usePanel(sessionId: string | null) {
     panelWidthPercent: rightWidthPercent, // legacy compat
   }), [leftPanel, rightPanel, leftWidthPercent, rightWidthPercent, bottomPanel, bottomHeightPercent, terminalPosition, terminalVisible, previewViewport, customViewportWidth, customViewportHeight, fileTabs, activeTabIndex, tabScrollPositions, gitScrollPosition, previewUrl]);
 
+  // Keep a ref to the latest state so the storageKey-switch effect can read fresh values
+  const stateRef = useRef<PanelStateValues>(getState());
+  stateRef.current = getState();
+
   const restoreState = useCallback((state: PanelStateValues) => {
     console.log(`[RestoreState] Restoring with:`, { previewUrl: state.previewUrl, previewViewport: state.previewViewport });
     // Normalize legacy 'search' panel to 'files' (search is now inside files sidebar)
@@ -146,7 +156,7 @@ export function usePanel(sessionId: string | null) {
       setRightWidthPercent(state.rightWidthPercent ?? 35);
     } else {
       // Legacy format — migrate from activePanel
-      const migrated = migrateFromLegacy(state.activePanel);
+      const migrated = migrateFromLegacy(state.activePanel as ActivePanel);
       setLeftPanel(migrated.leftPanel);
       setRightPanel(migrated.rightPanel);
       setLeftWidthPercent(25);
@@ -186,26 +196,41 @@ export function usePanel(sessionId: string | null) {
     }, 100);
   }, []);
 
-  // Load state on session change
+  // Load state on session/viewMode change (dual layout persistence)
   useEffect(() => {
-    if (!sessionId) {
+    if (!storageKey || !sessionId) {
       resetToDefaults();
+      storageKeyRef.current = null;
       return;
     }
 
-    currentSessionRef.current = sessionId;
-
-    // Load new session state
-    panelStateApi.get(sessionId).then((loaded) => {
-      console.log(`[Panel Load] Session ${sessionId}:`, { previewUrl: loaded.previewUrl, previewViewport: loaded.previewViewport });
-      if (currentSessionRef.current === sessionId) {
-        restoreState(loaded as unknown as PanelStateValues);
+    // Save current layout to the OLD key before switching (if we had one)
+    if (storageKeyRef.current && storageKeyRef.current !== storageKey) {
+      const oldKey = storageKeyRef.current;
+      // Flush any pending save immediately
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
       }
-    }).catch((err) => {
-      // No saved state — use defaults
-      console.error(`[Panel Load Error] Failed to load panel state for ${sessionId}:`, err);
-      if (currentSessionRef.current === sessionId) {
+      // Save current state to old key using ref (avoids stale closure)
+      panelStateApi.save(oldKey, stateRef.current).catch(() => {});
+    }
+
+    currentSessionRef.current = sessionId;
+    storageKeyRef.current = storageKey;
+
+    // Load layout for the new key
+    panelStateApi.get(storageKey).then((loaded) => {
+      if (storageKeyRef.current === storageKey) {
+        restoreState(loaded as unknown as PanelStateValues);
+        // Enable auto-save after a tick (let React batch the restoreState renders)
+        requestAnimationFrame(() => { saveReadyRef.current = true; });
+      }
+    }).catch(() => {
+      // No saved state for this view mode — use defaults
+      if (storageKeyRef.current === storageKey) {
         resetToDefaults();
+        requestAnimationFrame(() => { saveReadyRef.current = true; });
       }
     });
 
@@ -214,7 +239,7 @@ export function usePanel(sessionId: string | null) {
         clearTimeout(saveTimerRef.current);
       }
     };
-  }, [sessionId, restoreState, resetToDefaults]);
+  }, [storageKey]); // eslint-disable-line -- intentionally only re-run on key change
 
   const togglePanel = useCallback((panel: ActivePanel) => {
     if (panel === 'files') {
@@ -264,20 +289,13 @@ export function usePanel(sessionId: string | null) {
   }, []);
 
   // Unified auto-save: watches ALL panel state and debounce-saves on any change.
-  // Uses a render counter to skip the first render (initial load / session switch).
-  const saveGeneration = useRef(0);
+  // Uses a "ready" flag to skip save-back during load/restore.
+  const saveReadyRef = useRef(false);
+
+
   useEffect(() => {
-    // Skip the very first effect run after mount or session change
-    if (saveGeneration.current < 2) {
-      saveGeneration.current++;
-      console.log(`[Panel Effect] Skip gen ${saveGeneration.current}`);
-      return;
-    }
-    if (!currentSessionRef.current) {
-      console.log(`[Panel Effect] No current session`);
-      return;
-    }
-    console.log(`[Panel Effect] Running save for session ${currentSessionRef.current}`);
+    if (!saveReadyRef.current) return;
+    if (!storageKeyRef.current) return;
     const state: PanelStateValues = {
       leftPanel,
       rightPanel,
@@ -291,7 +309,7 @@ export function usePanel(sessionId: string | null) {
       customViewportWidth,
       customViewportHeight,
       fontSize,
-      activePanel: deriveActivePanel(leftPanel as LeftPanel, rightPanel as RightPanel),
+      activePanel: deriveActivePanel(leftPanel, rightPanel),
       fileTabs,
       activeTabIndex,
       tabScrollPositions,
@@ -299,16 +317,16 @@ export function usePanel(sessionId: string | null) {
       previewUrl,
       panelWidthPercent: rightWidthPercent,
     };
-    scheduleSave(currentSessionRef.current, state);
+    scheduleSave(storageKeyRef.current, state);
   }, [leftPanel, rightPanel, leftWidthPercent, rightWidthPercent, bottomPanel, bottomHeightPercent, terminalPosition, terminalVisible, previewViewport, customViewportWidth, customViewportHeight, fontSize, fileTabs, activeTabIndex, tabScrollPositions, gitScrollPosition, previewUrl, scheduleSave]);
 
-  // Reset generation counter when session changes so we skip the load-triggered renders
+  // Disable auto-save when storageKey changes (will re-enable after load completes)
   useEffect(() => {
-    saveGeneration.current = 0;
-  }, [sessionId]);
+    saveReadyRef.current = false;
+  }, [storageKey]);
 
   // Computed legacy activePanel for backward compat
-  const activePanel = deriveActivePanel(leftPanel as LeftPanel, rightPanel as RightPanel);
+  const activePanel = deriveActivePanel(leftPanel, rightPanel);
   // Legacy panelWidthPercent — use rightWidthPercent for compat
   const panelWidthPercent = rightWidthPercent;
 
@@ -368,8 +386,8 @@ export function usePanel(sessionId: string | null) {
     // State management
     getState,
     scheduleSave: (state: PanelStateValues) => {
-      if (currentSessionRef.current) {
-        scheduleSave(currentSessionRef.current, state);
+      if (storageKeyRef.current) {
+        scheduleSave(storageKeyRef.current, state);
       }
     },
   };

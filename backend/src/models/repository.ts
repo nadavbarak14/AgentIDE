@@ -96,7 +96,7 @@ function rowToPanelState(row: Record<string, unknown>): PanelState {
     bottomPanel: (row.bottom_panel as PanelContent) || 'none',
     bottomHeightPercent: (row.bottom_height_percent as number) ?? 40,
     terminalPosition: (row.terminal_position as TerminalPosition) || 'center',
-    terminalVisible: (row.terminal_visible as unknown) === 1 || true,
+    terminalVisible: row.terminal_visible !== 0,
     fileTabs: JSON.parse(row.file_tabs as string),
     activeTabIndex: row.active_tab_index as number,
     tabScrollPositions: JSON.parse(row.tab_scroll_positions as string),
@@ -271,6 +271,10 @@ export class Repository {
 
   deleteSession(id: string): boolean {
     const result = this.db.prepare('DELETE FROM sessions WHERE id = ? AND status != ?').run(id, 'active');
+    if (result.changes > 0) {
+      // Manually cascade: remove panel states (no FK constraint after v7 migration)
+      this.db.prepare('DELETE FROM panel_states WHERE session_id = ? OR session_id = ?').run(id, `${id}:zoomed`);
+    }
     return result.changes > 0;
   }
 
@@ -506,9 +510,9 @@ export class Repository {
   savePanelState(
     sessionId: string,
     input: {
-      activePanel: ActivePanel;
-      leftPanel?: LeftPanel;
-      rightPanel?: RightPanel;
+      activePanel: string;
+      leftPanel?: string;
+      rightPanel?: string;
       leftWidthPercent?: number;
       rightWidthPercent?: number;
       bottomPanel?: PanelContent;

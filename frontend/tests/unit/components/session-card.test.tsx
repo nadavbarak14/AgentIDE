@@ -194,7 +194,7 @@ describe('SessionCard', () => {
         session={createMockSession({ status: 'completed', claudeSessionId: 'abc123' })}
       />,
     );
-    expect(screen.getByTitle('Continue with claude -c')).toBeInTheDocument();
+    expect(screen.getByTitle(/Continue with claude/)).toBeInTheDocument();
   });
 
   it('does not show Continue button for completed sessions without claudeSessionId', () => {
@@ -203,7 +203,7 @@ describe('SessionCard', () => {
         session={createMockSession({ status: 'completed', claudeSessionId: null })}
       />,
     );
-    expect(screen.queryByTitle('Continue with claude -c')).not.toBeInTheDocument();
+    expect(screen.queryByTitle(/Continue with claude/)).not.toBeInTheDocument();
   });
 
   // Zoom button tests
@@ -248,8 +248,16 @@ describe('SessionCard', () => {
     expect(card.className).not.toContain('border-blue-500');
   });
 
-  it('shows all toolbar buttons for active sessions', () => {
-    render(<SessionCard session={createMockSession({ status: 'active' })} />);
+  it('shows all toolbar buttons for active sessions when zoomed', () => {
+    render(<SessionCard session={createMockSession({ status: 'active' })} isZoomed={true} />);
+    expect(screen.getByTitle(/File Explorer/)).toBeInTheDocument();
+    expect(screen.getByTitle(/Git Changes/)).toBeInTheDocument();
+    expect(screen.getByTitle(/Web Preview/)).toBeInTheDocument();
+    expect(screen.getByTitle(/GitHub Issues/)).toBeInTheDocument();
+  });
+
+  it('shows compact toolbar buttons when not zoomed', () => {
+    render(<SessionCard session={createMockSession({ status: 'active' })} isZoomed={false} />);
     expect(screen.getByTitle(/File Explorer/)).toBeInTheDocument();
     expect(screen.getByTitle(/Git Changes/)).toBeInTheDocument();
     expect(screen.getByTitle(/Web Preview/)).toBeInTheDocument();
