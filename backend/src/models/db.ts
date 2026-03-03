@@ -261,6 +261,11 @@ function migrate(database: Database.Database): void {
     // Copy existing events_path values to video_path for backwards compatibility
     database.exec(`UPDATE video_recordings SET video_path = events_path WHERE video_path IS NULL`);
   }
+
+  // Add layout_config column to panel_states (020-flexible-panel-layout)
+  if (!colNames.has('layout_config')) {
+    database.exec('ALTER TABLE panel_states ADD COLUMN layout_config TEXT');
+  }
 }
 
 export function getDb(dbPath?: string): Database.Database {

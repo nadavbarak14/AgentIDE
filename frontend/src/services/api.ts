@@ -235,6 +235,12 @@ export const panelState = {
       method: 'PUT',
       body: JSON.stringify(state),
     }),
+
+  saveLayoutConfig: (sessionId: string, layoutConfig: unknown) =>
+    request<{ success: boolean }>(`/sessions/${sessionId}/panel-state/layout`, {
+      method: 'PUT',
+      body: JSON.stringify({ layoutConfig }),
+    }),
 };
 
 // ─── Comments ───

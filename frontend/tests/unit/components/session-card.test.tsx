@@ -1,3 +1,4 @@
+import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { SessionCard } from '../../../src/components/SessionCard';
@@ -50,6 +51,53 @@ const mockPanelOverrides: Record<string, unknown> = {};
 // Mock the usePanel hook — it makes API calls and manages complex state
 vi.mock('../../../src/hooks/usePanel', () => ({
   usePanel: () => createMockPanel(mockPanelOverrides),
+}));
+
+// Mock the useLayoutConfig hook — it makes API calls and manages layout state
+vi.mock('../../../src/hooks/useLayoutConfig', () => ({
+  useLayoutConfig: () => ({
+    layoutConfig: {
+      presetId: 'equal-3col',
+      cells: [
+        { cellId: 'cell-0', activePanelId: 'files', stackedPanelIds: [] },
+        { cellId: 'cell-1', activePanelId: 'shell', stackedPanelIds: [] },
+        { cellId: 'cell-2', activePanelId: null, stackedPanelIds: [] },
+      ],
+      sizes: [33, 34, 33],
+    },
+    isLoading: false,
+    applyPreset: vi.fn(),
+    movePanel: vi.fn(),
+    closePanel: vi.fn(),
+    openPanel: vi.fn(),
+    swapPanels: vi.fn(),
+    updateSizes: vi.fn(),
+  }),
+}));
+
+// Mock FlexiblePanelGrid — uses react-resizable-panels which doesn't work in jsdom
+vi.mock('../../../src/components/FlexiblePanelGrid', () => ({
+  FlexiblePanelGrid: ({ renderPanel, layoutConfig }: {
+    renderPanel: (panelId: string | null, cellId: string) => React.ReactNode;
+    layoutConfig: { cells: Array<{ cellId: string; activePanelId: string | null }> };
+    [key: string]: unknown;
+  }) => (
+    <div data-testid="flexible-panel-grid">
+      {layoutConfig.cells.map((cell: { cellId: string; activePanelId: string | null }) => (
+        <div key={cell.cellId} data-testid={`grid-cell-${cell.cellId}`}>
+          {renderPanel(cell.activePanelId, cell.cellId)}
+        </div>
+      ))}
+    </div>
+  ),
+}));
+
+// Mock LayoutPresetPicker and PanelVisibilityMenu
+vi.mock('../../../src/components/LayoutPresetPicker', () => ({
+  LayoutPresetPicker: () => <div data-testid="layout-preset-picker" />,
+}));
+vi.mock('../../../src/components/PanelVisibilityMenu', () => ({
+  PanelVisibilityMenu: () => <div data-testid="panel-visibility-menu" />,
 }));
 
 // Mock heavy child components that depend on browser APIs (xterm, monaco, etc.)

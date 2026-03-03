@@ -310,6 +310,34 @@ export function createSessionsRouter(repo: Repository, sessionManager: SessionMa
     res.json({ success: true });
   });
 
+  // PUT /api/sessions/:id/panel-state/layout — save flexible layout config
+  router.put('/:id/panel-state/layout', validateUuid('id'), (req, res) => {
+    const id = String(req.params.id);
+    const session = repo.getSession(id);
+    if (!session) {
+      res.status(404).json({ error: 'Session not found' });
+      return;
+    }
+
+    const { layoutConfig } = req.body;
+
+    if (layoutConfig !== null && layoutConfig !== undefined) {
+      const validPresets = ['equal-3col', '2left-1right', '1left-2right', '2top-1bottom', '1top-2bottom', 'focus'];
+      if (!layoutConfig.presetId || !validPresets.includes(layoutConfig.presetId)) {
+        res.status(400).json({ error: 'Invalid layoutConfig.presetId' });
+        return;
+      }
+      if (!Array.isArray(layoutConfig.cells)) {
+        res.status(400).json({ error: 'layoutConfig.cells must be an array' });
+        return;
+      }
+    }
+
+    repo.saveLayoutConfig(id, layoutConfig ?? null);
+    console.info(`[Layout] Saved layout_config for session ${id}: preset=${layoutConfig?.presetId}, cells=${layoutConfig?.cells?.length}`);
+    res.json({ success: true });
+  });
+
   // ─── Shell Terminal ───
 
   // POST /api/sessions/:id/shell — open (spawn) a shell terminal

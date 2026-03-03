@@ -108,6 +108,7 @@ function rowToPanelState(row: Record<string, unknown>): PanelState {
     fontSize: (row.font_size as number) ?? 14,
     panelWidthPercent: row.panel_width_percent as number,
     updatedAt: row.updated_at as string,
+    layoutConfig: row.layout_config ? JSON.parse(row.layout_config as string) : null,
   };
 }
 
@@ -571,6 +572,19 @@ export class Repository {
 
   deletePanelState(sessionId: string): void {
     this.db.prepare('DELETE FROM panel_states WHERE session_id = ?').run(sessionId);
+  }
+
+  saveLayoutConfig(sessionId: string, layoutConfig: unknown): void {
+    const json = layoutConfig ? JSON.stringify(layoutConfig) : null;
+    const result = this.db
+      .prepare(`UPDATE panel_states SET layout_config = ?, updated_at = datetime('now') WHERE session_id = ?`)
+      .run(json, sessionId);
+    // If no row exists yet, create a minimal one
+    if (result.changes === 0) {
+      this.db
+        .prepare(`INSERT OR IGNORE INTO panel_states (session_id, active_panel, layout_config) VALUES (?, 'none', ?)`)
+        .run(sessionId, json);
+    }
   }
 
   // ─── Session Extensions ───

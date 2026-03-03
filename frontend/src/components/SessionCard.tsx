@@ -16,6 +16,11 @@ import { sessions as sessionsApi, type Session, type Worker } from '../services/
 import type { WsServerMessage } from '../services/ws';
 import { WorkerBadge } from './WorkerBadge';
 import type { UsePreviewBridgeReturn } from '../hooks/usePreviewBridge';
+import { useLayoutConfig } from '../hooks/useLayoutConfig';
+import { FlexiblePanelGrid } from './FlexiblePanelGrid';
+import { LayoutPresetPicker } from './LayoutPresetPicker';
+import { PanelVisibilityMenu } from './PanelVisibilityMenu';
+import type { PanelId } from '../types/layout';
 
 interface SessionCardProps {
   session: Session;
@@ -53,8 +58,9 @@ export function SessionCard({
   sessionNumber,
 }: SessionCardProps) {
   const panel = usePanel(session.id);
+  const layout = useLayoutConfig(session.id);
   const { extensionsWithPanel, getExtension, refresh: refreshExtensions } = useExtensions();
-  const { widgets, activeWidget, addWidget, removeWidget, widgetCount } = useWidgets();
+  const { widgets, activeWidget, addWidget, removeWidget } = useWidgets();
 
   // Memoize the onUrlChange callback to prevent infinite loops in LivePreview effects
   const handleUrlChange = useCallback((url: string) => {
@@ -397,16 +403,7 @@ export function SessionCard({
   const showLeftPanel = showToolbar && panel.leftPanel !== 'none';
   const showRightPanel = showToolbar && panel.rightPanel !== 'none';
 
-  // Drag handle resize logic
-  const handleLeftMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    setResizingSide('left');
-  }, []);
-
-  const handleRightMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    setResizingSide('right');
-  }, []);
+  // Legacy drag handle resize callbacks — FlexiblePanelGrid now handles resizing via react-resizable-panels
 
   // Minimum pixel widths/heights for responsive layout
   const MIN_PANEL_PX = 200;
@@ -561,33 +558,7 @@ export function SessionCard({
     panel.updateScrollPosition(filePath, { line, column: 1 });
   }, [panel]);
 
-  // Whether terminal is rendered in the top zone (center/side-by-side mode)
-  const terminalInTopZone = showToolbar && panel.terminalPosition === 'center' && panel.terminalVisible;
-
-  // Effective panel widths — when terminal is NOT in the top zone, panels fill all available space
-  const effectiveLeftWidth = (() => {
-    if (!showLeftPanel) return 0;
-    if (terminalInTopZone) return panel.leftWidthPercent;
-    if (!showRightPanel) return 100;
-    const total = panel.leftWidthPercent + panel.rightWidthPercent;
-    return total > 0 ? (panel.leftWidthPercent / total) * 100 : 50;
-  })();
-
-  const effectiveRightWidth = (() => {
-    if (!showRightPanel) return 0;
-    if (terminalInTopZone) return panel.rightWidthPercent;
-    if (!showLeftPanel) return 100;
-    const total = panel.leftWidthPercent + panel.rightWidthPercent;
-    return total > 0 ? (panel.rightWidthPercent / total) * 100 : 50;
-  })();
-
-  const effectiveTerminalWidth = (() => {
-    if (!terminalInTopZone) return 0;
-    let w = 100;
-    if (showLeftPanel) w -= panel.leftWidthPercent;
-    if (showRightPanel) w -= panel.rightWidthPercent;
-    return w;
-  })();
+  // Panel width calculations kept for potential future use (FlexiblePanelGrid now handles layout)
 
   // Check if viewport can accommodate opening a panel
   const canOpenPanel = useCallback((side: 'left' | 'right'): boolean => {
@@ -731,19 +702,6 @@ export function SessionCard({
   // Whether to show the bottom zone (terminal in bottom position)
   const showBottomZone = showToolbar && panel.terminalPosition === 'bottom' && panel.terminalVisible;
 
-  // Content type options for panel header dropdowns
-  const CONTENT_OPTIONS: readonly { value: string; label: string }[] = [
-    { value: 'files', label: 'Files' },
-    { value: 'git', label: 'Git' },
-    { value: 'preview', label: 'Preview' },
-    { value: 'issues', label: 'Issues' },
-    ...(widgetCount > 0 ? [{ value: 'widgets', label: 'Canvas' }] : []),
-    ...activeExtensions.map((ext) => ({
-      value: ext.panelKey,
-      label: ext.displayName,
-    })),
-  ];
-
   // Render the content for a panel based on its content type
   const renderPanelContent = (contentType: string, slot: 'left' | 'right') => {
     switch (contentType) {
@@ -879,32 +837,6 @@ export function SessionCard({
     }
   };
 
-  // Panel header with content type selector
-  const renderPanelHeader = (
-    currentType: string,
-    onTypeChange: (type: string) => void,
-    onClose: () => void,
-  ) => (
-    <div className="flex items-center justify-between px-2 py-1 bg-gray-800 border-b border-gray-700 text-xs text-gray-400 flex-shrink-0">
-      <select
-        value={currentType}
-        onChange={(e) => onTypeChange(e.target.value)}
-        className="bg-gray-900 border border-gray-700 rounded px-1 py-0.5 text-xs text-gray-300 focus:outline-none focus:border-blue-500"
-      >
-        {CONTENT_OPTIONS.map((opt) => (
-          <option key={opt.value} value={opt.value}>{opt.label}</option>
-        ))}
-      </select>
-      <button
-        onClick={onClose}
-        className="text-gray-500 hover:text-gray-300 px-1"
-        title="Close panel"
-      >
-        ×
-      </button>
-    </div>
-  );
-
   // Helper to render terminal or status indicator (used in both center and bottom positions)
   const renderTerminalOrStatus = () => {
     if (session.status === 'active') {
@@ -933,6 +865,21 @@ export function SessionCard({
       </div>
     );
   };
+
+  // Render panel content for FlexiblePanelGrid (no header — grid provides its own)
+  const renderFlexPanel = useCallback((panelId: PanelId | null, _cellId: string): React.ReactNode => {
+    if (!panelId) {
+      return (
+        <div className="flex items-center justify-center h-full text-gray-600 text-xs select-none">
+          Drop a panel here
+        </div>
+      );
+    }
+    if (panelId === 'shell') {
+      return renderTerminalOrStatus();
+    }
+    return renderPanelContent(panelId as string, 'right');
+  }, [renderTerminalOrStatus, renderPanelContent]);
 
   return (
     <div
@@ -1143,6 +1090,22 @@ export function SessionCard({
             >
               A+
             </button>
+            <div className="w-px h-3.5 bg-gray-600 mx-0.5" />
+            <LayoutPresetPicker
+              currentPresetId={layout.layoutConfig.presetId}
+              onPresetSelect={layout.applyPreset}
+            />
+            <PanelVisibilityMenu
+              layoutConfig={layout.layoutConfig}
+              availablePanels={(['files', 'shell', 'git', 'preview', 'issues', ...activeExtensions.map(e => e.panelKey as PanelId)] as PanelId[])}
+              onTogglePanel={(panelId) => {
+                if (layout.layoutConfig.cells.some(c => c.activePanelId === panelId)) {
+                  layout.closePanel(panelId);
+                } else {
+                  layout.openPanel(panelId);
+                }
+              }}
+            />
           </div>
         )}
         <div className="flex items-center gap-1 flex-shrink-0">
@@ -1194,76 +1157,25 @@ export function SessionCard({
         className="flex-1 flex flex-col min-h-[300px]"
         style={{ cursor: resizingVertical ? 'row-resize' : resizingSide ? 'col-resize' : undefined }}
       >
-        {/* Top Zone — horizontal layout */}
+        {/* Top Zone — FlexiblePanelGrid (IDE mode) or simple terminal (non-IDE mode) */}
         <div
           className="flex min-w-0 min-h-0"
           style={{ flex: (showBottomZone || (showToolbar && panel.bottomPanel === 'shell')) ? '1 1 0%' : '1 1 auto' }}
         >
-          {/* Left Panel */}
-          {showLeftPanel && (
-            <div
-              className="border-r border-gray-700 flex flex-col overflow-hidden min-w-0"
-              style={{ width: `${effectiveLeftWidth}%` }}
-            >
-              {renderPanelHeader(
-                panel.leftPanel as string,
-                (type) => panel.setLeftPanel(type as typeof panel.leftPanel),
-                closeLeftPanel,
-              )}
-              <div className="flex-1 min-h-0">
-                {renderPanelContent(panel.leftPanel as string, 'left')}
-              </div>
-            </div>
-          )}
-
-          {/* Drag Handle — between left panel and terminal (center mode) */}
-          {showLeftPanel && terminalInTopZone && (
-            <div
-              className="w-1 cursor-col-resize bg-gray-700 hover:bg-blue-500 transition-colors flex-shrink-0"
-              onMouseDown={handleLeftMouseDown}
+          {showToolbar ? (
+            <FlexiblePanelGrid
+              layoutConfig={layout.layoutConfig}
+              onLayoutChange={() => {}}
+              renderPanel={renderFlexPanel}
+              onMovePanel={layout.movePanel}
+              onSwapPanels={layout.swapPanels}
+              onClosePanel={layout.closePanel}
+              onUpdateSizes={layout.updateSizes}
+              className="flex-1"
             />
-          )}
-
-          {/* Drag Handle — between left and right panels (bottom mode, both open) */}
-          {showLeftPanel && showRightPanel && !terminalInTopZone && (
-            <div
-              className="w-1 cursor-col-resize bg-gray-700 hover:bg-blue-500 transition-colors flex-shrink-0"
-              onMouseDown={handleLeftMouseDown}
-            />
-          )}
-
-          {/* Terminal — full width when not in IDE mode, center position in IDE mode */}
-          {(!showToolbar || terminalInTopZone) && (
-            <div
-              className="flex flex-col min-w-0"
-              style={{ width: showToolbar ? `${effectiveTerminalWidth}%` : '100%' }}
-            >
+          ) : (
+            <div className="flex flex-col min-w-0 w-full">
               {renderTerminalOrStatus()}
-            </div>
-          )}
-
-          {/* Drag Handle — between terminal and right panel (center mode) */}
-          {showRightPanel && terminalInTopZone && (
-            <div
-              className="w-1 cursor-col-resize bg-gray-700 hover:bg-blue-500 transition-colors flex-shrink-0"
-              onMouseDown={handleRightMouseDown}
-            />
-          )}
-
-          {/* Right Panel */}
-          {showRightPanel && (
-            <div
-              className="border-l border-gray-700 flex flex-col overflow-hidden min-w-0"
-              style={{ width: `${effectiveRightWidth}%` }}
-            >
-              {renderPanelHeader(
-                panel.rightPanel as string,
-                (type) => panel.setRightPanel(type as typeof panel.rightPanel),
-                closeRightPanel,
-              )}
-              <div className="flex-1 min-h-0">
-                {renderPanelContent(panel.rightPanel as string, 'right')}
-              </div>
             </div>
           )}
         </div>

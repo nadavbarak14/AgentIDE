@@ -164,6 +164,7 @@ export interface PanelState {
   fontSize: number;
   panelWidthPercent: number;
   updatedAt: string;
+  layoutConfig: unknown | null;
 }
 
 // Comment
