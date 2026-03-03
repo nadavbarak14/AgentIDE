@@ -16,6 +16,7 @@ import { sessions as sessionsApi, type Session, type Worker } from '../services/
 import type { WsServerMessage } from '../services/ws';
 import { WorkerBadge } from './WorkerBadge';
 import type { UsePreviewBridgeReturn } from '../hooks/usePreviewBridge';
+import { calculatePanelWidths, calculateVerticalSplit, clampResizePercent } from '../utils/panelLayout';
 
 interface SessionCardProps {
   session: Session;
@@ -52,7 +53,7 @@ export function SessionCard({
   onToggleZoom,
   sessionNumber,
 }: SessionCardProps) {
-  const panel = usePanel(session.id);
+  const panel = usePanel(session.id, isZoomed ? 'zoomed' : 'grid');
   const { extensionsWithPanel, getExtension, refresh: refreshExtensions } = useExtensions();
   const { widgets, activeWidget, addWidget, removeWidget, widgetCount } = useWidgets();
 
@@ -398,21 +399,21 @@ export function SessionCard({
   const showRightPanel = showToolbar && panel.rightPanel !== 'none';
 
   // Drag handle resize logic
+  const rafRef = useRef<number | null>(null);
+
   const handleLeftMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     setResizingSide('left');
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
   }, []);
 
   const handleRightMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     setResizingSide('right');
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
   }, []);
-
-  // Minimum pixel widths/heights for responsive layout
-  const MIN_PANEL_PX = 200;
-  const MIN_TERMINAL_PX = 300;
-  const MIN_TOP_PX = 200;
-  const MIN_BOTTOM_PX = 150;
 
   useEffect(() => {
     if (!resizingSide) return;
@@ -420,64 +421,77 @@ export function SessionCard({
     const tInTop = showToolbar && panel.terminalPosition === 'center' && panel.terminalVisible;
 
     const handleMouseMove = (e: MouseEvent) => {
-      if (!containerRef.current) return;
-      const rect = containerRef.current.getBoundingClientRect();
-      const containerWidth = rect.width;
-      const percent = ((e.clientX - rect.left) / containerWidth) * 100;
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+      rafRef.current = requestAnimationFrame(() => {
+        if (!containerRef.current) return;
+        const rect = containerRef.current.getBoundingClientRect();
+        const containerWidth = rect.width;
+        const percent = ((e.clientX - rect.left) / containerWidth) * 100;
 
-      if (resizingSide === 'left') {
-        const minLeftPercent = (MIN_PANEL_PX / containerWidth) * 100;
-        const maxLeftPercent = tInTop
-          ? 100 - ((MIN_TERMINAL_PX / containerWidth) * 100) - (showRightPanel ? panel.rightWidthPercent : 0)
-          : 100 - (showRightPanel ? (MIN_PANEL_PX / containerWidth) * 100 : 0);
-        const clamped = Math.max(minLeftPercent, Math.min(maxLeftPercent, percent));
-        panel.setLeftWidth(Math.round(clamped));
-      } else {
-        const rightPercent = 100 - percent;
-        const minRightPercent = (MIN_PANEL_PX / containerWidth) * 100;
-        const maxRightPercent = tInTop
-          ? 100 - ((MIN_TERMINAL_PX / containerWidth) * 100) - (showLeftPanel ? panel.leftWidthPercent : 0)
-          : 100 - (showLeftPanel ? (MIN_PANEL_PX / containerWidth) * 100 : 0);
-        const clamped = Math.max(minRightPercent, Math.min(maxRightPercent, rightPercent));
-        panel.setRightWidth(Math.round(clamped));
-      }
+        if (resizingSide === 'left') {
+          const clamped = clampResizePercent(
+            percent, 'left', containerWidth, panel.rightWidthPercent, showRightPanel, tInTop,
+          );
+          panel.setLeftWidth(clamped);
+        } else {
+          const rightPercent = 100 - percent;
+          const clamped = clampResizePercent(
+            rightPercent, 'right', containerWidth, panel.leftWidthPercent, showLeftPanel, tInTop,
+          );
+          panel.setRightWidth(clamped);
+        }
+      });
     };
 
-    const handleMouseUp = () => setResizingSide(null);
+    const handleMouseUp = () => {
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+      setResizingSide(null);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
 
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
     return () => {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
-  }, [resizingSide, panel, showLeftPanel, showRightPanel, showToolbar]);
+  }, [resizingSide, panel, showLeftPanel, showRightPanel, showToolbar, isZoomed]);
 
   // Vertical drag resize (between top and bottom zones)
   const handleVerticalMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     setResizingVertical(true);
     userOverrideRef.current = true;
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
   }, []);
 
   useEffect(() => {
     if (!resizingVertical) return;
 
     const handleMouseMove = (e: MouseEvent) => {
-      if (!containerRef.current) return;
-      const rect = containerRef.current.getBoundingClientRect();
-      const containerHeight = rect.height;
-      const topPercent = ((e.clientY - rect.top) / containerHeight) * 100;
-      const bottomPercent = 100 - topPercent;
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+      rafRef.current = requestAnimationFrame(() => {
+        if (!containerRef.current) return;
+        const rect = containerRef.current.getBoundingClientRect();
+        const containerHeight = rect.height;
+        const topPercent = ((e.clientY - rect.top) / containerHeight) * 100;
+        const bottomPercent = 100 - topPercent;
 
-      const minTopPercent = (MIN_TOP_PX / containerHeight) * 100;
-      const minBottomPercent = (MIN_BOTTOM_PX / containerHeight) * 100;
-      const clampedBottom = Math.max(minBottomPercent, Math.min(100 - minTopPercent, bottomPercent));
-      panel.setBottomHeight(Math.round(clampedBottom));
+        const result = calculateVerticalSplit({ containerHeight, bottomPercent });
+        panel.setBottomHeight(result.bottomPercent);
+      });
     };
 
     const handleMouseUp = () => {
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
       setResizingVertical(false);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
     };
 
     document.addEventListener('mousemove', handleMouseMove);
@@ -485,6 +499,7 @@ export function SessionCard({
     return () => {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
   }, [resizingVertical, panel]);
 
@@ -564,39 +579,15 @@ export function SessionCard({
   // Whether terminal is rendered in the top zone (center/side-by-side mode)
   const terminalInTopZone = showToolbar && panel.terminalPosition === 'center' && panel.terminalVisible;
 
-  // Effective panel widths — when terminal is NOT in the top zone, panels fill all available space
-  const effectiveLeftWidth = (() => {
-    if (!showLeftPanel) return 0;
-    if (terminalInTopZone) return panel.leftWidthPercent;
-    if (!showRightPanel) return 100;
-    const total = panel.leftWidthPercent + panel.rightWidthPercent;
-    return total > 0 ? (panel.leftWidthPercent / total) * 100 : 50;
-  })();
-
-  const effectiveRightWidth = (() => {
-    if (!showRightPanel) return 0;
-    if (terminalInTopZone) return panel.rightWidthPercent;
-    if (!showLeftPanel) return 100;
-    const total = panel.leftWidthPercent + panel.rightWidthPercent;
-    return total > 0 ? (panel.rightWidthPercent / total) * 100 : 50;
-  })();
-
-  const effectiveTerminalWidth = (() => {
-    if (!terminalInTopZone) return 0;
-    let w = 100;
-    if (showLeftPanel) w -= panel.leftWidthPercent;
-    if (showRightPanel) w -= panel.rightWidthPercent;
-    return w;
-  })();
-
-  // Check if viewport can accommodate opening a panel
-  const canOpenPanel = useCallback((side: 'left' | 'right'): boolean => {
-    if (!containerRef.current) return true;
-    const containerWidth = containerRef.current.getBoundingClientRect().width;
-    const otherPanelOpen = side === 'left' ? showRightPanel : showLeftPanel;
-    const neededWidth = MIN_PANEL_PX + MIN_TERMINAL_PX + (otherPanelOpen ? MIN_PANEL_PX : 0);
-    return containerWidth >= neededWidth;
-  }, [showLeftPanel, showRightPanel]);
+  // Effective panel widths — calculated via pure utility for correctness
+  const { leftWidth: effectiveLeftWidth, rightWidth: effectiveRightWidth, terminalWidth: effectiveTerminalWidth } = calculatePanelWidths({
+    containerWidth: containerRef.current?.getBoundingClientRect().width || 1920,
+    leftPercent: panel.leftWidthPercent,
+    rightPercent: panel.rightWidthPercent,
+    showLeft: showLeftPanel,
+    showRight: showRightPanel,
+    terminalInTopZone,
+  });
 
   const handleTogglePanel = useCallback((panelType: string) => {
     const pt = panelType as import('../hooks/usePanel').PanelContent;
@@ -630,23 +621,23 @@ export function SessionCard({
     const rightOccupied = panel.rightPanel !== 'none';
 
     if (defaultSide === 'left') {
-      if (!leftOccupied && canOpenPanel('left')) {
+      if (!leftOccupied) {
         panel.setLeftPanel(pt);
-      } else if (!rightOccupied && canOpenPanel('right')) {
+      } else if (!rightOccupied) {
         panel.setRightPanel(pt);
-      } else if (canOpenPanel('left')) {
+      } else {
         panel.setLeftPanel(pt);
       }
     } else {
-      if (!rightOccupied && canOpenPanel('right')) {
+      if (!rightOccupied) {
         panel.setRightPanel(pt);
-      } else if (!leftOccupied && canOpenPanel('left')) {
+      } else if (!leftOccupied) {
         panel.setLeftPanel(pt);
-      } else if (canOpenPanel('right')) {
+      } else {
         panel.setRightPanel(pt);
       }
     }
-  }, [panel, canOpenPanel, getExtension]);
+  }, [panel, getExtension]);
 
   // Close extension picker on outside click
   useEffect(() => {
@@ -698,6 +689,16 @@ export function SessionCard({
         case 'search_files':
           if (panel.leftPanel !== 'files') panel.setLeftPanel('files');
           setSidebarView('search');
+          break;
+        case 'font_decrease':
+          panel.setFontSize(Math.max(panel.fontSize - 2, 8));
+          break;
+        case 'font_increase':
+          panel.setFontSize(Math.min(panel.fontSize + 2, 28));
+          break;
+        case 'toggle_terminal_position':
+          userOverrideRef.current = true;
+          panel.setTerminalPosition(panel.terminalPosition === 'center' ? 'bottom' : 'center');
           break;
       }
     };
@@ -950,8 +951,8 @@ export function SessionCard({
                 : 'border-gray-700'
       } overflow-hidden flex flex-col`}
     >
-      {/* Header + Toolbar (merged single row) */}
-      <div className="flex items-center px-2 py-1 border-b border-gray-700 bg-gray-800/50 gap-1 flex-shrink-0">
+      {/* Header row */}
+      <div className="flex items-center px-2 py-1 border-b border-gray-700 bg-gray-800/50 gap-1 flex-shrink-0 relative">
         <div className="flex items-center gap-1.5 min-w-0 flex-shrink-0">
           {sessionNumber != null && (
             <span className="w-4 h-4 flex-shrink-0 text-[10px] font-bold rounded bg-gray-700 text-gray-400 flex items-center justify-center">
@@ -968,183 +969,6 @@ export function SessionCard({
             <span className="text-xs text-gray-400" title="Pinned">📌</span>
           )}
         </div>
-        {showToolbar && (
-          <div className="flex items-center gap-0.5 flex-1 justify-center min-w-0 flex-wrap">
-            <button
-              onClick={() => handleTogglePanel('files')}
-              className={`px-1.5 py-0.5 text-xs rounded transition-colors relative ${
-                panel.leftPanel === 'files' || panel.rightPanel === 'files'
-                  ? 'bg-blue-500/20 text-blue-400'
-                  : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
-              }`}
-              title="File Explorer (Ctrl+., E)"
-              data-testid="files-btn"
-            >
-              Files
-              {chordArmed && isCurrent && <span className="ml-1 px-1 py-px bg-blue-600 text-white text-[10px] rounded font-mono animate-pulse">E</span>}
-            </button>
-            <button
-              onClick={() => handleTogglePanel('git')}
-              className={`px-1.5 py-0.5 text-xs rounded transition-colors relative ${
-                panel.leftPanel === 'git' || panel.rightPanel === 'git'
-                  ? 'bg-blue-500/20 text-blue-400'
-                  : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
-              }`}
-              title="Git Changes (Ctrl+., G)"
-              data-testid="git-btn"
-            >
-              Git
-              {chordArmed && isCurrent && <span className="ml-1 px-1 py-px bg-blue-600 text-white text-[10px] rounded font-mono animate-pulse">G</span>}
-            </button>
-            <div className="w-px h-3.5 bg-gray-600 mx-0.5" />
-            <button
-              onClick={() => {
-                if (panel.terminalVisible && !showLeftPanel && !showRightPanel) return;
-                panel.setTerminalVisible(!panel.terminalVisible);
-              }}
-              className={`px-1.5 py-0.5 text-xs rounded transition-colors relative ${
-                panel.terminalVisible
-                  ? 'bg-blue-500/20 text-blue-400'
-                  : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
-              }`}
-              title={panel.terminalVisible ? 'Hide Claude Code' : 'Show Claude Code'}
-            >
-              Claude
-              {chordArmed && isCurrent && <span className="ml-1 px-1 py-px bg-blue-600 text-white text-[10px] rounded font-mono animate-pulse">\</span>}
-              {!panel.terminalVisible && session.needsInput && (
-                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-amber-400 rounded-full animate-pulse" />
-              )}
-            </button>
-            {panel.terminalVisible && (
-              <button
-                onClick={() => {
-                  userOverrideRef.current = true;
-                  panel.setTerminalPosition(panel.terminalPosition === 'center' ? 'bottom' : 'center');
-                }}
-                className="px-1 py-0.5 text-xs text-gray-400 hover:bg-gray-700 hover:text-gray-200 rounded"
-                title={panel.terminalPosition === 'center' ? 'Move terminal to bottom' : 'Move terminal to side'}
-              >
-                {panel.terminalPosition === 'center' ? '\u2B07' : '\u2B06'}
-              </button>
-            )}
-            <button
-              onClick={() => handleTogglePanel('preview')}
-              className={`px-1.5 py-0.5 text-xs rounded transition-colors ${
-                panel.leftPanel === 'preview' || panel.rightPanel === 'preview'
-                  ? 'bg-green-500/20 text-green-400'
-                  : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
-              }`}
-              title="Web Preview (Ctrl+., V)"
-            >
-              Preview
-              {chordArmed && isCurrent && <span className="ml-1 px-1 py-px bg-blue-600 text-white text-[10px] rounded font-mono animate-pulse">V</span>}
-            </button>
-            <button
-              onClick={() => handleTogglePanel('issues')}
-              className={`px-1.5 py-0.5 text-xs rounded transition-colors ${
-                panel.leftPanel === 'issues' || panel.rightPanel === 'issues'
-                  ? 'bg-purple-500/20 text-purple-400'
-                  : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
-              }`}
-              title="GitHub Issues (Ctrl+., I)"
-            >
-              Issues
-              {chordArmed && isCurrent && <span className="ml-1 px-1 py-px bg-blue-600 text-white text-[10px] rounded font-mono animate-pulse">I</span>}
-            </button>
-            <button
-              onClick={() => handleTogglePanel('shell')}
-              className={`px-1.5 py-0.5 text-xs rounded transition-colors ${
-                panel.bottomPanel === 'shell'
-                  ? 'bg-orange-500/20 text-orange-400'
-                  : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
-              }`}
-              title="Shell Terminal (Ctrl+., S)"
-            >
-              Shell
-              {chordArmed && isCurrent && <span className="ml-1 px-1 py-px bg-blue-600 text-white text-[10px] rounded font-mono animate-pulse">S</span>}
-            </button>
-            {/* Active (enabled) extension panel buttons */}
-            {activeExtensions.length > 0 && (
-              <>
-                <div className="w-px h-3.5 bg-gray-600 mx-0.5" />
-                {activeExtensions.map((ext) => (
-                  <button
-                    key={ext.panelKey}
-                    onClick={() => handleTogglePanel(ext.panelKey as 'files')}
-                    className={`px-1.5 py-0.5 text-xs rounded transition-colors ${
-                      panel.leftPanel === ext.panelKey || panel.rightPanel === ext.panelKey
-                        ? 'bg-cyan-500/20 text-cyan-400'
-                        : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
-                    }`}
-                    title={ext.displayName}
-                  >
-                    {ext.displayName}
-                  </button>
-                ))}
-              </>
-            )}
-            {/* Extensions picker dropdown */}
-            <div className="w-px h-3.5 bg-gray-600 mx-0.5" />
-            <div className="relative" data-ext-picker>
-              <button
-                onClick={() => { refreshExtensions(); setShowExtPicker((v) => !v); }}
-                className={`px-1.5 py-0.5 text-xs rounded transition-colors ${
-                  showExtPicker
-                    ? 'bg-cyan-500/20 text-cyan-400'
-                    : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
-                }`}
-                title="Select extensions for this session"
-              >
-                Ext ▾
-              </button>
-              {showExtPicker && (
-                <div className="absolute top-full right-0 mt-1 bg-gray-800 border border-gray-600 rounded-md shadow-lg z-50 min-w-[180px] py-1">
-                  {extensionsWithPanel.length === 0 && (
-                    <div className="px-3 py-2 text-xs text-gray-500">No extensions found</div>
-                  )}
-                  {extensionsWithPanel.map((ext) => (
-                    <label
-                      key={ext.name}
-                      className="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-300 hover:bg-gray-700 cursor-pointer"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={enabledExtensions.includes(ext.name)}
-                        onChange={() => toggleExtension(ext.name)}
-                        className="rounded border-gray-600 text-cyan-500 focus:ring-cyan-500 focus:ring-offset-0"
-                      />
-                      {ext.displayName}
-                    </label>
-                  ))}
-                  <div className="border-t border-gray-700 mt-1 pt-1">
-                    <button
-                      onClick={() => setShowExtPicker(false)}
-                      className="w-full px-3 py-1 text-xs text-gray-400 hover:text-gray-200 text-left"
-                    >
-                      Close
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="w-px h-3.5 bg-gray-600 mx-0.5" />
-            <button
-              onClick={() => panel.setFontSize(Math.max(panel.fontSize - 2, 8))}
-              className="px-1 py-0.5 text-xs text-gray-400 hover:bg-gray-700 hover:text-gray-200 rounded"
-              title="Decrease font size"
-            >
-              A-
-            </button>
-            <span className="text-xs text-gray-500 w-5 text-center">{panel.fontSize}</span>
-            <button
-              onClick={() => panel.setFontSize(Math.min(panel.fontSize + 2, 28))}
-              className="px-1 py-0.5 text-xs text-gray-400 hover:bg-gray-700 hover:text-gray-200 rounded"
-              title="Increase font size"
-            >
-              A+
-            </button>
-          </div>
-        )}
         <div className="flex items-center gap-1 flex-shrink-0">
           <span className="text-xs text-gray-500">{session.status}</span>
           <button
@@ -1154,25 +978,27 @@ export function SessionCard({
             data-testid="zoom-button"
           >
             {isZoomed ? '\u29C9' : '\u25A1'}
-            {chordArmed && isCurrent && <span className="ml-1 px-1 py-px bg-blue-600 text-white text-[10px] rounded font-mono animate-pulse">Z</span>}
+            {chordArmed &&<span className="ml-1 px-1 py-px bg-blue-600 text-white text-[10px] rounded font-mono animate-pulse">Z</span>}
           </button>
           {session.status === 'completed' && session.claudeSessionId && (
             <button
               onClick={() => sessionsApi.input(session.id, '/continue\n').catch(() => {})}
-              className="px-1.5 py-0.5 text-xs text-blue-400 hover:bg-blue-500/20 rounded"
-              title="Continue with claude -c"
+              className="px-1.5 py-0.5 text-xs text-blue-400 hover:bg-blue-500/20 rounded relative"
+              title="Continue with claude -c (Ctrl+. C)"
             >
               Continue
+              {chordArmed &&<span className="ml-1 px-1 py-px bg-blue-600 text-white text-[10px] rounded font-mono animate-pulse">C</span>}
             </button>
           )}
           <button
             onClick={() => onToggleLock?.(session.id, !session.lock)}
-            className={`px-1.5 py-0.5 text-xs rounded ${
+            className={`px-1.5 py-0.5 text-xs rounded relative ${
               session.lock ? 'text-yellow-400 hover:bg-yellow-500/20' : 'text-gray-500 hover:bg-gray-600'
             }`}
-            title={session.lock ? 'Unpin' : 'Pin'}
+            title={session.lock ? 'Unpin (Ctrl+. P)' : 'Pin (Ctrl+. P)'}
           >
             {session.lock ? 'Unpin' : 'Pin'}
+            {chordArmed &&<span className="ml-1 px-1 py-px bg-blue-600 text-white text-[10px] rounded font-mono animate-pulse">P</span>}
           </button>
           {session.status === 'active' && (
             <button
@@ -1182,11 +1008,190 @@ export function SessionCard({
               data-testid="close-button"
             >
               ×
-              {chordArmed && isCurrent && <span className="ml-1 px-1 py-px bg-blue-600 text-white text-[10px] rounded font-mono animate-pulse">K</span>}
+              {chordArmed &&<span className="ml-1 px-1 py-px bg-blue-600 text-white text-[10px] rounded font-mono animate-pulse">K</span>}
             </button>
           )}
         </div>
       </div>
+      {/* Toolbar bar — Chrome bookmarks style: full-width row, items flow left-to-right */}
+      {showToolbar && (
+        <div className="flex items-center gap-0.5 px-2 py-0.5 border-b border-gray-700 bg-gray-800/30 flex-shrink-0 flex-wrap min-w-0">
+          <button
+            onClick={() => handleTogglePanel('files')}
+            className={`px-1.5 py-0.5 text-xs rounded transition-colors relative ${
+              panel.leftPanel === 'files' || panel.rightPanel === 'files'
+                ? 'bg-blue-500/20 text-blue-400'
+                : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+            }`}
+            title="File Explorer (Ctrl+., E)"
+          >
+            Files
+            {chordArmed &&<span className="ml-1 px-1 py-px bg-blue-600 text-white text-[10px] rounded font-mono animate-pulse">E</span>}
+          </button>
+          <button
+            onClick={() => handleTogglePanel('git')}
+            className={`px-1.5 py-0.5 text-xs rounded transition-colors relative ${
+              panel.leftPanel === 'git' || panel.rightPanel === 'git'
+                ? 'bg-blue-500/20 text-blue-400'
+                : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+            }`}
+            title="Git Changes (Ctrl+., G)"
+          >
+            Git
+            {chordArmed &&<span className="ml-1 px-1 py-px bg-blue-600 text-white text-[10px] rounded font-mono animate-pulse">G</span>}
+          </button>
+          <div className="w-px h-3.5 bg-gray-600 mx-0.5" />
+          <button
+            onClick={() => {
+              if (panel.terminalVisible && !showLeftPanel && !showRightPanel) return;
+              panel.setTerminalVisible(!panel.terminalVisible);
+            }}
+            className={`px-1.5 py-0.5 text-xs rounded transition-colors relative ${
+              panel.terminalVisible
+                ? 'bg-blue-500/20 text-blue-400'
+                : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+            }`}
+            title={panel.terminalVisible ? 'Hide Claude Code' : 'Show Claude Code'}
+          >
+            Claude
+            {chordArmed &&<span className="ml-1 px-1 py-px bg-blue-600 text-white text-[10px] rounded font-mono animate-pulse">\</span>}
+            {!panel.terminalVisible && session.needsInput && (
+              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-amber-400 rounded-full animate-pulse" />
+            )}
+          </button>
+          {panel.terminalVisible && (
+            <button
+              onClick={() => {
+                userOverrideRef.current = true;
+                panel.setTerminalPosition(panel.terminalPosition === 'center' ? 'bottom' : 'center');
+              }}
+              className="px-1 py-0.5 text-xs text-gray-400 hover:bg-gray-700 hover:text-gray-200 rounded relative"
+              title={panel.terminalPosition === 'center' ? 'Move terminal to bottom (Ctrl+. T)' : 'Move terminal to side (Ctrl+. T)'}
+            >
+              {panel.terminalPosition === 'center' ? '\u2B07' : '\u2B06'}
+              {chordArmed &&<span className="ml-1 px-1 py-px bg-blue-600 text-white text-[10px] rounded font-mono animate-pulse">T</span>}
+            </button>
+          )}
+          <button
+            onClick={() => handleTogglePanel('preview')}
+            className={`px-1.5 py-0.5 text-xs rounded transition-colors ${
+              panel.leftPanel === 'preview' || panel.rightPanel === 'preview'
+                ? 'bg-green-500/20 text-green-400'
+                : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+            }`}
+            title="Web Preview (Ctrl+., V)"
+          >
+            Preview
+            {chordArmed &&<span className="ml-1 px-1 py-px bg-blue-600 text-white text-[10px] rounded font-mono animate-pulse">V</span>}
+          </button>
+          <button
+            onClick={() => handleTogglePanel('issues')}
+            className={`px-1.5 py-0.5 text-xs rounded transition-colors ${
+              panel.leftPanel === 'issues' || panel.rightPanel === 'issues'
+                ? 'bg-purple-500/20 text-purple-400'
+                : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+            }`}
+            title="GitHub Issues (Ctrl+., I)"
+          >
+            Issues
+            {chordArmed &&<span className="ml-1 px-1 py-px bg-blue-600 text-white text-[10px] rounded font-mono animate-pulse">I</span>}
+          </button>
+          <button
+            onClick={() => handleTogglePanel('shell')}
+            className={`px-1.5 py-0.5 text-xs rounded transition-colors ${
+              panel.bottomPanel === 'shell'
+                ? 'bg-orange-500/20 text-orange-400'
+                : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+            }`}
+            title="Shell Terminal (Ctrl+., S)"
+          >
+            Shell
+            {chordArmed &&<span className="ml-1 px-1 py-px bg-blue-600 text-white text-[10px] rounded font-mono animate-pulse">S</span>}
+          </button>
+          {/* Active (enabled) extension panel buttons */}
+          {activeExtensions.length > 0 && (
+            <>
+              <div className="w-px h-3.5 bg-gray-600 mx-0.5" />
+              {activeExtensions.map((ext) => (
+                <button
+                  key={ext.panelKey}
+                  onClick={() => handleTogglePanel(ext.panelKey as 'files')}
+                  className={`px-1.5 py-0.5 text-xs rounded transition-colors ${
+                    panel.leftPanel === ext.panelKey || panel.rightPanel === ext.panelKey
+                      ? 'bg-cyan-500/20 text-cyan-400'
+                      : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+                  }`}
+                  title={ext.displayName}
+                >
+                  {ext.displayName}
+                </button>
+              ))}
+            </>
+          )}
+          {/* Extensions picker dropdown */}
+          <div className="w-px h-3.5 bg-gray-600 mx-0.5" />
+          <div className="relative" data-ext-picker>
+            <button
+              onClick={() => { refreshExtensions(); setShowExtPicker((v) => !v); }}
+              className={`px-1.5 py-0.5 text-xs rounded transition-colors ${
+                showExtPicker
+                  ? 'bg-cyan-500/20 text-cyan-400'
+                  : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+              }`}
+              title="Select extensions for this session"
+            >
+              Ext ▾
+            </button>
+            {showExtPicker && (
+              <div className="absolute top-full left-0 mt-1 bg-gray-800 border border-gray-600 rounded-md shadow-lg z-50 min-w-[180px] py-1">
+                {extensionsWithPanel.length === 0 && (
+                  <div className="px-3 py-2 text-xs text-gray-500">No extensions found</div>
+                )}
+                {extensionsWithPanel.map((ext) => (
+                  <label
+                    key={ext.name}
+                    className="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-300 hover:bg-gray-700 cursor-pointer"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={enabledExtensions.includes(ext.name)}
+                      onChange={() => toggleExtension(ext.name)}
+                      className="rounded border-gray-600 text-cyan-500 focus:ring-cyan-500 focus:ring-offset-0"
+                    />
+                    {ext.displayName}
+                  </label>
+                ))}
+                <div className="border-t border-gray-700 mt-1 pt-1">
+                  <button
+                    onClick={() => setShowExtPicker(false)}
+                    className="w-full px-3 py-1 text-xs text-gray-400 hover:text-gray-200 text-left"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="w-px h-3.5 bg-gray-600 mx-0.5" />
+          <button
+            onClick={() => panel.setFontSize(Math.max(panel.fontSize - 2, 8))}
+            className="px-1 py-0.5 text-xs text-gray-400 hover:bg-gray-700 hover:text-gray-200 rounded relative"
+            title="Decrease font size (Ctrl+. -)"
+          >
+            A-
+            {chordArmed &&<span className="ml-1 px-1 py-px bg-blue-600 text-white text-[10px] rounded font-mono animate-pulse">-</span>}
+          </button>
+          <span className="text-xs text-gray-500 w-5 text-center">{panel.fontSize}</span>
+          <button
+            onClick={() => panel.setFontSize(Math.min(panel.fontSize + 2, 28))}
+            className="px-1 py-0.5 text-xs text-gray-400 hover:bg-gray-700 hover:text-gray-200 rounded relative"
+            title="Increase font size (Ctrl+. =)"
+          >
+            A+
+            {chordArmed &&<span className="ml-1 px-1 py-px bg-blue-600 text-white text-[10px] rounded font-mono animate-pulse">=</span>}
+          </button>
+        </div>
+      )}
 
       {/* Main Content — Vertical split: [Top Zone] / [Bottom Zone (terminal)] */}
       <div
@@ -1232,11 +1237,11 @@ export function SessionCard({
             />
           )}
 
-          {/* Terminal — full width when not in IDE mode, center position in IDE mode */}
+          {/* Terminal — full width when no panels, center position when panels open */}
           {(!showToolbar || terminalInTopZone) && (
             <div
               className="flex flex-col min-w-0"
-              style={{ width: showToolbar ? `${effectiveTerminalWidth}%` : '100%' }}
+              style={{ width: (showToolbar && terminalInTopZone) ? `${effectiveTerminalWidth}%` : '100%' }}
             >
               {renderTerminalOrStatus()}
             </div>

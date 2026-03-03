@@ -52,10 +52,13 @@ export function SessionGrid({
 
   const isCollapsed = chordArmed ? false : (chordForcedRef.current ? false : userCollapsed);
 
-  // Auto-compute columns: up to 3 columns, then rows wrap
-  const cols = Math.min(displayedSessions.length, 3);
+  // Filter out completed/failed sessions from main grid
+  const activeSessions = displayedSessions.filter((s) => s.status === 'active');
 
-  if (displayedSessions.length === 0 && overflowSessions.length === 0) {
+  // Auto-compute columns: up to 3 columns, then rows wrap
+  const cols = Math.min(activeSessions.length, 3);
+
+  if (activeSessions.length === 0 && overflowSessions.length === 0) {
     return (
       <div data-testid="session-grid" className="flex-1 flex items-center justify-center text-gray-500">
         <div className="text-center">
@@ -143,22 +146,23 @@ export function SessionGrid({
         className="flex-1 grid gap-3 p-3 auto-rows-fr overflow-auto"
         style={{
           gridTemplateColumns: `repeat(${cols || 1}, 1fr)`,
+          transition: 'grid-template-columns 200ms ease-in-out',
         }}
       >
-        {displayedSessions.map((session) => (
+        {activeSessions.map((session) => (
           <SessionCard
             key={session.id}
             session={session}
             workers={workers}
             focused={true}
             isCurrent={currentSessionId === session.id}
-            isSingleView={displayedSessions.length === 1}
+            isSingleView={activeSessions.length === 1}
             onKill={onKill}
             onToggleLock={onToggleLock}
             onDelete={onDelete}
             onSetCurrent={onSetCurrent}
-            isZoomed={zoomedSessionId === session.id}
-            onToggleZoom={onToggleZoom}
+            isZoomed={zoomedSessionId === session.id || activeSessions.length === 1}
+            onToggleZoom={activeSessions.length === 1 ? undefined : onToggleZoom}
             sessionNumber={sessionNumbers?.[session.id]}
           />
         ))}

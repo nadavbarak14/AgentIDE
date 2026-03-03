@@ -194,9 +194,24 @@ export function useKeyboardShortcuts({ enabled, onAction }: UseKeyboardShortcuts
       }
     };
 
+    // Disarm immediately on any mouse click.
+    // Use both mousedown AND click (capture) as safety nets:
+    // xterm.js registers window-level capture handlers before our hook,
+    // so if xterm stops mousedown propagation, click still fires independently.
+    const handleMouseDown = () => {
+      if (stateRef.current === 'armed') disarm();
+    };
+    const handleClick = () => {
+      if (stateRef.current === 'armed') disarm();
+    };
+
     window.addEventListener('keydown', handleKeyDown, true);
+    window.addEventListener('mousedown', handleMouseDown, true);
+    window.addEventListener('click', handleClick, true);
     return () => {
       window.removeEventListener('keydown', handleKeyDown, true);
+      window.removeEventListener('mousedown', handleMouseDown, true);
+      window.removeEventListener('click', handleClick, true);
       clearArmTimeout();
     };
   }, [enabled, arm, disarm, rearm, clearArmTimeout]);
