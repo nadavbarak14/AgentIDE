@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { TerminalView } from './TerminalView';
+import { ScrollbackTerminal } from './ScrollbackTerminal';
 import { ShellTerminal } from './ShellTerminal';
 import { FileTree } from './FileTree';
 import { FileViewer } from './FileViewer';
@@ -37,6 +38,7 @@ const STATUS_COLORS: Record<string, string> = {
   active: 'bg-green-500',
   completed: 'bg-blue-500',
   failed: 'bg-red-500',
+  crashed: 'bg-amber-500',
 };
 
 export function SessionCard({
@@ -923,6 +925,9 @@ export function SessionCard({
         </div>
       );
     }
+    if (session.status === 'crashed') {
+      return <ScrollbackTerminal sessionId={session.id} fontSize={panel.fontSize} />;
+    }
     return (
       <div className="flex items-center justify-center h-full text-gray-500">
         <div className="text-center">
@@ -999,6 +1004,16 @@ export function SessionCard({
             >
               ×
               {chordArmed &&<span className="ml-1 px-1 py-px bg-blue-600 text-white text-[10px] rounded font-mono animate-pulse">K</span>}
+            </button>
+          )}
+          {session.status === 'crashed' && (
+            <button
+              onClick={() => onDelete?.(session.id)}
+              className="px-1.5 py-0.5 text-xs text-amber-400 hover:bg-amber-500/20 hover:text-amber-300 rounded"
+              title="Dismiss crashed session"
+              data-testid="dismiss-button"
+            >
+              Dismiss
             </button>
           )}
         </div>

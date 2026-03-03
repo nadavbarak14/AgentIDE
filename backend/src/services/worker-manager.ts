@@ -166,6 +166,16 @@ export class WorkerManager extends EventEmitter {
         };
       }
 
+      // Check if tmux is installed (required for crash recovery)
+      try {
+        const tmuxOutput = await this.tunnelManager.exec(worker.id, 'bash -l -c "tmux -V 2>&1"');
+        if (tmuxOutput.includes('command not found') || tmuxOutput.includes('not found')) {
+          logger.warn({ workerId: worker.id }, 'tmux not installed on remote worker — session crash recovery will not work');
+        }
+      } catch {
+        logger.warn({ workerId: worker.id }, 'tmux not installed on remote worker — session crash recovery will not work');
+      }
+
       logger.info({ workerId: worker.id, latency_ms: latency, claudeVersion }, 'worker health check passed');
       return { ok: true, latency_ms: latency, claudeAvailable: true, claudeVersion };
     } catch (err) {

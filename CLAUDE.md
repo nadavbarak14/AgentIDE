@@ -48,6 +48,10 @@ Auto-generated from all feature plans. Last updated: 2026-02-17
 - N/A — no schema changes (014-remote-preview-proxy)
 - TypeScript 5.7, Node.js 20 LTS + `@playwright/test` (new dev dependency), existing release test helpers (019-e2e-release-tests)
 - N/A — tests use ephemeral temp directories with SQLite (via the real server) (019-e2e-release-tests)
+- TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, better-sqlite3, ws 8, Tailwind CSS 3, Vite 6 (021-remove-completed-sessions)
+- SQLite (better-sqlite3) with WAL mode — existing `sessions` table, no schema changes (021-remove-completed-sessions)
+- TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, better-sqlite3, node-pty, ws 8, ssh2, Tailwind CSS 3, Vite 6 (023-session-persistence)
+- SQLite (better-sqlite3) with WAL mode — existing `sessions` table (add `crash_recovered_at` column), existing `settings` table (add `hub_status` key) (023-session-persistence)
 
 - TypeScript 5.x, Node.js 20 LTS + React 18, Tailwind CSS 3, xterm.js 5, Monaco Editor, Express, node-pty, ssh2, chokidar, diff2html, ws (001-c3-dashboard)
 
@@ -67,9 +71,9 @@ npm test && npm run lint
 TypeScript 5.x, Node.js 20 LTS: Follow standard conventions
 
 ## Recent Changes
-- 019-e2e-release-tests: Added TypeScript 5.7, Node.js 20 LTS + `@playwright/test` (new dev dependency), existing release test helpers
-- 018-adyx-branding: Added TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, Vite 6, Tailwind CSS 3
-- 017-readme-npm-publish: Added TypeScript 5.7, Node.js 20 LTS + Express 4, commander (CLI), better-sqlite3, node-pty, ws 8, React 18, Vite 6, Tailwind CSS 3
+- 023-session-persistence: Added TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, better-sqlite3, node-pty, ws 8, ssh2, Tailwind CSS 3, Vite 6
+- 021-remove-completed-sessions: Added TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, better-sqlite3, ws 8, Tailwind CSS 3, Vite 6
+- 021-remove-completed-sessions: Added TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, better-sqlite3, ws 8, Tailwind CSS 3, Vite 6
 
 
 <!-- MANUAL ADDITIONS START -->

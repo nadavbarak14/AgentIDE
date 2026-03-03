@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   claude_session_id TEXT,
   worker_id TEXT REFERENCES workers(id),
   status TEXT NOT NULL DEFAULT 'active'
-    CHECK(status IN ('active', 'completed', 'failed')),
+    CHECK(status IN ('active', 'completed', 'failed', 'crashed')),
   working_directory TEXT NOT NULL,
   title TEXT NOT NULL DEFAULT '',
   position INTEGER,
@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   lock INTEGER NOT NULL DEFAULT 0,
   continuation_count INTEGER NOT NULL DEFAULT 0,
   terminal_scrollback TEXT,
+  crash_recovered_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   started_at TEXT,
   completed_at TEXT,
@@ -56,7 +57,8 @@ CREATE TABLE IF NOT EXISTS settings (
   grid_layout TEXT NOT NULL DEFAULT 'auto'
     CHECK(grid_layout IN ('auto', '1x1', '2x2', '3x3')),
   theme TEXT NOT NULL DEFAULT 'dark'
-    CHECK(theme IN ('dark', 'light'))
+    CHECK(theme IN ('dark', 'light')),
+  hub_status TEXT NOT NULL DEFAULT 'stopped'
 );
 
 CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
@@ -284,6 +286,51 @@ function migrate(database: Database.Database): void {
 
   // Migrate any leftover queued sessions to failed (queue feature removed)
   database.exec("UPDATE sessions SET status = 'failed' WHERE status = 'queued'");
+
+  // Add crash_recovered_at column and update sessions CHECK constraint to include 'crashed'
+  if (!sessionColNames.has('crash_recovered_at')) {
+    database.pragma('foreign_keys = OFF');
+    database.exec(`
+      CREATE TABLE sessions_v2 (
+        id TEXT PRIMARY KEY,
+        claude_session_id TEXT,
+        worker_id TEXT REFERENCES workers(id),
+        status TEXT NOT NULL DEFAULT 'active'
+          CHECK(status IN ('active', 'completed', 'failed', 'crashed')),
+        working_directory TEXT NOT NULL,
+        title TEXT NOT NULL DEFAULT '',
+        position INTEGER,
+        pid INTEGER,
+        needs_input INTEGER NOT NULL DEFAULT 0,
+        lock INTEGER NOT NULL DEFAULT 0,
+        continuation_count INTEGER NOT NULL DEFAULT 0,
+        worktree INTEGER NOT NULL DEFAULT 0,
+        terminal_scrollback TEXT,
+        crash_recovered_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        started_at TEXT,
+        completed_at TEXT,
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      INSERT INTO sessions_v2 SELECT id, claude_session_id, worker_id, status, working_directory,
+        title, position, pid, needs_input, lock, continuation_count, worktree, terminal_scrollback,
+        NULL, created_at, started_at, completed_at, updated_at FROM sessions;
+      DROP TABLE sessions;
+      ALTER TABLE sessions_v2 RENAME TO sessions;
+      CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
+      CREATE INDEX IF NOT EXISTS idx_sessions_worker ON sessions(worker_id);
+      CREATE INDEX IF NOT EXISTS idx_sessions_position ON sessions(position);
+      CREATE INDEX IF NOT EXISTS idx_sessions_needs_input ON sessions(needs_input);
+    `);
+    database.pragma('foreign_keys = ON');
+  }
+
+  // Add hub_status column to settings table
+  const settingsCols = database.pragma('table_info(settings)') as Array<{ name: string }>;
+  const settingsColNames = new Set(settingsCols.map((c) => c.name));
+  if (!settingsColNames.has('hub_status')) {
+    database.exec("ALTER TABLE settings ADD COLUMN hub_status TEXT NOT NULL DEFAULT 'stopped'");
+  }
 
   // Add remote_agent_port column to workers table
   const workerCols = database.pragma('table_info(workers)') as Array<{ name: string }>;

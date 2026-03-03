@@ -487,20 +487,82 @@ export class SessionManager extends EventEmitter {
   }
 
   /**
-   * Resume sessions that were active before a restart.
+   * Attempt to recover crashed remote sessions by reattaching to tmux.
+   * Returns the number of successfully recovered sessions.
    */
-  resumeSessions(_ptySpawner: PtySpawner): void {
+  async recoverCrashedRemoteSessions(): Promise<number> {
+    if (!this._remotePtyBridge) return 0;
+
+    const crashedSessions = this.repo.listSessions('crashed');
+    const remoteCrashed = crashedSessions.filter(s => {
+      if (!s.workerId) return false;
+      const worker = this.repo.getWorker(s.workerId);
+      return worker?.type === 'remote';
+    });
+
+    if (remoteCrashed.length === 0) return 0;
+
+    logger.info({ count: remoteCrashed.length }, 'attempting recovery of crashed remote sessions');
+    let recoveredCount = 0;
+
+    for (const session of remoteCrashed) {
+      const log = createSessionLogger(session.id);
+
+      // Broadcast recovery attempt to connected clients
+      this.emit('session_recovering', session.id, session.workerId);
+
+      try {
+        const ptyProc = await this._remotePtyBridge.reattachSession(session.id, session.workerId!);
+
+        if (ptyProc) {
+          // Successfully reattached
+          this.activePtys.set(session.id, ptyProc);
+          this.remoteSessions.add(session.id);
+          this.repo.activateSession(session.id, 0);
+          this.repo.setCrashRecoveredAt(session.id);
+          this.emit('session_activated', this.repo.getSession(session.id));
+          log.info('successfully reattached to remote tmux session');
+          recoveredCount++;
+        } else {
+          // tmux session is dead — leave as crashed
+          this.repo.setCrashRecoveredAt(session.id);
+          log.info('remote tmux session is dead, leaving as crashed');
+        }
+      } catch (err) {
+        // Worker unreachable or other error — leave as crashed
+        log.warn({ err }, 'failed to recover remote session');
+        this.repo.setCrashRecoveredAt(session.id);
+      }
+    }
+
+    logger.info({ recovered: recoveredCount, total: remoteCrashed.length }, 'remote session recovery complete');
+    return recoveredCount;
+  }
+
+  /**
+   * Resume sessions that were active before a restart.
+   * When wasCrash is true, sessions are marked as 'crashed' (preserved for review).
+   * When wasCrash is false (clean shutdown), sessions are marked as 'completed' + auto-deleted.
+   */
+  resumeSessions(_ptySpawner: PtySpawner, wasCrash: boolean = false): void {
     const activeSessions = this.repo.listSessions('active');
     if (activeSessions.length === 0) return;
 
-    logger.info({ count: activeSessions.length }, 'checking active sessions for resume');
+    if (wasCrash) {
+      // Crash detected — mark all active sessions as crashed (preserve for review)
+      const crashedCount = this.repo.markSessionsCrashed();
+      logger.warn({ count: crashedCount }, 'crash detected: marked active sessions as crashed');
+    } else {
+      // Clean shutdown — mark completed and auto-delete (existing behavior)
+      logger.info({ count: activeSessions.length }, 'checking active sessions for resume');
 
-    for (const session of activeSessions) {
-      this.repo.completeSession(session.id, session.claudeSessionId);
-      logger.info(
-        { sessionId: session.id, title: session.title, dir: session.workingDirectory, hadClaudeSessionId: !!session.claudeSessionId },
-        'marked detached session as completed for restart',
-      );
+      for (const session of activeSessions) {
+        this.repo.completeSession(session.id, session.claudeSessionId);
+        logger.info(
+          { sessionId: session.id, title: session.title, dir: session.workingDirectory, hadClaudeSessionId: !!session.claudeSessionId },
+          'marked detached session as completed for restart',
+        );
+      }
     }
   }
 

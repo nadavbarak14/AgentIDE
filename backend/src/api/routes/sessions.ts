@@ -18,7 +18,7 @@ export function createSessionsRouter(repo: Repository, sessionManager: SessionMa
   // GET /api/sessions — list all sessions
   router.get('/', (req, res) => {
     const status = req.query.status as SessionStatus | undefined;
-    if (status && !['active', 'completed', 'failed'].includes(status)) {
+    if (status && !['active', 'completed', 'failed', 'crashed'].includes(status)) {
       res.status(400).json({ error: 'Invalid status filter' });
       return;
     }
@@ -145,6 +145,36 @@ export function createSessionsRouter(repo: Repository, sessionManager: SessionMa
     }
 
     res.status(201).json(session);
+  });
+
+  // GET /api/sessions/:id/scrollback — retrieve preserved scrollback for crashed sessions
+  router.get('/:id/scrollback', validateUuid('id'), (req, res) => {
+    const id = String(req.params.id);
+    const session = repo.getSession(id);
+    if (!session) {
+      res.status(404).json({ error: 'Session not found' });
+      return;
+    }
+
+    // Try loading scrollback from the PTY spawner or remote bridge
+    const scrollbackPath = session.terminalScrollback;
+    if (!scrollbackPath) {
+      res.status(404).json({ error: 'No scrollback available for this session' });
+      return;
+    }
+
+    try {
+      const content = fs.readFileSync(scrollbackPath, 'utf-8');
+      const maxSize = 1024 * 1024; // 1 MB limit
+      const truncated = content.length > maxSize;
+      res.json({
+        sessionId: id,
+        scrollback: truncated ? content.slice(-maxSize) : content,
+        truncated,
+      });
+    } catch {
+      res.status(404).json({ error: 'No scrollback available for this session' });
+    }
   });
 
   // PATCH /api/sessions/:id — update session (reorder, title, lock)
