@@ -97,18 +97,95 @@ export class RemotePtyBridge extends EventEmitter {
     // Start the idle poller
     this.ensureIdlePoller();
 
-    // Build the claude command to send to the remote shell
-    // Source shell profile to load PATH where claude is installed
+    // Build the claude command wrapped in tmux for crash resilience
+    // tmux keeps the process alive even if the SSH connection drops
+    const tmuxName = getTmuxSessionName(sessionId);
     const claudeArgs = ['claude', '--settings', `/tmp/.c3-hooks-${REVERSE_TUNNEL_PORT}/settings.json`];
     claudeArgs.push(...args);
     const envVars = `C3_SESSION_ID=${escapeShellArg(sessionId)} C3_HUB_PORT=${REVERSE_TUNNEL_PORT}`;
-    const cmd = `source ~/.bashrc 2>/dev/null; source ~/.bash_profile 2>/dev/null; cd ${escapeShellArg(workingDirectory)} && ${envVars} ${claudeArgs.join(' ')}\n`;
+    const claudeCmd = `cd ${escapeShellArg(workingDirectory)} && ${envVars} ${claudeArgs.join(' ')}`;
+    const cmd = `source ~/.bashrc 2>/dev/null; source ~/.bash_profile 2>/dev/null; tmux new-session -d -s ${escapeShellArg(tmuxName)} ${escapeShellArg(claudeCmd)} && tmux attach -t ${escapeShellArg(tmuxName)}\n`;
 
-    log.info({ cmd: cmd.trim() }, 'sending claude command to remote shell');
+    log.info({ cmd: cmd.trim(), tmuxSession: tmuxName }, 'sending tmux-wrapped claude command to remote shell');
     stream.write(cmd);
 
     return {
       pid: 0, // Remote processes don't have a local PID
+      sessionId,
+      write: (data: string) => this.write(sessionId, data),
+      resize: (cols: number, rows: number) => this.resize(sessionId, cols, rows),
+      kill: () => this.kill(sessionId),
+    };
+  }
+
+  /**
+   * Attempt to reattach to a tmux session that survived a hub crash.
+   * Returns the PtyProcess if successful, null if tmux session is dead.
+   */
+  async reattachSession(sessionId: string, workerId: string): Promise<PtyProcess | null> {
+    const log = createSessionLogger(sessionId);
+    const tmuxName = getTmuxSessionName(sessionId);
+
+    // Check if tmux session is still alive
+    try {
+      const checkCmd = `tmux has-session -t ${escapeShellArg(tmuxName)} 2>/dev/null && echo 'ALIVE' || echo 'DEAD'`;
+      const result = await this.tunnelManager.exec(workerId, checkCmd);
+      const status = result.trim();
+
+      if (status !== 'ALIVE') {
+        log.info({ tmuxSession: tmuxName }, 'tmux session is dead, cannot reattach');
+        return null;
+      }
+    } catch (err) {
+      log.warn({ err, tmuxSession: tmuxName }, 'failed to check tmux session status');
+      return null;
+    }
+
+    // tmux session is alive — open new SSH shell and attach
+    log.info({ tmuxSession: tmuxName, workerId }, 'reattaching to surviving tmux session');
+
+    const stream = await this.tunnelManager.shell(workerId, { cols: 120, rows: 40 });
+    this.channels.set(sessionId, stream);
+    this.outputBuffers.set(sessionId, '');
+    this.lastOutputTime.set(sessionId, Date.now());
+
+    // Handle output from remote shell
+    stream.on('data', (data: Buffer) => {
+      const str = data.toString();
+      this.lastOutputTime.set(sessionId, Date.now());
+      const buf = (this.outputBuffers.get(sessionId) || '') + str;
+      this.outputBuffers.set(sessionId, buf.slice(-4096));
+      this.emit('data', sessionId, str);
+      this.scheduleScrollbackWrite(sessionId, str);
+      this.idleNotified.set(sessionId, false);
+    });
+
+    stream.stderr.on('data', (data: Buffer) => {
+      this.emit('data', sessionId, data.toString());
+    });
+
+    stream.on('close', () => {
+      log.info('reattached remote shell stream closed');
+      this.cleanup(sessionId);
+      this.emit('exit', sessionId, 0, null);
+    });
+
+    stream.on('error', (err: Error) => {
+      log.error({ err: err.message }, 'reattached remote shell stream error');
+      this.cleanup(sessionId);
+      this.emit('exit', sessionId, 1, null);
+    });
+
+    this.ensureIdlePoller();
+
+    // Attach to the existing tmux session
+    const attachCmd = `tmux attach -t ${escapeShellArg(tmuxName)}\n`;
+    stream.write(attachCmd);
+
+    log.info({ tmuxSession: tmuxName }, 'successfully reattached to tmux session');
+
+    return {
+      pid: 0,
       sessionId,
       write: (data: string) => this.write(sessionId, data),
       resize: (cols: number, rows: number) => this.resize(sessionId, cols, rows),
@@ -134,12 +211,16 @@ export class RemotePtyBridge extends EventEmitter {
   kill(sessionId: string): void {
     const log = createSessionLogger(sessionId);
     const stream = this.channels.get(sessionId);
+    const tmuxName = getTmuxSessionName(sessionId);
+
     if (stream) {
-      log.info('killing remote session');
+      log.info({ tmuxSession: tmuxName }, 'killing remote session and tmux session');
       // Send Ctrl+C then exit to terminate the remote process
       stream.write('\x03');
       setTimeout(() => {
         try {
+          // Kill the tmux session to clean up, then exit the SSH shell
+          stream.write(`tmux kill-session -t ${escapeShellArg(tmuxName)} 2>/dev/null\n`);
           stream.write('exit\n');
           stream.close();
         } catch {
@@ -255,4 +336,8 @@ export class RemotePtyBridge extends EventEmitter {
 
 function escapeShellArg(arg: string): string {
   return `'${arg.replace(/'/g, "'\\''")}'`;
+}
+
+function getTmuxSessionName(sessionId: string): string {
+  return `c3-${sessionId.substring(0, 8)}`;
 }

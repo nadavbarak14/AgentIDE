@@ -84,6 +84,16 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
   const db = initDb();
   const repo = new Repository(db);
 
+  // Crash detection: check if previous hub exit was a crash
+  const previousHubStatus = repo.getHubStatus();
+  const wasCrash = previousHubStatus === 'running';
+  if (wasCrash) {
+    logger.warn('crash detected: hub_status was "running" from previous session');
+  }
+
+  // Set hub_status to 'running' before processing sessions
+  repo.setHubStatus('running');
+
   // Register local worker if none exists
   const localWorker = repo.getLocalWorker();
   if (!localWorker) {
@@ -250,10 +260,36 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
     fileWatcher.stopWatching(sessionId);
   });
 
+  sessionManager.on('session_recovering', (sessionId: string, workerId: string) => {
+    broadcastToSession(sessionId, {
+      type: 'session_recovering',
+      sessionId,
+      workerId,
+      message: 'Reconnecting to remote session...',
+    });
+  });
+
+  // Resume sessions that were active before restart
+  // This must happen BEFORE worker reconnection so crashed sessions are marked first
+  sessionManager.resumeSessions(ptySpawner, wasCrash);
+
   // Reconnect existing remote workers on startup (fire and forget)
   // After connecting, re-register any active sessions with the remote agent
+  // If crash was detected, also attempt to recover crashed remote sessions
   for (const worker of repo.listWorkers().filter((w) => w.type === 'remote')) {
-    workerManager.connectWorker(worker).then(() => {
+    workerManager.connectWorker(worker).then(async () => {
+      // After worker reconnects, attempt recovery of crashed remote sessions
+      if (wasCrash) {
+        try {
+          const recovered = await sessionManager.recoverCrashedRemoteSessions();
+          if (recovered > 0) {
+            logger.info({ workerId: worker.id, recovered }, 'recovered crashed remote sessions after worker reconnect');
+          }
+        } catch (err) {
+          logger.warn({ workerId: worker.id, err: (err as Error).message }, 'failed to recover crashed remote sessions');
+        }
+      }
+
       if (!worker.remoteAgentPort) return;
       // Re-register all active sessions for this worker with the remote agent
       const activeSessions = repo.listSessions().filter(
@@ -267,9 +303,6 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
       logger.warn({ workerId: worker.id, host: worker.sshHost, err: err.message }, 'failed to reconnect worker on startup');
     });
   }
-
-  // Resume sessions that were active before restart
-  sessionManager.resumeSessions(ptySpawner);
 
   // Clean up stale completed/failed sessions from before this server start
   const cleanedUp = repo.deleteNonActiveSessions();
@@ -844,6 +877,8 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
   // Graceful shutdown
   const shutdown = () => {
     logger.info('shutting down...');
+    // Set hub_status to 'stopped' FIRST — crash detection relies on this flag
+    repo.setHubStatus('stopped');
     for (const [, ws] of agentWsConnections) {
       ws.close();
     }

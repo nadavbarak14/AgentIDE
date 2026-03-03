@@ -15,7 +15,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 // Session types (mirrors backend)
-export type SessionStatus = 'active' | 'completed' | 'failed';
+export type SessionStatus = 'active' | 'completed' | 'failed' | 'crashed';
 
 export interface Session {
   id: string;
@@ -107,6 +107,9 @@ export const sessions = {
 
   kill: (id: string) =>
     request<{ ok: boolean }>(`/sessions/${id}/kill`, { method: 'POST' }),
+
+  scrollback: (id: string) =>
+    request<{ sessionId: string; scrollback: string; truncated: boolean }>(`/sessions/${id}/scrollback`),
 
   input: (id: string, text: string) =>
     request<{ ok: boolean }>(`/sessions/${id}/input`, {

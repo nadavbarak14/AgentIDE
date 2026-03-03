@@ -52,8 +52,8 @@ export function SessionGrid({
 
   const isCollapsed = chordArmed ? false : (chordForcedRef.current ? false : userCollapsed);
 
-  // Filter out completed/failed sessions from main grid
-  const activeSessions = displayedSessions.filter((s) => s.status === 'active');
+  // Filter to active and crashed sessions for main grid
+  const activeSessions = displayedSessions.filter((s) => s.status === 'active' || s.status === 'crashed');
 
   // Auto-compute columns: up to 3 columns, then rows wrap
   const cols = Math.min(activeSessions.length, 3);
@@ -122,7 +122,7 @@ export function SessionGrid({
                         )}
                         <span
                           className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                            session.status === 'active' ? 'bg-green-500' : 'bg-gray-500'
+                            session.status === 'active' ? 'bg-green-500' : session.status === 'crashed' ? 'bg-amber-500' : 'bg-gray-500'
                           }`}
                         />
                         <span className="text-xs truncate">{session.title || 'Untitled'}</span>

@@ -51,12 +51,16 @@ export function useSessionQueue(pollInterval = 1000) {
     setSessions((prev) => prev.map((s) => (s.id === id ? updated : s)));
   }, []);
 
+  // Alias for dismissing crashed sessions (same as delete)
+  const dismissSession = deleteSession;
+
   return {
     sessions,
     loading,
     error,
     createSession,
     deleteSession,
+    dismissSession,
     killSession,
     toggleLock,
     refresh: fetchSessions,

@@ -241,8 +241,9 @@ export class Repository {
     sql += ` ORDER BY
       CASE status
         WHEN 'active' THEN 0
-        WHEN 'completed' THEN 1
-        WHEN 'failed' THEN 2
+        WHEN 'crashed' THEN 1
+        WHEN 'completed' THEN 2
+        WHEN 'failed' THEN 3
       END,
       updated_at DESC`;
     const rows = this.db.prepare(sql).all(...params) as Record<string, unknown>[];
@@ -342,15 +343,16 @@ export class Repository {
 
   deleteNonActiveSessions(): number {
     // Get IDs of sessions to delete (for panel_states cascade)
+    // Exclude 'crashed' sessions — they should be preserved for user review
     const rows = this.db
-      .prepare("SELECT id FROM sessions WHERE status != 'active'")
+      .prepare("SELECT id FROM sessions WHERE status NOT IN ('active', 'crashed')")
       .all() as { id: string }[];
 
     if (rows.length === 0) return 0;
 
     // Delete the sessions
     const result = this.db
-      .prepare("DELETE FROM sessions WHERE status != 'active'")
+      .prepare("DELETE FROM sessions WHERE status NOT IN ('active', 'crashed')")
       .run();
 
     // Manually cascade: remove panel_states for deleted sessions
@@ -367,6 +369,47 @@ export class Repository {
     this.db
       .prepare("UPDATE sessions SET terminal_scrollback = ?, updated_at = datetime('now') WHERE id = ?")
       .run(scrollbackPath, id);
+  }
+
+  markSessionsCrashed(): number {
+    const result = this.db
+      .prepare(
+        `UPDATE sessions SET status = 'crashed', pid = NULL,
+         updated_at = datetime('now')
+         WHERE status = 'active'`,
+      )
+      .run();
+    return result.changes;
+  }
+
+  crashSession(id: string): Session | null {
+    this.db
+      .prepare(
+        `UPDATE sessions SET status = 'crashed', pid = NULL,
+         updated_at = datetime('now')
+         WHERE id = ?`,
+      )
+      .run(id);
+    return this.getSession(id);
+  }
+
+  setCrashRecoveredAt(id: string): void {
+    this.db
+      .prepare("UPDATE sessions SET crash_recovered_at = datetime('now'), updated_at = datetime('now') WHERE id = ?")
+      .run(id);
+  }
+
+  // ─── Hub Status ───
+
+  getHubStatus(): string {
+    const row = this.db
+      .prepare('SELECT hub_status FROM settings WHERE id = 1')
+      .get() as { hub_status: string } | undefined;
+    return row?.hub_status || 'stopped';
+  }
+
+  setHubStatus(status: string): void {
+    this.db.prepare('UPDATE settings SET hub_status = ? WHERE id = 1').run(status);
   }
 
   // ─── Workers ───

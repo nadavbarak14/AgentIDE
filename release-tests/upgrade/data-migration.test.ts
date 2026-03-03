@@ -51,7 +51,7 @@ describe('Upgrade: Data migration from v0.1.0', { timeout: 120_000 }, () => {
     // The active session may also fail if claude CLI is unavailable (CI).
     // The key assertion is that the sessions API works after migration.
     for (const s of sessions) {
-      expect(['queued', 'active', 'completed', 'failed']).toContain(s.status);
+      expect(['queued', 'active', 'completed', 'failed', 'crashed']).toContain(s.status);
     }
   });
 

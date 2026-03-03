@@ -1,5 +1,5 @@
 // Session status
-export type SessionStatus = 'active' | 'completed' | 'failed';
+export type SessionStatus = 'active' | 'completed' | 'failed' | 'crashed';
 
 export interface Session {
   id: string;
