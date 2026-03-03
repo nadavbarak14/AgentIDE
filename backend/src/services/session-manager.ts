@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import fs from 'node:fs';
 import type { Repository } from '../models/repository.js';
 import type { Session, CreateSessionInput, ShellInfo } from '../models/types.js';
 import type { PtySpawner, PtyProcess } from '../worker/pty-spawner.js';
@@ -168,6 +169,9 @@ export class SessionManager extends EventEmitter {
     const ptyProc = this.activePtys.get(sessionId);
     if (!ptyProc) return false;
 
+    // Clear continue tracking so the exit handler doesn't retry
+    this.continueSessions.delete(sessionId);
+
     // Kill shell terminal if running
     if (this._shellSpawner?.hasShell(sessionId)) {
       log.info('killing shell terminal for session');
@@ -334,6 +338,9 @@ export class SessionManager extends EventEmitter {
         log.info({ claudeSessionId }, 'session completed');
         this.repo.completeSession(sessionId, claudeSessionId);
         this.emit('session_completed', sessionId, claudeSessionId);
+        // Auto-delete: session no longer needed after completion
+        this.repo.deleteSession(sessionId);
+        this.cleanupScrollback(sessionId, log);
       } else {
         // If this was a --continue session that failed quickly, retry without --continue
         const continueStartTime = this.continueSessions.get(sessionId);
@@ -356,6 +363,9 @@ export class SessionManager extends EventEmitter {
         log.warn({ exitCode }, 'session failed');
         this.repo.failSession(sessionId);
         this.emit('session_failed', sessionId);
+        // Auto-delete: session no longer needed after failure
+        this.repo.deleteSession(sessionId);
+        this.cleanupScrollback(sessionId, log);
       }
     });
 
@@ -439,10 +449,16 @@ export class SessionManager extends EventEmitter {
         log.info({ claudeSessionId }, 'remote session completed');
         this.repo.completeSession(sessionId, claudeSessionId);
         this.emit('session_completed', sessionId, claudeSessionId);
+        // Auto-delete: session no longer needed after completion
+        this.repo.deleteSession(sessionId);
+        this.cleanupScrollback(sessionId, log);
       } else {
         log.warn({ exitCode }, 'remote session failed');
         this.repo.failSession(sessionId);
         this.emit('session_failed', sessionId);
+        // Auto-delete: session no longer needed after failure
+        this.repo.deleteSession(sessionId);
+        this.cleanupScrollback(sessionId, log);
       }
     });
 
@@ -485,6 +501,24 @@ export class SessionManager extends EventEmitter {
         { sessionId: session.id, title: session.title, dir: session.workingDirectory, hadClaudeSessionId: !!session.claudeSessionId },
         'marked detached session as completed for restart',
       );
+    }
+  }
+
+  /**
+   * Clean up scrollback files for a session after deletion.
+   * Wrapped in try/catch so failures don't block session removal.
+   */
+  private cleanupScrollback(sessionId: string, log: ReturnType<typeof createSessionLogger>): void {
+    try {
+      this._shellSpawner?.deleteScrollback(sessionId);
+    } catch (err) {
+      log.warn({ err }, 'failed to delete shell scrollback');
+    }
+    try {
+      const scrollbackPath = this.ptySpawner.getScrollbackPath(sessionId);
+      fs.unlinkSync(scrollbackPath);
+    } catch {
+      // File doesn't exist or already cleaned up — fine
     }
   }
 

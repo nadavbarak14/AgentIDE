@@ -980,16 +980,6 @@ export function SessionCard({
             {isZoomed ? '\u29C9' : '\u25A1'}
             {chordArmed &&<span className="ml-1 px-1 py-px bg-blue-600 text-white text-[10px] rounded font-mono animate-pulse">Z</span>}
           </button>
-          {session.status === 'completed' && session.claudeSessionId && (
-            <button
-              onClick={() => sessionsApi.input(session.id, '/continue\n').catch(() => {})}
-              className="px-1.5 py-0.5 text-xs text-blue-400 hover:bg-blue-500/20 rounded relative"
-              title="Continue with claude -c (Ctrl+. C)"
-            >
-              Continue
-              {chordArmed &&<span className="ml-1 px-1 py-px bg-blue-600 text-white text-[10px] rounded font-mono animate-pulse">C</span>}
-            </button>
-          )}
           <button
             onClick={() => onToggleLock?.(session.id, !session.lock)}
             className={`px-1.5 py-0.5 text-xs rounded relative ${

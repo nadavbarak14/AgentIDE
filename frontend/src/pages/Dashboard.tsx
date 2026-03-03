@@ -23,7 +23,6 @@ export function Dashboard() {
   const {
     activeSessions,
     focusSessions,
-    completedSessions,
     activeCount,
   } = useSession(sessions);
 
@@ -868,12 +867,9 @@ export function Dashboard() {
       <div className={`transition-all duration-200 flex-shrink-0 ${sidebarOpen ? 'w-80' : 'w-0 overflow-hidden'}`}>
         <SessionQueue
           activeSessions={activeSessions}
-          completedSessions={completedSessions}
-          failedSessions={[]}
           workers={workersList}
           onRequestAddMachine={() => setAddMachineTrigger((n) => n + 1)}
           onCreateSession={createSession}
-          onDeleteSession={deleteSession}
           onFocusSession={handleFocusSession}
           onKillSession={(id) => killSession(id).catch(() => {})}
         />
