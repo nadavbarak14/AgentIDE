@@ -384,6 +384,9 @@ export function Dashboard() {
     [activeDisplayedIds, sessions],
   );
 
+  const displayedSessionsRef = useRef(displayedSessions);
+  displayedSessionsRef.current = displayedSessions;
+
   const overflowSessions = useMemo(
     () => activeSessions
       .filter((s) => !activeDisplayedIds.includes(s.id))
@@ -515,6 +518,31 @@ export function Dashboard() {
         const prevId = allActive2[prevIdx].id;
         console.log('[focus_prev] curId:', curId, '| curIdx:', curIdx2, '| prevIdx:', prevIdx, '| prevId:', prevId, '| displayed:', displayed);
         handleFocusSession(prevId);
+        break;
+      }
+      // Arrow Down/Up: move focus vertically in the session grid
+      case 'focus_down': {
+        const gridSessions = displayedSessionsRef.current;
+        if (gridSessions.length <= 1) return;
+        const cols = Math.min(gridSessions.length, 3);
+        const curIdx = gridSessions.findIndex((s) => s.id === curId);
+        if (curIdx === -1) return;
+        const targetIdx = curIdx + cols;
+        if (targetIdx >= gridSessions.length) return; // no row below
+        console.log('[focus_down] curId:', curId, '| curIdx:', curIdx, '| targetIdx:', targetIdx, '| cols:', cols);
+        handleFocusSession(gridSessions[targetIdx].id);
+        break;
+      }
+      case 'focus_up': {
+        const gridSessions2 = displayedSessionsRef.current;
+        if (gridSessions2.length <= 1) return;
+        const cols2 = Math.min(gridSessions2.length, 3);
+        const curIdx2 = gridSessions2.findIndex((s) => s.id === curId);
+        if (curIdx2 === -1) return;
+        const targetIdx2 = curIdx2 - cols2;
+        if (targetIdx2 < 0) return; // no row above
+        console.log('[focus_up] curId:', curId, '| curIdx:', curIdx2, '| targetIdx:', targetIdx2, '| cols:', cols2);
+        handleFocusSession(gridSessions2[targetIdx2].id);
         break;
       }
       // Tab: open session switcher for all sessions (including overflow), sorted by queue priority
@@ -666,6 +694,8 @@ export function Dashboard() {
       case 'search_files':
       case 'focus_next':
       case 'focus_prev':
+      case 'focus_down':
+      case 'focus_up':
       case 'switch_next':
       case 'switch_prev':
       case 'confirm_session':

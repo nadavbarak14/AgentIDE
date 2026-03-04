@@ -165,6 +165,147 @@ describe('focus_next / focus_prev session cycling', () => {
   });
 });
 
+// ── Grid Navigation (focus_down / focus_up) ──────────────────────────────────
+
+/**
+ * Extracted grid navigation algorithm from handleShortcutAction (focus_down / focus_up).
+ * Returns the target session id, or null if at grid boundary.
+ */
+function getGridTarget(
+  direction: 'down' | 'up',
+  gridSessions: Session[],
+  curId: string | null,
+): string | null {
+  if (gridSessions.length <= 1) return null;
+  const cols = Math.min(gridSessions.length, 3);
+  const curIdx = gridSessions.findIndex((s) => s.id === curId);
+  if (curIdx === -1) return null;
+
+  if (direction === 'down') {
+    const targetIdx = curIdx + cols;
+    if (targetIdx >= gridSessions.length) return null;
+    return gridSessions[targetIdx].id;
+  } else {
+    const targetIdx = curIdx - cols;
+    if (targetIdx < 0) return null;
+    return gridSessions[targetIdx].id;
+  }
+}
+
+describe('focus_down / focus_up grid navigation', () => {
+  // 6 sessions in a 3-column grid (2 rows):
+  // [s1] [s2] [s3]
+  // [s4] [s5] [s6]
+  const sixSessions = [
+    makeSession('s1', '2025-01-01T00:00:00Z'),
+    makeSession('s2', '2025-01-02T00:00:00Z'),
+    makeSession('s3', '2025-01-03T00:00:00Z'),
+    makeSession('s4', '2025-01-04T00:00:00Z'),
+    makeSession('s5', '2025-01-05T00:00:00Z'),
+    makeSession('s6', '2025-01-06T00:00:00Z'),
+  ];
+
+  describe('focus_down', () => {
+    it('moves from top-left to bottom-left (idx 0 → idx 3)', () => {
+      expect(getGridTarget('down', sixSessions, 's1')).toBe('s4');
+    });
+
+    it('moves from top-middle to bottom-middle (idx 1 → idx 4)', () => {
+      expect(getGridTarget('down', sixSessions, 's2')).toBe('s5');
+    });
+
+    it('moves from top-right to bottom-right (idx 2 → idx 5)', () => {
+      expect(getGridTarget('down', sixSessions, 's3')).toBe('s6');
+    });
+
+    it('returns null at bottom row (no row below)', () => {
+      expect(getGridTarget('down', sixSessions, 's4')).toBeNull();
+      expect(getGridTarget('down', sixSessions, 's5')).toBeNull();
+      expect(getGridTarget('down', sixSessions, 's6')).toBeNull();
+    });
+
+    it('handles 4 sessions in 3 cols (idx 0 → idx 3)', () => {
+      const fourSessions = sixSessions.slice(0, 4);
+      // [s1] [s2] [s3]
+      // [s4]
+      expect(getGridTarget('down', fourSessions, 's1')).toBe('s4');
+    });
+
+    it('returns null for incomplete bottom row (no target below)', () => {
+      const fiveSessions = sixSessions.slice(0, 5);
+      // [s1] [s2] [s3]
+      // [s4] [s5]
+      expect(getGridTarget('down', fiveSessions, 's3')).toBeNull(); // no s6 below s3
+    });
+
+    it('returns null for single row (3 sessions, 3 cols)', () => {
+      const threeSessions = sixSessions.slice(0, 3);
+      expect(getGridTarget('down', threeSessions, 's1')).toBeNull();
+      expect(getGridTarget('down', threeSessions, 's2')).toBeNull();
+      expect(getGridTarget('down', threeSessions, 's3')).toBeNull();
+    });
+
+    it('returns null for single session', () => {
+      const single = [sixSessions[0]];
+      expect(getGridTarget('down', single, 's1')).toBeNull();
+    });
+
+    it('returns null for 2 sessions (single row, 2 cols)', () => {
+      const twoSessions = sixSessions.slice(0, 2);
+      expect(getGridTarget('down', twoSessions, 's1')).toBeNull();
+      expect(getGridTarget('down', twoSessions, 's2')).toBeNull();
+    });
+  });
+
+  describe('focus_up', () => {
+    it('moves from bottom-left to top-left (idx 3 → idx 0)', () => {
+      expect(getGridTarget('up', sixSessions, 's4')).toBe('s1');
+    });
+
+    it('moves from bottom-middle to top-middle (idx 4 → idx 1)', () => {
+      expect(getGridTarget('up', sixSessions, 's5')).toBe('s2');
+    });
+
+    it('moves from bottom-right to top-right (idx 5 → idx 2)', () => {
+      expect(getGridTarget('up', sixSessions, 's6')).toBe('s3');
+    });
+
+    it('returns null at top row (no row above)', () => {
+      expect(getGridTarget('up', sixSessions, 's1')).toBeNull();
+      expect(getGridTarget('up', sixSessions, 's2')).toBeNull();
+      expect(getGridTarget('up', sixSessions, 's3')).toBeNull();
+    });
+
+    it('handles 4 sessions (idx 3 → idx 0)', () => {
+      const fourSessions = sixSessions.slice(0, 4);
+      expect(getGridTarget('up', fourSessions, 's4')).toBe('s1');
+    });
+
+    it('returns null for single row (2 sessions)', () => {
+      const twoSessions = sixSessions.slice(0, 2);
+      expect(getGridTarget('up', twoSessions, 's1')).toBeNull();
+      expect(getGridTarget('up', twoSessions, 's2')).toBeNull();
+    });
+  });
+
+  describe('edge cases', () => {
+    it('returns null when curId is not in grid', () => {
+      expect(getGridTarget('down', sixSessions, 'unknown')).toBeNull();
+      expect(getGridTarget('up', sixSessions, 'unknown')).toBeNull();
+    });
+
+    it('returns null when curId is null', () => {
+      expect(getGridTarget('down', sixSessions, null)).toBeNull();
+      expect(getGridTarget('up', sixSessions, null)).toBeNull();
+    });
+
+    it('returns null for empty session list', () => {
+      expect(getGridTarget('down', [], null)).toBeNull();
+      expect(getGridTarget('up', [], null)).toBeNull();
+    });
+  });
+});
+
 describe('markManualSwitch guard logic', () => {
   it('setFocusTarget should expire after 1 second', () => {
     // Simulate the focus target logic in isolation
