@@ -442,7 +442,7 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
     try { manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8')); } catch { return { autoSkills: [], customSkills: [] }; }
 
     const autoSkills = manifest.panel ? [
-      `${extName}.open`, `${extName}.comment`, `${extName}.select-text`
+      `adyx.${extName}.open`, `adyx.${extName}.comment`, `adyx.${extName}.select-text`
     ] : [];
 
     const customSkills = (manifest.skills || []).map((s: string) => ({
@@ -453,19 +453,26 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
     return { autoSkills, customSkills };
   }
 
-  // Helper: sync skills into a session's .claude/skills/ directory based on enabled extensions
+  // Helper: sync skills into a session's .claude/skills/ directory based on enabled extensions.
+  // Only works for local sessions — remote session paths are not accessible from the hub.
   function syncSessionSkills(sessionWorkDir: string, enabled: string[]): { added: number; removed: number } {
     const extensionsDir = path.join(import.meta.dirname, '../../extensions');
     const hubSkillsDir = path.join(import.meta.dirname, '../../.claude-skills/skills');
     const sessionSkillsDir = path.join(sessionWorkDir, '.claude', 'skills');
-    if (!fs.existsSync(sessionSkillsDir)) fs.mkdirSync(sessionSkillsDir, { recursive: true });
+    try {
+      if (!fs.existsSync(sessionSkillsDir)) fs.mkdirSync(sessionSkillsDir, { recursive: true });
+    } catch {
+      // Remote session path not accessible locally — skip
+      return { added: 0, removed: 0 };
+    }
 
     // Build set of skill names that SHOULD be in the session
     const enabledSkillNames = new Set<string>();
-    // Always include non-extension skills (built-in skills)
-    const builtinSkills = ['open-file', 'open-preview', 'show-diff', 'show-panel',
-      'view-click', 'view-navigate', 'view-read-page', 'view-record-start',
-      'view-record-stop', 'view-screenshot', 'view-set-resolution', 'view-type'];
+    // Always include non-extension skills (built-in skills from adyx-core)
+    const builtinSkills = ['adyx.open-file', 'adyx.open-preview', 'adyx.show-diff', 'adyx.show-panel',
+      'adyx.view-click', 'adyx.view-navigate', 'adyx.view-read-page', 'adyx.view-record-start',
+      'adyx.view-record-stop', 'adyx.view-screenshot', 'adyx.view-set-resolution', 'adyx.view-type',
+      'adyx.widget-create', 'adyx.widget-dismiss', 'adyx.widget-get-result'];
     for (const s of builtinSkills) enabledSkillNames.add(s);
 
     // Get all installed extensions
