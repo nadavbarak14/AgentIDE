@@ -2,7 +2,6 @@ import { Router } from 'express';
 import type { Repository } from '../../models/repository.js';
 import type { ProjectService } from '../../services/project-service.js';
 import { validateUuid, validateBody } from '../middleware.js';
-import { isWithinHomeDir } from './directories.js';
 import { logger } from '../../services/logger.js';
 
 export function createProjectsRouter(repo: Repository, projectService: ProjectService): Router {
@@ -35,12 +34,6 @@ export function createProjectsRouter(repo: Repository, projectService: ProjectSe
     const worker = repo.getWorker(workerId);
     if (!worker) {
       res.status(400).json({ error: `Worker not found: ${workerId}` });
-      return;
-    }
-
-    // Validate $HOME restriction for local workers
-    if (worker.type === 'local' && !isWithinHomeDir(directoryPath)) {
-      res.status(403).json({ error: 'Directory not allowed: path must be within home directory' });
       return;
     }
 

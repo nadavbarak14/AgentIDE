@@ -25,8 +25,8 @@ export function useSessionQueue(pollInterval = 1000) {
   }, [fetchSessions, pollInterval]);
 
   const createSession = useCallback(
-    async (workingDirectory: string, title: string, targetWorker?: string | null, worktree?: boolean, startFresh?: boolean) => {
-      const session = await sessionsApi.create({ workingDirectory, title, targetWorker, worktree, startFresh });
+    async (workingDirectory: string, title: string, targetWorker?: string | null, worktree?: boolean, startFresh?: boolean, flags?: string) => {
+      const session = await sessionsApi.create({ workingDirectory, title, targetWorker, worktree, startFresh, flags });
       setSessions((prev) => {
         const exists = prev.find((s) => s.id === session.id);
         if (exists) return prev.map((s) => (s.id === session.id ? session : s));

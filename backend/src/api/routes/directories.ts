@@ -47,15 +47,9 @@ export function validateDirectoryForWorker(
   worker: Worker,
   dirPath: string,
 ): DirectoryValidationResult {
-  // For local workers, enforce home directory restriction
-  if (worker.type === 'local') {
-    if (!isWithinHomeDir(dirPath)) {
-      return { valid: false, reason: 'local_restriction' };
-    }
-  }
-
-  // For remote workers, allow any path
-  // Security is enforced by SSH user permissions on the remote server
+  // Allow any path for both local and remote workers.
+  // Local workers: the OS file-system permissions are sufficient.
+  // Remote workers: SSH user permissions control access.
   return { valid: true };
 }
 
@@ -70,13 +64,6 @@ export function createDirectoriesRouter(): Router {
     // Reject path traversal
     if (basePath.includes('..') || basePath.includes('\0')) {
       res.status(400).json({ error: 'Invalid path' });
-      return;
-    }
-
-    // Enforce $HOME restriction (FR-005)
-    if (!isWithinHomeDir(basePath)) {
-      logger.warn({ path: basePath }, 'directory browse rejected: outside $HOME');
-      res.status(403).json({ error: 'Directory not allowed: path must be within home directory' });
       return;
     }
 
