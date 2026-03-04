@@ -44,8 +44,8 @@ export interface DirectoryValidationResult {
  * Remote workers: allow any path (SSH user permissions control access)
  */
 export function validateDirectoryForWorker(
-  worker: Worker,
-  dirPath: string,
+  _worker: Worker,
+  _dirPath: string,
 ): DirectoryValidationResult {
   // Allow any path for both local and remote workers.
   // Local workers: the OS file-system permissions are sufficient.
