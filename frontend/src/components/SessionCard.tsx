@@ -1168,6 +1168,36 @@ export function SessionCard({
                 ))}
                 <div className="border-t border-gray-700 mt-1 pt-1">
                   <button
+                    onClick={async () => {
+                      setShowExtPicker(false);
+                      const instructions = [
+                        'I want to create a new extension skill for AgentIDE.',
+                        'An extension lives in extensions/<name>/ and needs:',
+                        '1. manifest.json - with name, displayName, panel entry, skills list, and boardCommands',
+                        '2. ui/ folder - with index.html, styles.css, app.js for the panel UI',
+                        '3. skills/ folder - each skill in skills/<skill-name>/ with SKILL.md (description + instructions) and a shell script',
+                        '',
+                        'Look at extensions/frontend-design/ as a reference implementation.',
+                        'The extension panel communicates with the host via postMessage bridge (ready/init/ping handshake, board-command dispatch, send-comment for sending text to Claude).',
+                        '',
+                        'Please ask me what kind of extension I want to create, then build it following this pattern.',
+                      ].join('\n');
+                      try {
+                        await sessionsApi.input(session.id, instructions + '\n');
+                      } catch {
+                        // Ignore — session may not be ready yet
+                      }
+                    }}
+                    disabled={session.status !== 'active'}
+                    className={`w-full px-3 py-1.5 text-xs text-left ${
+                      session.status === 'active'
+                        ? 'text-cyan-400 hover:bg-cyan-500/10'
+                        : 'text-gray-600 cursor-not-allowed'
+                    }`}
+                  >
+                    + Create Extension
+                  </button>
+                  <button
                     onClick={() => setShowExtPicker(false)}
                     className="w-full px-3 py-1 text-xs text-gray-400 hover:text-gray-200 text-left"
                   >
