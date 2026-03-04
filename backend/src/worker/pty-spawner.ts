@@ -4,6 +4,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createSessionLogger, logger } from '../services/logger.js';
 import { TerminalParser } from '../services/terminal-parser.js';
+import {
+  escapeShellArg,
+  getTmuxSessionName,
+  isTmuxSessionAlive,
+  killTmuxSession,
+  cleanupOrphanedTmuxSessions,
+} from './tmux-utils.js';
 
 export interface PtyProcess {
   pid: number;
@@ -162,7 +169,9 @@ export class PtySpawner extends EventEmitter {
 
     log.info({ fullArgs: fullArgs.join(' ') }, 'claude command args');
 
-    const proc = pty.spawn('claude', fullArgs, {
+    // Spawn a bash shell and send tmux command into it.
+    // tmux keeps the Claude process alive even if the hub crashes.
+    const proc = pty.spawn('/bin/bash', ['--norc', '--noprofile'], {
       name: 'xterm-256color',
       cols: 120,
       rows: 40,
@@ -175,7 +184,17 @@ export class PtySpawner extends EventEmitter {
     this.lastOutputTime.set(sessionId, Date.now());
     this.terminalParsers.set(sessionId, new TerminalParser());
 
-    log.info({ pid: proc.pid }, 'claude process spawned');
+    log.info({ pid: proc.pid }, 'bash shell spawned for tmux wrapping');
+
+    // Build the tmux-wrapped claude command
+    const tmuxName = getTmuxSessionName(sessionId);
+    const envPrefix = `C3_SESSION_ID=${escapeShellArg(sessionId)} C3_HUB_PORT=${this.hubPort}`;
+    const claudeCmd = `cd ${escapeShellArg(workingDirectory)} && ${envPrefix} claude ${fullArgs.map(a => escapeShellArg(a)).join(' ')}`;
+    // `exec` replaces bash with tmux client, so node-pty onExit fires when tmux session ends
+    const tmuxCmd = `tmux new-session -d -s ${escapeShellArg(tmuxName)} ${escapeShellArg(claudeCmd)} && exec tmux attach -t ${escapeShellArg(tmuxName)}\n`;
+
+    log.info({ tmuxSession: tmuxName, cmd: tmuxCmd.trim() }, 'sending tmux-wrapped claude command');
+    proc.write(tmuxCmd);
 
     // Handle output
     proc.onData((data) => {
@@ -209,7 +228,7 @@ export class PtySpawner extends EventEmitter {
 
     // Handle exit
     proc.onExit(({ exitCode }) => {
-      log.info({ exitCode }, 'claude process exited');
+      log.info({ exitCode }, 'tmux client exited');
       this.cleanup(sessionId);
       // SessionEnd hook will POST the claudeSessionId via /api/hooks/event.
       // We emit exit with null — the hook callback will set the claudeSessionId separately.
@@ -224,14 +243,89 @@ export class PtySpawner extends EventEmitter {
       write: (data: string) => proc.write(data),
       resize: (cols: number, rows: number) => proc.resize(cols, rows),
       kill: () => {
-        log.info('killing claude process');
-        proc.kill();
+        log.info('killing claude process via tmux');
+        // Kill the tmux session first (kills Claude inside), then kill outer bash
+        killTmuxSession(tmuxName);
+        try { proc.kill(); } catch { /* already dead */ }
       },
     };
   }
 
   getProcess(sessionId: string): pty.IPty | undefined {
     return this.processes.get(sessionId);
+  }
+
+  /**
+   * Attempt to reattach to a tmux session that survived a hub crash.
+   * Returns the PtyProcess if successful, null if tmux session is dead.
+   */
+  reattachSession(sessionId: string): PtyProcess | null {
+    const log = createSessionLogger(sessionId);
+    const tmuxName = getTmuxSessionName(sessionId);
+
+    if (!isTmuxSessionAlive(tmuxName)) {
+      log.info({ tmuxSession: tmuxName }, 'local tmux session is dead, cannot reattach');
+      return null;
+    }
+
+    log.info({ tmuxSession: tmuxName }, 'reattaching to surviving local tmux session');
+
+    // Spawn new bash shell via node-pty and attach to existing tmux session
+    const proc = pty.spawn('/bin/bash', ['--norc', '--noprofile'], {
+      name: 'xterm-256color',
+      cols: 120,
+      rows: 40,
+    });
+
+    this.processes.set(sessionId, proc);
+    this.outputBuffers.set(sessionId, '');
+    this.lastOutputTime.set(sessionId, Date.now());
+    this.terminalParsers.set(sessionId, new TerminalParser());
+
+    // `exec` replaces bash with tmux client
+    const attachCmd = `exec tmux attach -t ${escapeShellArg(tmuxName)}\n`;
+    proc.write(attachCmd);
+
+    // Wire up same data/exit handlers
+    proc.onData((data) => {
+      this.lastOutputTime.set(sessionId, Date.now());
+      const buf = (this.outputBuffers.get(sessionId) || '') + data;
+      this.outputBuffers.set(sessionId, buf.slice(-4096));
+      this.emit('data', sessionId, data);
+
+      const parser = this.terminalParsers.get(sessionId);
+      if (parser) {
+        const commands = parser.parse(data);
+        for (const cmd of commands) {
+          this.emit('board_command', sessionId, cmd);
+        }
+      }
+
+      this.scheduleScrollbackWrite(sessionId, data);
+      this.idleNotified.set(sessionId, false);
+    });
+
+    this.ensureIdlePoller();
+
+    proc.onExit(({ exitCode }) => {
+      log.info({ exitCode }, 'reattached tmux client exited');
+      this.cleanup(sessionId);
+      this.emit('exit', sessionId, exitCode, null);
+    });
+
+    log.info({ tmuxSession: tmuxName, pid: proc.pid }, 'successfully reattached to local tmux session');
+
+    return {
+      pid: proc.pid,
+      sessionId,
+      write: (data: string) => proc.write(data),
+      resize: (cols: number, rows: number) => proc.resize(cols, rows),
+      kill: () => {
+        log.info('killing reattached claude process via tmux');
+        killTmuxSession(tmuxName);
+        try { proc.kill(); } catch { /* already dead */ }
+      },
+    };
   }
 
   write(sessionId: string, data: string): void {
@@ -251,11 +345,14 @@ export class PtySpawner extends EventEmitter {
   }
 
   kill(sessionId: string): void {
+    const tmuxName = getTmuxSessionName(sessionId);
+    // Kill tmux session first (kills Claude inside tmux)
+    killTmuxSession(tmuxName);
+
     const proc = this.processes.get(sessionId);
     if (proc) {
       try {
-        // WSL2: Process groups supported via real Linux kernel
-        // Kill process group to catch claude subprocesses
+        // Kill the outer bash/tmux client process
         if (proc.pid) {
           process.kill(-proc.pid, 'SIGTERM');
         } else {
@@ -369,14 +466,23 @@ export class PtySpawner extends EventEmitter {
       clearInterval(this.idlePoller);
       this.idlePoller = null;
     }
+
+    // Track tmux session names we're killing so we can clean up orphans
+    const trackedTmuxNames = new Set<string>();
+
     for (const [sessionId, proc] of this.processes) {
+      const tmuxName = getTmuxSessionName(sessionId);
+      trackedTmuxNames.add(tmuxName);
+
+      // Kill the tmux session (kills Claude inside)
+      killTmuxSession(tmuxName);
+
       try {
-        // Kill the process group to catch child processes (claude spawns subprocesses)
+        // Kill the outer bash/tmux client process
         if (proc.pid) {
           try {
             process.kill(-proc.pid, 'SIGTERM');
           } catch {
-            // Process group kill may fail; fall back to direct kill
             proc.kill();
           }
         } else {
@@ -386,6 +492,12 @@ export class PtySpawner extends EventEmitter {
         // Already dead
       }
       this.cleanup(sessionId);
+    }
+
+    // Clean up any orphaned c3-* tmux sessions not tracked by this instance
+    const orphansKilled = cleanupOrphanedTmuxSessions(trackedTmuxNames);
+    if (orphansKilled > 0) {
+      logger.info({ count: orphansKilled }, 'killed orphaned tmux sessions');
     }
   }
 

@@ -55,6 +55,15 @@ vi.mock('../../src/services/logger.js', () => {
   };
 });
 
+// ── Mock tmux-utils to avoid real tmux calls ────────────────────────
+vi.mock('../../src/worker/tmux-utils.js', () => ({
+  escapeShellArg: (arg: string) => `'${arg.replace(/'/g, "'\\''")}'`,
+  getTmuxSessionName: (sessionId: string) => `c3-${sessionId.substring(0, 8)}`,
+  isTmuxSessionAlive: vi.fn().mockReturnValue(false),
+  killTmuxSession: vi.fn(),
+  cleanupOrphanedTmuxSessions: vi.fn().mockReturnValue(0),
+}));
+
 // ── Import the module under test AFTER mocks are registered ─────────
 // We use a dynamic import so vitest's module-level mocks take effect.
 let PtySpawner: typeof import('../../src/worker/pty-spawner.js').PtySpawner;
@@ -73,6 +82,116 @@ afterEach(() => {
 
 // ── Tests ────────────────────────────────────────────────────────────
 
+describe('PtySpawner — tmux wrapping', () => {
+  it('spawns /bin/bash instead of claude directly', () => {
+    const originalExistsSync = fs.existsSync;
+    vi.spyOn(fs, 'existsSync').mockImplementation((p: fs.PathLike) => {
+      const s = String(p);
+      if (s.includes('.claude-skills/skills')) return false;
+      return originalExistsSync(p);
+    });
+
+    const spawner = new PtySpawner({ scrollbackDir: '/tmp/c3-test-scrollback' });
+    spawner.spawn('test-session-1', '/tmp/work');
+
+    expect(lastSpawnArgs).not.toBeNull();
+    expect(lastSpawnArgs!.command).toBe('/bin/bash');
+    expect(lastSpawnArgs!.args).toEqual(['--norc', '--noprofile']);
+
+    spawner.destroy();
+  });
+
+  it('writes tmux command into the bash shell', () => {
+    const originalExistsSync = fs.existsSync;
+    vi.spyOn(fs, 'existsSync').mockImplementation((p: fs.PathLike) => {
+      const s = String(p);
+      if (s.includes('.claude-skills/skills')) return false;
+      return originalExistsSync(p);
+    });
+
+    const spawner = new PtySpawner({ scrollbackDir: '/tmp/c3-test-scrollback' });
+    spawner.spawn('test-sess', '/tmp/work');
+
+    expect(lastFakeProc!.write).toHaveBeenCalledTimes(1);
+    const writtenCmd = lastFakeProc!.write.mock.calls[0][0] as string;
+    expect(writtenCmd).toContain('tmux new-session -d -s');
+    expect(writtenCmd).toContain('c3-test-ses');
+    expect(writtenCmd).toContain('exec tmux attach');
+    expect(writtenCmd).toContain('claude');
+
+    spawner.destroy();
+  });
+
+  it('includes --settings and user args in the tmux command', () => {
+    const originalExistsSync = fs.existsSync;
+    vi.spyOn(fs, 'existsSync').mockImplementation((p: fs.PathLike) => {
+      const s = String(p);
+      if (s.includes('.claude-skills/skills')) return false;
+      return originalExistsSync(p);
+    });
+
+    const spawner = new PtySpawner({ scrollbackDir: '/tmp/c3-test-scrollback' });
+    spawner.spawn('test-session-2', '/tmp/work', ['--verbose']);
+
+    const writtenCmd = lastFakeProc!.write.mock.calls[0][0] as string;
+    expect(writtenCmd).toContain("'--settings'");
+    expect(writtenCmd).toContain("'--verbose'");
+
+    spawner.destroy();
+  });
+
+  it('includes C3 env vars in the tmux command', () => {
+    const originalExistsSync = fs.existsSync;
+    vi.spyOn(fs, 'existsSync').mockImplementation((p: fs.PathLike) => {
+      const s = String(p);
+      if (s.includes('.claude-skills/skills')) return false;
+      return originalExistsSync(p);
+    });
+
+    const spawner = new PtySpawner({ scrollbackDir: '/tmp/c3-test-scrollback', hubPort: 3001 });
+    spawner.spawn('test-session-3', '/tmp/work');
+
+    const writtenCmd = lastFakeProc!.write.mock.calls[0][0] as string;
+    expect(writtenCmd).toContain('C3_SESSION_ID=');
+    expect(writtenCmd).toContain('test-session-3');
+    expect(writtenCmd).toContain('C3_HUB_PORT=3001');
+
+    spawner.destroy();
+  });
+});
+
+describe('PtySpawner — reattachSession', () => {
+  it('returns null when tmux session is dead', async () => {
+    const { isTmuxSessionAlive } = await import('../../src/worker/tmux-utils.js');
+    vi.mocked(isTmuxSessionAlive).mockReturnValue(false);
+
+    const spawner = new PtySpawner({ scrollbackDir: '/tmp/c3-test-scrollback' });
+    const result = spawner.reattachSession('dead-session');
+
+    expect(result).toBeNull();
+    spawner.destroy();
+  });
+
+  it('returns PtyProcess when tmux session is alive', async () => {
+    const { isTmuxSessionAlive } = await import('../../src/worker/tmux-utils.js');
+    vi.mocked(isTmuxSessionAlive).mockReturnValue(true);
+
+    const spawner = new PtySpawner({ scrollbackDir: '/tmp/c3-test-scrollback' });
+    const result = spawner.reattachSession('alive-se');
+
+    expect(result).not.toBeNull();
+    expect(result!.sessionId).toBe('alive-se');
+    expect(result!.pid).toBe(42);
+
+    // Should have written tmux attach command
+    expect(lastFakeProc!.write).toHaveBeenCalledTimes(1);
+    const writtenCmd = lastFakeProc!.write.mock.calls[0][0] as string;
+    expect(writtenCmd).toContain('exec tmux attach -t');
+
+    spawner.destroy();
+  });
+});
+
 describe('PtySpawner — per-session skill injection', () => {
   it('copies skills to session working directory when bundled skills exist', () => {
     const originalExistsSync = fs.existsSync;
@@ -87,7 +206,7 @@ describe('PtySpawner — per-session skill injection', () => {
     const cpSyncSpy = vi.spyOn(fs, 'cpSync').mockImplementation(() => undefined);
 
     const spawner = new PtySpawner({ scrollbackDir: '/tmp/c3-test-scrollback' });
-    spawner.spawn('test-session-1', '/tmp/work');
+    spawner.spawn('test-session-sk1', '/tmp/work');
 
     expect(cpSyncSpy).toHaveBeenCalledWith(
       expect.stringMatching(/\.claude-skills\/skills$/),
@@ -111,80 +230,12 @@ describe('PtySpawner — per-session skill injection', () => {
     vi.spyOn(fs, 'cpSync').mockImplementation(() => undefined);
 
     const spawner = new PtySpawner({ scrollbackDir: '/tmp/c3-test-scrollback' });
-    spawner.spawn('test-session-2', '/tmp/work');
+    spawner.spawn('test-session-sk2', '/tmp/work');
 
     expect(mkdirSpy).toHaveBeenCalledWith(
       '/tmp/work/.claude/skills',
       { recursive: true },
     );
-
-    spawner.destroy();
-  });
-
-  it('does NOT include --plugin-dir in spawned args', () => {
-    const originalExistsSync = fs.existsSync;
-    vi.spyOn(fs, 'existsSync').mockImplementation((p: fs.PathLike) => {
-      const s = String(p);
-      if (s.includes('.claude-skills/skills')) {
-        return true;
-      }
-      return originalExistsSync(p);
-    });
-    vi.spyOn(fs, 'mkdirSync').mockImplementation(() => undefined as unknown as string);
-    vi.spyOn(fs, 'cpSync').mockImplementation(() => undefined);
-
-    const spawner = new PtySpawner({ scrollbackDir: '/tmp/c3-test-scrollback' });
-    spawner.spawn('test-session-3', '/tmp/work');
-
-    expect(lastSpawnArgs).not.toBeNull();
-    expect(lastSpawnArgs!.args).not.toContain('--plugin-dir');
-
-    spawner.destroy();
-  });
-
-  it('still includes --settings as the first flag pair', () => {
-    const originalExistsSync = fs.existsSync;
-    vi.spyOn(fs, 'existsSync').mockImplementation((p: fs.PathLike) => {
-      const s = String(p);
-      if (s.includes('.claude-skills/skills')) {
-        return true;
-      }
-      return originalExistsSync(p);
-    });
-    vi.spyOn(fs, 'mkdirSync').mockImplementation(() => undefined as unknown as string);
-    vi.spyOn(fs, 'cpSync').mockImplementation(() => undefined);
-
-    const spawner = new PtySpawner({ scrollbackDir: '/tmp/c3-test-scrollback' });
-    spawner.spawn('test-session-4', '/tmp/work', ['--verbose']);
-
-    const args = lastSpawnArgs!.args;
-    expect(args[0]).toBe('--settings');
-    expect(args[1]).toMatch(/settings\.json$/);
-
-    spawner.destroy();
-  });
-
-  it('does not send intro message (skills are self-documenting)', () => {
-    vi.useFakeTimers();
-
-    const originalExistsSync = fs.existsSync;
-    vi.spyOn(fs, 'existsSync').mockImplementation((p: fs.PathLike) => {
-      const s = String(p);
-      if (s.includes('.claude-skills/skills')) {
-        return true;
-      }
-      return originalExistsSync(p);
-    });
-    vi.spyOn(fs, 'mkdirSync').mockImplementation(() => undefined as unknown as string);
-    vi.spyOn(fs, 'cpSync').mockImplementation(() => undefined);
-
-    const spawner = new PtySpawner({ scrollbackDir: '/tmp/c3-test-scrollback' });
-    spawner.spawn('test-session-5', '/tmp/work');
-
-    // Advance past any potential delay
-    vi.advanceTimersByTime(5000);
-
-    expect(lastFakeProc!.write).not.toHaveBeenCalled();
 
     spawner.destroy();
   });
@@ -203,7 +254,7 @@ describe('PtySpawner — per-session skill injection', () => {
     const spawner = new PtySpawner({ scrollbackDir: '/tmp/c3-test-scrollback' });
 
     // Should not throw
-    expect(() => spawner.spawn('test-session-6', '/tmp/work')).not.toThrow();
+    expect(() => spawner.spawn('test-session-sk3', '/tmp/work')).not.toThrow();
 
     // cpSync should not have been called
     expect(cpSyncSpy).not.toHaveBeenCalled();

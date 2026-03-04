@@ -26,7 +26,7 @@ import { setupWebSocket, broadcastToSession } from './api/websocket.js';
 import { FileWatcher } from './worker/file-watcher.js';
 import { requestLogger, errorHandler } from './api/middleware.js';
 import { logger } from './services/logger.js';
-import { checkPrerequisites, detectWSLVersion } from './services/prerequisites.js';
+import { checkPrerequisites, detectWSLVersion, requireTmux } from './services/prerequisites.js';
 import { WebSocket as WsClient } from 'ws';
 
 // ── Widget types (dynamic skill UI) ────────────────────────────────────────
@@ -100,6 +100,9 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
     repo.createLocalWorker('Local', 999);
     logger.info('registered local worker');
   }
+
+  // Require tmux for local session crash resilience
+  requireTmux();
 
   // Initialize services
   const ptySpawner = new PtySpawner({ hubPort: port });
@@ -272,6 +275,18 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
   // Resume sessions that were active before restart
   // This must happen BEFORE worker reconnection so crashed sessions are marked first
   sessionManager.resumeSessions(ptySpawner, wasCrash);
+
+  // Attempt recovery of crashed local sessions via tmux reattachment
+  if (wasCrash) {
+    try {
+      const recovered = sessionManager.recoverCrashedLocalSessions();
+      if (recovered > 0) {
+        logger.info({ recovered }, 'recovered crashed local sessions via tmux');
+      }
+    } catch (err) {
+      logger.warn({ err: (err as Error).message }, 'failed to recover crashed local sessions');
+    }
+  }
 
   // Reconnect existing remote workers on startup (fire and forget)
   // After connecting, re-register any active sessions with the remote agent

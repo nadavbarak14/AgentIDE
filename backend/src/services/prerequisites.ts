@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import { logger } from './logger.js';
+import { checkTmuxAvailable } from '../worker/tmux-utils.js';
 
 export interface PrerequisiteResult {
   tool: string;
@@ -33,6 +34,20 @@ export function checkPrerequisites(): PrerequisiteResult[] {
   }
 
   return results;
+}
+
+/**
+ * Require tmux to be installed. Throws if not found.
+ * Must be called before spawning any local sessions.
+ */
+export function requireTmux(): void {
+  const version = checkTmuxAvailable();
+  if (!version) {
+    const msg = 'tmux is required but not found. Install with: sudo apt-get install -y tmux';
+    logger.error(msg);
+    throw new Error(msg);
+  }
+  logger.info({ version }, 'tmux available');
 }
 
 /**

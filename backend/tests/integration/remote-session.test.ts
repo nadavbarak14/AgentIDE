@@ -87,11 +87,12 @@ describe('RemotePtyBridge', () => {
   it('sends claude command to the remote shell after spawn', async () => {
     await bridge.spawn('session-1', 'worker-1', '/home/remote/project');
 
-    // Should have written cd + claude command
+    // Should have written tmux-wrapped cd + claude command
     expect(mockTm.mockChannel.written.length).toBeGreaterThan(0);
     const cmd = mockTm.mockChannel.written[0];
-    expect(cmd).toContain("cd '/home/remote/project'");
+    expect(cmd).toContain('/home/remote/project');
     expect(cmd).toContain('claude');
+    expect(cmd).toContain('tmux new-session');
   });
 
   it('sends --continue flag for continue spawns', async () => {
