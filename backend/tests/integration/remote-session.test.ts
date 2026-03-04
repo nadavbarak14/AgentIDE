@@ -283,32 +283,29 @@ describe('Remote session creation with directory validation', () => {
     });
   });
 
-  describe('Acceptance Scenario 3: Local worker + path outside home', () => {
-    it('rejects /opt/project with local_restriction reason', async () => {
+  describe('Acceptance Scenario 3: Local worker + path outside home (now allowed)', () => {
+    it('allows /opt/project for local worker', async () => {
       const { validateDirectoryForWorker } = await import('../../src/api/routes/directories.js');
 
       const validation = validateDirectoryForWorker(localWorker, '/opt/project');
 
-      expect(validation.valid).toBe(false);
-      expect(validation.reason).toBe('local_restriction');
+      expect(validation.valid).toBe(true);
     });
 
-    it('rejects /var/www/app with local_restriction reason', async () => {
+    it('allows /var/www/app for local worker', async () => {
       const { validateDirectoryForWorker } = await import('../../src/api/routes/directories.js');
 
       const validation = validateDirectoryForWorker(localWorker, '/var/www/app');
 
-      expect(validation.valid).toBe(false);
-      expect(validation.reason).toBe('local_restriction');
+      expect(validation.valid).toBe(true);
     });
 
-    it('rejects root directory with local_restriction reason', async () => {
+    it('allows root directory for local worker', async () => {
       const { validateDirectoryForWorker } = await import('../../src/api/routes/directories.js');
 
       const validation = validateDirectoryForWorker(localWorker, '/');
 
-      expect(validation.valid).toBe(false);
-      expect(validation.reason).toBe('local_restriction');
+      expect(validation.valid).toBe(true);
     });
   });
 
