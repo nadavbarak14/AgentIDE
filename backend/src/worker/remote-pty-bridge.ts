@@ -52,12 +52,76 @@ export class RemotePtyBridge extends EventEmitter {
     logger.info({ workerId, settingsPath }, 'created settings file on remote server');
   }
 
+  /**
+   * Copy skills from the local .claude-skills/skills/ directory to the remote
+   * session's working directory so Claude can discover them.
+   */
+  private async injectSkillsToRemote(workerId: string, workingDirectory: string, sessionId: string): Promise<void> {
+    const log = createSessionLogger(sessionId);
+    const bundledSkillsDir = path.resolve(import.meta.dirname, '../../../.claude-skills/skills');
+    if (!fs.existsSync(bundledSkillsDir)) {
+      log.warn('no bundled skills directory found, skipping remote skill injection');
+      return;
+    }
+
+    const remoteSkillsDir = `${workingDirectory}/.claude/skills`;
+
+    // Build a shell script that creates all skill dirs and files on the remote.
+    // Use base64 encoding to avoid heredoc issues with special characters.
+    const entries = fs.readdirSync(bundledSkillsDir, { withFileTypes: true });
+    const commands: string[] = [`rm -rf ${escapeShellArg(remoteSkillsDir)}`, `mkdir -p ${escapeShellArg(remoteSkillsDir)}`];
+
+    for (const entry of entries) {
+      if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+      const skillName = entry.name;
+      const skillSrc = path.join(bundledSkillsDir, skillName);
+
+      // Resolve symlinks
+      const realSrc = fs.realpathSync(skillSrc);
+      if (!fs.statSync(realSrc).isDirectory()) continue;
+
+      const remoteSkillDir = `${remoteSkillsDir}/${skillName}`;
+      commands.push(`mkdir -p ${escapeShellArg(remoteSkillDir)}/scripts`);
+
+      // Read and transfer SKILL.md via base64
+      const skillMdPath = path.join(realSrc, 'SKILL.md');
+      if (fs.existsSync(skillMdPath)) {
+        const b64 = fs.readFileSync(skillMdPath).toString('base64');
+        commands.push(`echo '${b64}' | base64 -d > ${escapeShellArg(remoteSkillDir)}/SKILL.md`);
+      }
+
+      // Read and transfer scripts via base64
+      const scriptsDir = path.join(realSrc, 'scripts');
+      if (fs.existsSync(scriptsDir)) {
+        for (const script of fs.readdirSync(scriptsDir)) {
+          const scriptPath = path.join(scriptsDir, script);
+          const b64 = fs.readFileSync(scriptPath).toString('base64');
+          const remoteScript = `${remoteSkillDir}/scripts/${script}`;
+          commands.push(`echo '${b64}' | base64 -d > ${escapeShellArg(remoteScript)}`);
+          commands.push(`chmod +x ${escapeShellArg(remoteScript)}`);
+        }
+      }
+    }
+
+    // Use ; instead of && so one failure doesn't stop the rest
+    const fullCmd = commands.slice(0, 2).join(' && ') + '; ' + commands.slice(2).join('; ');
+    try {
+      await this.tunnelManager.exec(workerId, fullCmd);
+      log.info({ remoteSkillsDir, skillCount: entries.filter(e => e.isDirectory() || e.isSymbolicLink()).length }, 'injected skills to remote session');
+    } catch (err) {
+      log.warn({ err: (err as Error).message }, 'failed to inject skills to remote session');
+    }
+  }
+
   async spawn(sessionId: string, workerId: string, workingDirectory: string, args: string[] = []): Promise<PtyProcess> {
     const log = createSessionLogger(sessionId);
     log.info({ workerId, workingDirectory, args }, 'spawning remote claude process via SSH');
 
     // Create settings file on remote server (without hooks for now)
     await this.ensureRemoteSettings(workerId);
+
+    // Inject skills to remote working directory
+    await this.injectSkillsToRemote(workerId, workingDirectory, sessionId);
 
     const stream = await this.tunnelManager.shell(workerId, { cols: 120, rows: 40 });
     this.channels.set(sessionId, stream);
