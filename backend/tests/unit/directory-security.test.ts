@@ -113,10 +113,9 @@ describe('validateDirectoryForWorker', () => {
       expect(result.reason).toBeUndefined();
     });
 
-    it('rejects paths outside home directory', () => {
+    it('allows paths outside home directory', () => {
       const result = validateDirectoryForWorker(localWorker, '/opt/project');
-      expect(result.valid).toBe(false);
-      expect(result.reason).toBe('local_restriction');
+      expect(result.valid).toBe(true);
     });
 
     it('allows home directory itself', () => {
@@ -124,10 +123,9 @@ describe('validateDirectoryForWorker', () => {
       expect(result.valid).toBe(true);
     });
 
-    it('rejects root directory', () => {
+    it('allows root directory', () => {
       const result = validateDirectoryForWorker(localWorker, '/');
-      expect(result.valid).toBe(false);
-      expect(result.reason).toBe('local_restriction');
+      expect(result.valid).toBe(true);
     });
   });
 

@@ -144,18 +144,17 @@ describe('Project API', () => {
       expect(res.body.error).toContain('Worker not found');
     });
 
-    it('rejects path outside $HOME for local worker', async () => {
+    it('allows path outside $HOME for local worker', async () => {
       const workerId = getLocalWorkerId();
       const res = await request(app)
         .post('/api/projects')
         .send({
           workerId,
           directoryPath: '/tmp/outside-home',
-          displayName: 'Rejected',
+          displayName: 'Allowed',
         });
 
-      expect(res.status).toBe(403);
-      expect(res.body.error).toContain('home directory');
+      expect(res.status).toBe(201);
     });
   });
 
@@ -241,13 +240,13 @@ describe('Session API — $HOME restriction', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('rejects session creation with directory outside $HOME', async () => {
+  it('allows session creation with directory outside $HOME', async () => {
     const res = await request(app)
       .post('/api/sessions')
-      .send({ workingDirectory: '/tmp/evil-dir', title: 'Evil Session' });
+      .send({ workingDirectory: '/tmp/test-dir', title: 'Any Path Session' });
 
-    expect(res.status).toBe(403);
-    expect(res.body.error).toContain('home directory');
+    expect(res.status).toBe(201);
+    expect(res.body.title).toBe('Any Path Session');
   });
 
   it('allows session creation with directory inside $HOME', async () => {
@@ -295,10 +294,10 @@ describe('Directories API — $HOME restriction', () => {
     app.use('/api/directories', createDirectoriesRouter());
   });
 
-  it('rejects browsing outside $HOME', async () => {
+  it('allows browsing outside $HOME', async () => {
     const res = await request(app).get('/api/directories?path=/tmp');
-    expect(res.status).toBe(403);
-    expect(res.body.error).toContain('home directory');
+    expect(res.status).toBe(200);
+    expect(res.body.exists).toBe(true);
   });
 
   it('allows browsing within $HOME', async () => {
