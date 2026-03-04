@@ -57,7 +57,7 @@ describe('Crashed Sessions API', () => {
   describe('GET /api/sessions — includes crashed sessions', () => {
     it('returns crashed sessions alongside active sessions', async () => {
       // Create two sessions
-      const s1 = repo.createSession({ title: 'Session 1', workingDirectory: path.join(tmpDir, 'p1') });
+      repo.createSession({ title: 'Session 1', workingDirectory: path.join(tmpDir, 'p1') });
       const s2 = repo.createSession({ title: 'Session 2', workingDirectory: path.join(tmpDir, 'p2') });
 
       // Mark one as crashed
@@ -67,13 +67,13 @@ describe('Crashed Sessions API', () => {
       expect(res.status).toBe(200);
       expect(res.body).toHaveLength(2);
 
-      const statuses = res.body.map((s: any) => s.status);
+      const statuses = res.body.map((s: { status: string }) => s.status);
       expect(statuses).toContain('active');
       expect(statuses).toContain('crashed');
     });
 
     it('orders crashed sessions after active', async () => {
-      const s1 = repo.createSession({ title: 'Active', workingDirectory: path.join(tmpDir, 'p1') });
+      repo.createSession({ title: 'Active', workingDirectory: path.join(tmpDir, 'p1') });
       const s2 = repo.createSession({ title: 'Crashed', workingDirectory: path.join(tmpDir, 'p2') });
       repo.crashSession(s2.id);
 
