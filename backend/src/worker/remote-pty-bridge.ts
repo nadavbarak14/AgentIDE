@@ -5,6 +5,7 @@ import type { ClientChannel } from 'ssh2';
 import { type TunnelManager, REVERSE_TUNNEL_PORT } from '../hub/tunnel.js';
 import { createSessionLogger, logger } from '../services/logger.js';
 import type { PtyProcess } from './pty-spawner.js';
+import { escapeShellArg, getTmuxSessionName } from './tmux-utils.js';
 
 export class RemotePtyBridge extends EventEmitter {
   private channels = new Map<string, ClientChannel>();
@@ -332,12 +333,4 @@ export class RemotePtyBridge extends EventEmitter {
       this.cleanup(sessionId);
     }
   }
-}
-
-function escapeShellArg(arg: string): string {
-  return `'${arg.replace(/'/g, "'\\''")}'`;
-}
-
-function getTmuxSessionName(sessionId: string): string {
-  return `c3-${sessionId.substring(0, 8)}`;
 }

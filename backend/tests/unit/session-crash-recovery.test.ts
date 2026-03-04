@@ -279,6 +279,66 @@ describe('Session Crash Recovery', () => {
     });
   });
 
+  describe('recoverCrashedLocalSessions', () => {
+    it('crashed local sessions can be identified for recovery', () => {
+      const session = repo.createSession({ title: 'Local', workingDirectory: '/tmp/a', targetWorker: localWorker.id });
+      repo.crashSession(session.id);
+
+      // Verify the session is local
+      const crashed = repo.getSession(session.id)!;
+      const worker = repo.getWorker(crashed.workerId!);
+      expect(worker?.type).toBe('local');
+      expect(crashed.status).toBe('crashed');
+    });
+
+    it('filters local sessions from remote in crashed list', () => {
+      const localSession = repo.createSession({ title: 'Local', workingDirectory: '/tmp/a', targetWorker: localWorker.id });
+      const remoteSession = repo.createSession({ title: 'Remote', workingDirectory: '/tmp/b', targetWorker: remoteWorker.id });
+
+      repo.markSessionsCrashed();
+
+      const crashedSessions = repo.listSessions('crashed');
+      expect(crashedSessions).toHaveLength(2);
+
+      // Can filter by worker type
+      const localCrashed = crashedSessions.filter(s => {
+        const w = repo.getWorker(s.workerId!);
+        return w?.type === 'local';
+      });
+      const remoteCrashed = crashedSessions.filter(s => {
+        const w = repo.getWorker(s.workerId!);
+        return w?.type === 'remote';
+      });
+
+      expect(localCrashed).toHaveLength(1);
+      expect(localCrashed[0].id).toBe(localSession.id);
+      expect(remoteCrashed).toHaveLength(1);
+      expect(remoteCrashed[0].id).toBe(remoteSession.id);
+    });
+
+    it('setCrashRecoveredAt works for local sessions', () => {
+      const session = repo.createSession({ title: 'Local', workingDirectory: '/tmp/a', targetWorker: localWorker.id });
+      repo.crashSession(session.id);
+      repo.setCrashRecoveredAt(session.id);
+
+      const row = (repo as any).db.prepare('SELECT crash_recovered_at FROM sessions WHERE id = ?').get(session.id) as { crash_recovered_at: string | null };
+      expect(row.crash_recovered_at).toBeTruthy();
+    });
+
+    it('recovered local session can be re-activated', () => {
+      const session = repo.createSession({ title: 'Local', workingDirectory: '/tmp/a', targetWorker: localWorker.id });
+      repo.crashSession(session.id);
+
+      // Simulate recovery: re-activate the session
+      repo.activateSession(session.id, 99999);
+      repo.setCrashRecoveredAt(session.id);
+
+      const recovered = repo.getSession(session.id)!;
+      expect(recovered.status).toBe('active');
+      expect(recovered.pid).toBe(99999);
+    });
+  });
+
   describe('remote vs local session identification', () => {
     it('crashed remote sessions have workerId set', () => {
       const session = repo.createSession({ title: 'Remote', workingDirectory: '/tmp/a', targetWorker: remoteWorker.id });

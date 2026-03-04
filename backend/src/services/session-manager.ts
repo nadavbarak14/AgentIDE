@@ -540,6 +540,52 @@ export class SessionManager extends EventEmitter {
   }
 
   /**
+   * Attempt to recover crashed local sessions by reattaching to tmux.
+   * Returns the number of successfully recovered sessions.
+   */
+  recoverCrashedLocalSessions(): number {
+    const crashedSessions = this.repo.listSessions('crashed');
+    const localCrashed = crashedSessions.filter(s => {
+      if (!s.workerId) return true; // No worker = local
+      const worker = this.repo.getWorker(s.workerId);
+      return worker?.type === 'local';
+    });
+
+    if (localCrashed.length === 0) return 0;
+
+    logger.info({ count: localCrashed.length }, 'attempting recovery of crashed local sessions');
+    let recoveredCount = 0;
+
+    for (const session of localCrashed) {
+      const log = createSessionLogger(session.id);
+
+      try {
+        const ptyProc = this.ptySpawner.reattachSession(session.id);
+
+        if (ptyProc) {
+          // Successfully reattached
+          this.activePtys.set(session.id, ptyProc);
+          this.repo.activateSession(session.id, ptyProc.pid);
+          this.repo.setCrashRecoveredAt(session.id);
+          this.emit('session_activated', this.repo.getSession(session.id));
+          log.info('successfully reattached to local tmux session');
+          recoveredCount++;
+        } else {
+          // tmux session is dead — leave as crashed
+          this.repo.setCrashRecoveredAt(session.id);
+          log.info('local tmux session is dead, leaving as crashed');
+        }
+      } catch (err) {
+        log.warn({ err }, 'failed to recover local session');
+        this.repo.setCrashRecoveredAt(session.id);
+      }
+    }
+
+    logger.info({ recovered: recoveredCount, total: localCrashed.length }, 'local session recovery complete');
+    return recoveredCount;
+  }
+
+  /**
    * Resume sessions that were active before a restart.
    * When wasCrash is true, sessions are marked as 'crashed' (preserved for review).
    * When wasCrash is false (clean shutdown), sessions are marked as 'completed' + auto-deleted.

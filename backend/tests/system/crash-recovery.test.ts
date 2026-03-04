@@ -172,6 +172,73 @@ describe('Crash Recovery System Tests', () => {
     });
   });
 
+  describe('local crash recovery via tmux', () => {
+    it('recoverCrashedLocalSessions returns 0 when ptySpawner.reattachSession returns null', () => {
+      // Crash: mark sessions as crashed
+      repo.setHubStatus('running');
+      const s1 = repo.createSession({ title: 'Local 1', workingDirectory: path.join(tmpDir, 'p1') });
+      sessionManager.resumeSessions(ptySpawner, true);
+      expect(repo.getSession(s1.id)?.status).toBe('crashed');
+
+      // Mock reattachSession to return null (tmux dead)
+      ptySpawner.reattachSession = () => null;
+
+      const recovered = sessionManager.recoverCrashedLocalSessions();
+      expect(recovered).toBe(0);
+
+      // Session still crashed, but crash_recovered_at is set
+      expect(repo.getSession(s1.id)?.status).toBe('crashed');
+      const row = (repo as any).db.prepare('SELECT crash_recovered_at FROM sessions WHERE id = ?').get(s1.id) as { crash_recovered_at: string | null };
+      expect(row.crash_recovered_at).toBeTruthy();
+    });
+
+    it('recoverCrashedLocalSessions re-activates session when reattach succeeds', () => {
+      repo.setHubStatus('running');
+      const s1 = repo.createSession({ title: 'Local 1', workingDirectory: path.join(tmpDir, 'p1') });
+      sessionManager.resumeSessions(ptySpawner, true);
+      expect(repo.getSession(s1.id)?.status).toBe('crashed');
+
+      // Mock reattachSession to succeed
+      ptySpawner.reattachSession = (sessionId: string) => ({
+        pid: 12345,
+        sessionId,
+        write: () => {},
+        resize: () => {},
+        kill: () => {},
+      });
+
+      const recovered = sessionManager.recoverCrashedLocalSessions();
+      expect(recovered).toBe(1);
+
+      // Session is now active again
+      const session = repo.getSession(s1.id)!;
+      expect(session.status).toBe('active');
+      expect(session.pid).toBe(12345);
+    });
+
+    it('does not attempt recovery for remote sessions', () => {
+      // Create a remote worker
+      const remoteWorker = repo.createWorker({
+        name: 'Remote',
+        sshHost: '10.0.0.1',
+        sshUser: 'ubuntu',
+        sshKeyPath: '/home/user/.ssh/id_rsa',
+      });
+
+      repo.setHubStatus('running');
+      const remoteSession = repo.createSession({ title: 'Remote', workingDirectory: path.join(tmpDir, 'p1'), targetWorker: remoteWorker.id });
+      sessionManager.resumeSessions(ptySpawner, true);
+
+      // Mock reattachSession — should NOT be called for remote sessions
+      let reattachCalled = false;
+      ptySpawner.reattachSession = () => { reattachCalled = true; return null; };
+
+      sessionManager.recoverCrashedLocalSessions();
+      expect(reattachCalled).toBe(false);
+      expect(repo.getSession(remoteSession.id)?.status).toBe('crashed');
+    });
+  });
+
   describe('crash then clean restart cycle', () => {
     it('crash → view crashed sessions → dismiss → clean shutdown', () => {
       // Crash
