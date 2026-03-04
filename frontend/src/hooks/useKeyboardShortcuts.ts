@@ -9,6 +9,8 @@ export type ShortcutAction =
   | 'toggle_shell'
   | 'focus_next'
   | 'focus_prev'
+  | 'focus_down'
+  | 'focus_up'
   | 'switch_next'
   | 'switch_prev'
   | 'confirm_session'
@@ -40,9 +42,9 @@ export const DEFAULT_SHORTCUT_MAP: Shortcut[] = [
   { key: 'i', action: 'toggle_issues', category: 'Panels', description: 'Toggle Issues panel', label: 'Toggle Issues' },
   { key: 's', action: 'toggle_shell', category: 'Panels', description: 'Toggle Shell terminal', label: 'Toggle Shell' },
   { key: 'ArrowRight', action: 'focus_next', category: 'Navigation', description: 'Focus next session', label: 'Focus Next Session', keepArmed: true },
-  { key: 'ArrowDown', action: 'focus_next', category: 'Navigation', description: 'Focus next session', label: 'Focus Next Session', keepArmed: true },
+  { key: 'ArrowDown', action: 'focus_down', category: 'Navigation', description: 'Focus session below', label: 'Focus Session Below', keepArmed: true },
   { key: 'ArrowLeft', action: 'focus_prev', category: 'Navigation', description: 'Focus previous session', label: 'Focus Previous Session', keepArmed: true },
-  { key: 'ArrowUp', action: 'focus_prev', category: 'Navigation', description: 'Focus previous session', label: 'Focus Previous Session', keepArmed: true },
+  { key: 'ArrowUp', action: 'focus_up', category: 'Navigation', description: 'Focus session above', label: 'Focus Session Above', keepArmed: true },
   { key: 'Tab', action: 'switch_next', category: 'Navigation', description: 'Switch to next session (waiting first)', label: 'Switch Next Session', keepArmed: true },
   { key: 'Shift+Tab', action: 'switch_prev', category: 'Navigation', description: 'Switch to previous session', label: 'Switch Previous Session', keepArmed: true },
   { key: 'Enter', action: 'confirm_session', category: 'Navigation', description: 'Confirm session switch', label: 'Confirm Session' },

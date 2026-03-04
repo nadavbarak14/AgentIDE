@@ -71,8 +71,8 @@ npm test && npm run lint
 TypeScript 5.x, Node.js 20 LTS: Follow standard conventions
 
 ## Recent Changes
+- 024-fix-arrow-nav: Added TypeScript 5.7, Node.js 20 LTS + React 18, Tailwind CSS 3, Vite 6
 - 023-session-persistence: Added TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, better-sqlite3, node-pty, ws 8, ssh2, Tailwind CSS 3, Vite 6
-- 021-remove-completed-sessions: Added TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, better-sqlite3, ws 8, Tailwind CSS 3, Vite 6
 - 021-remove-completed-sessions: Added TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, better-sqlite3, ws 8, Tailwind CSS 3, Vite 6
 
 
