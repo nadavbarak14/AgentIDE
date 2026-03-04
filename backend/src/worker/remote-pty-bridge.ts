@@ -76,9 +76,14 @@ export class RemotePtyBridge extends EventEmitter {
       const skillName = entry.name;
       const skillSrc = path.join(bundledSkillsDir, skillName);
 
-      // Resolve symlinks
-      const realSrc = fs.realpathSync(skillSrc);
-      if (!fs.statSync(realSrc).isDirectory()) continue;
+      // Resolve symlinks — skip if target is missing (e.g. CI without registration)
+      let realSrc: string;
+      try {
+        realSrc = fs.realpathSync(skillSrc);
+        if (!fs.statSync(realSrc).isDirectory()) continue;
+      } catch {
+        continue;
+      }
 
       const remoteSkillDir = `${remoteSkillsDir}/${skillName}`;
       commands.push(`mkdir -p ${escapeShellArg(remoteSkillDir)}/scripts`);
