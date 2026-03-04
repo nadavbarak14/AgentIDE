@@ -7,10 +7,10 @@
     "icon": "presentation"
   },
   "skills": [
-    "skills/slides-add-slide",
-    "skills/slides-update-slide",
-    "skills/slides-remove-slide",
-    "skills/slides-export-pptx"
+    "skills/adyx.slides-add-slide",
+    "skills/adyx.slides-update-slide",
+    "skills/adyx.slides-remove-slide",
+    "skills/adyx.slides-export-pptx"
   ],
   "boardCommands": [
     "slides.add_slide",
