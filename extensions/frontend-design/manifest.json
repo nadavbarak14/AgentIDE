@@ -7,9 +7,9 @@
     "icon": "layout"
   },
   "skills": [
-    "skills/design-add-screen",
-    "skills/design-update-screen",
-    "skills/design-remove-screen"
+    "skills/adyx.design-add-screen",
+    "skills/adyx.design-update-screen",
+    "skills/adyx.design-remove-screen"
   ],
   "boardCommands": [
     "design.add_screen",

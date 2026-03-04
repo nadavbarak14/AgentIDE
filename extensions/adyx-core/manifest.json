@@ -1,0 +1,21 @@
+{
+  "name": "adyx-core",
+  "displayName": "Adyx Core",
+  "skills": [
+    "skills/adyx.open-file",
+    "skills/adyx.open-preview",
+    "skills/adyx.show-diff",
+    "skills/adyx.show-panel",
+    "skills/adyx.view-click",
+    "skills/adyx.view-navigate",
+    "skills/adyx.view-read-page",
+    "skills/adyx.view-record-start",
+    "skills/adyx.view-record-stop",
+    "skills/adyx.view-screenshot",
+    "skills/adyx.view-set-resolution",
+    "skills/adyx.view-type",
+    "skills/adyx.widget-create",
+    "skills/adyx.widget-dismiss",
+    "skills/adyx.widget-get-result"
+  ]
+}

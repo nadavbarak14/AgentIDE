@@ -45,11 +45,11 @@ function readManifests() {
 }
 
 function generateAutoSkill(name, displayName, action, skillMd, scriptContent) {
-  const skillDir = path.join(SKILLS_DIR, `${name}.${action}`);
+  const skillDir = path.join(SKILLS_DIR, `adyx.${name}.${action}`);
   ensureDir(skillDir);
   ensureDir(path.join(skillDir, 'scripts'));
   fs.writeFileSync(path.join(skillDir, 'SKILL.md'), skillMd);
-  const scriptPath = path.join(skillDir, 'scripts', `${name}.${action}.sh`);
+  const scriptPath = path.join(skillDir, 'scripts', `adyx.${name}.${action}.sh`);
   fs.writeFileSync(scriptPath, scriptContent);
   fs.chmodSync(scriptPath, '755');
 }
@@ -61,23 +61,23 @@ function generateAutoSkills(manifest) {
 
   // open
   generateAutoSkill(name, displayName, 'open',
-    `---\nname: ${name}.open\ndescription: Open the ${displayName} extension panel\n---\n\n# ${name}.open\n\nOpens the ${displayName} panel.\n\n## Usage\n\n\`\`\`bash\n./scripts/${name}.open.sh\n\`\`\`\n`,
+    `---\nname: adyx.${name}.open\ndescription: Open the ${displayName} extension panel\n---\n\n# adyx.${name}.open\n\nOpens the ${displayName} panel.\n\n## Usage\n\n\`\`\`bash\n./scripts/adyx.${name}.open.sh\n\`\`\`\n`,
     `#!/bin/bash\ncurl -s "http://localhost:\${C3_HUB_PORT}/api/sessions/\${C3_SESSION_ID}/board-command" \\\n  -H 'Content-Type: application/json' \\\n  -d '{"command":"show_panel","params":{"panel":"ext:${name}"}}' > /dev/null\necho "Opened ${displayName} panel"\n`
   );
 
   // comment
   generateAutoSkill(name, displayName, 'comment',
-    `---\nname: ${name}.comment\ndescription: Ask the user for feedback on the ${displayName} extension\n---\n\n# ${name}.comment\n\nOpens ${displayName} and enables inspect mode.\n\n## Usage\n\n\`\`\`bash\n./scripts/${name}.comment.sh [screen-name]\n\`\`\`\n`,
+    `---\nname: adyx.${name}.comment\ndescription: Ask the user for feedback on the ${displayName} extension\n---\n\n# adyx.${name}.comment\n\nOpens ${displayName} and enables inspect mode.\n\n## Usage\n\n\`\`\`bash\n./scripts/adyx.${name}.comment.sh [screen-name]\n\`\`\`\n`,
     `#!/bin/bash\nSCREEN="\${1:-}"\nPARAMS='{"extension":"${name}"}'\nif [ -n "$SCREEN" ]; then\n  PARAMS='{"extension":"${name}","screen":"'"$SCREEN"'"}'\nfi\ncurl -s "http://localhost:\${C3_HUB_PORT}/api/sessions/\${C3_SESSION_ID}/board-command" \\\n  -H 'Content-Type: application/json' \\\n  -d '{"command":"ext.comment","params":'"$PARAMS"'}' > /dev/null\necho "Requested feedback on ${displayName}"\n`
   );
 
   // select-text
   generateAutoSkill(name, displayName, 'select-text',
-    `---\nname: ${name}.select-text\ndescription: Enable text selection in ${displayName}\n---\n\n# ${name}.select-text\n\nEnables text selection mode.\n\n## Usage\n\n\`\`\`bash\n./scripts/${name}.select-text.sh\n\`\`\`\n`,
+    `---\nname: adyx.${name}.select-text\ndescription: Enable text selection in ${displayName}\n---\n\n# adyx.${name}.select-text\n\nEnables text selection mode.\n\n## Usage\n\n\`\`\`bash\n./scripts/adyx.${name}.select-text.sh\n\`\`\`\n`,
     `#!/bin/bash\ncurl -s "http://localhost:\${C3_HUB_PORT}/api/sessions/\${C3_SESSION_ID}/board-command" \\\n  -H 'Content-Type: application/json' \\\n  -d '{"command":"ext.select_text","params":{"extension":"${name}"}}' > /dev/null\necho "Text selection enabled on ${displayName}"\n`
   );
 
-  console.info(`[register] Auto-skills: ${name}.open, ${name}.comment, ${name}.select-text`);
+  console.info(`[register] Auto-skills: adyx.${name}.open, adyx.${name}.comment, adyx.${name}.select-text`);
 }
 
 function symlinkCustomSkills(manifest) {
@@ -133,11 +133,13 @@ function cleanupStaleSkills(activeExtensions) {
       }
     } catch { /* ignore */ }
 
-    // Check auto-skills
+    // Check auto-skills (adyx.EXTNAME.action format)
     const autoSuffixes = ['.open', '.comment', '.select-text'];
     const isAutoSkill = autoSuffixes.some(s => entry.name.endsWith(s));
     if (isAutoSkill) {
-      const extName = autoSuffixes.reduce((n, s) => n.replace(new RegExp(s.replace('.', '\\.') + '$'), ''), entry.name);
+      let extName = autoSuffixes.reduce((n, s) => n.replace(new RegExp(s.replace('.', '\\.') + '$'), ''), entry.name);
+      // Strip adyx. prefix if present
+      extName = extName.replace(/^adyx\./, '');
       if (!activeExtensions.includes(extName)) {
         fs.rmSync(fullPath, { recursive: true, force: true });
         console.info(`[register] Cleaned stale auto-skill: ${entry.name}`);
