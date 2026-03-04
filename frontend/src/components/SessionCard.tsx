@@ -49,7 +49,7 @@ export function SessionCard({
   isSingleView: _isSingleView = false,
   onKill,
   onToggleLock,
-  onDelete: _onDelete,
+  onDelete,
   onSetCurrent: _onSetCurrent,
   isZoomed = false,
   onToggleZoom,
