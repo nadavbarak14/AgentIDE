@@ -4,11 +4,26 @@ import { ProjectPicker } from './ProjectPicker';
 import { WorkerSelector } from './WorkerSelector';
 import { WorkerBadge } from './WorkerBadge';
 
+interface PredefinedFlag {
+  id: string;
+  label: string;
+  flag: string;
+  description: string;
+  warningLevel: 'normal' | 'caution';
+  isPseudo: boolean;
+}
+
+const PREDEFINED_FLAGS: PredefinedFlag[] = [
+  { id: 'skip-permissions', label: 'Skip Permissions', flag: '--dangerously-skip-permissions', description: 'Skip all permission prompts', warningLevel: 'caution', isPseudo: false },
+  { id: 'worktree', label: 'Worktree', flag: '--worktree', description: 'Use isolated git branch', warningLevel: 'normal', isPseudo: true },
+  { id: 'clean-start', label: 'Clean Start', flag: '', description: 'Start fresh conversation', warningLevel: 'normal', isPseudo: true },
+];
+
 interface SessionQueueProps {
   activeSessions: Session[];
   workers: Worker[];
   onRequestAddMachine?: () => void;
-  onCreateSession: (workingDirectory: string, title: string, targetWorker?: string | null, worktree?: boolean, startFresh?: boolean) => Promise<unknown>;
+  onCreateSession: (workingDirectory: string, title: string, targetWorker?: string | null, worktree?: boolean, startFresh?: boolean, flags?: string) => Promise<unknown>;
   onFocusSession: (id: string) => void;
   onKillSession: (id: string) => void;
 }
@@ -26,6 +41,7 @@ export function SessionQueue({
   const [targetWorker, setTargetWorker] = useState<string | null>(null);
   const [worktree, setWorktree] = useState(false);
   const [startFresh, setStartFresh] = useState(false);
+  const [flags, setFlags] = useState('');
   const [creating, setCreating] = useState(false);
 
   const handleProjectSelect = (directoryPath: string, workerId: string | null) => {
@@ -45,12 +61,13 @@ export function SessionQueue({
     if (!directory.trim() || !title.trim()) return;
     setCreating(true);
     try {
-      await onCreateSession(directory.trim(), title.trim(), targetWorker, worktree, startFresh);
+      await onCreateSession(directory.trim(), title.trim(), targetWorker, worktree, startFresh, flags.trim() || undefined);
       setDirectory('');
       setTitle('');
       setTargetWorker(null);
       setWorktree(false);
       setStartFresh(false);
+      setFlags('');
     } finally {
       setCreating(false);
     }
@@ -83,24 +100,55 @@ export function SessionQueue({
             onChange={handleWorkerChange}
             onRequestAddMachine={onRequestAddMachine}
           />
-          <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={worktree}
-              onChange={(e) => setWorktree(e.target.checked)}
-              className="rounded border-gray-600 bg-gray-900 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
-            />
-            Use worktree (isolated git branch)
-          </label>
-          <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={startFresh}
-              onChange={(e) => setStartFresh(e.target.checked)}
-              className="rounded border-gray-600 bg-gray-900 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
-            />
-            Start fresh (don't continue last conversation)
-          </label>
+          <div className="flex flex-wrap gap-1.5">
+            {PREDEFINED_FLAGS.map((pf) => {
+              const isActive = pf.id === 'worktree' ? worktree
+                : pf.id === 'clean-start' ? startFresh
+                : flags.includes(pf.flag);
+              const activeClass = pf.warningLevel === 'caution' && isActive
+                ? 'bg-amber-600/30 border-amber-500/50 text-amber-300'
+                : isActive
+                ? 'bg-blue-600/30 border-blue-500/50 text-blue-300'
+                : 'bg-gray-900 border-gray-600 text-gray-400 hover:border-gray-500';
+              return (
+                <button
+                  key={pf.id}
+                  type="button"
+                  title={pf.description}
+                  onClick={() => {
+                    if (pf.id === 'worktree') {
+                      setWorktree(!worktree);
+                    } else if (pf.id === 'clean-start') {
+                      setStartFresh(!startFresh);
+                    } else {
+                      setFlags((prev) => {
+                        const trimmed = prev.trim();
+                        if (trimmed.includes(pf.flag)) {
+                          return trimmed.replace(pf.flag, '').replace(/\s+/g, ' ').trim();
+                        }
+                        return trimmed ? `${trimmed} ${pf.flag}` : pf.flag;
+                      });
+                    }
+                  }}
+                  className={`px-2 py-0.5 text-xs rounded border transition-colors ${activeClass}`}
+                >
+                  {pf.label}
+                </button>
+              );
+            })}
+          </div>
+          <input
+            type="text"
+            placeholder="CLI flags (e.g., --dangerously-skip-permissions)"
+            value={flags}
+            onChange={(e) => setFlags(e.target.value)}
+            className="w-full px-2 py-1.5 text-sm bg-gray-900 border border-gray-600 rounded text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none font-mono"
+          />
+          {(flags.includes('--dangerously-skip-permissions')) && (
+            <div className="text-xs text-amber-400 bg-amber-900/20 rounded px-2 py-1">
+              All tool actions will execute without permission prompts.
+            </div>
+          )}
           <button
             type="submit"
             disabled={creating || !directory.trim() || !title.trim()}

@@ -14,6 +14,7 @@ export interface Session {
   lock: boolean;
   continuationCount: number;
   worktree: boolean;
+  flags: string;
   terminalScrollback: string | null;
   createdAt: string;
   startedAt: string | null;
@@ -27,6 +28,7 @@ export interface CreateSessionInput {
   targetWorker?: string | null;
   worktree?: boolean;
   startFresh?: boolean;
+  flags?: string;
 }
 
 export interface UpdateSessionInput {

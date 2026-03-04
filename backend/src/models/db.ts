@@ -339,6 +339,11 @@ function migrate(database: Database.Database): void {
     database.exec('ALTER TABLE workers ADD COLUMN remote_agent_port INTEGER');
   }
 
+  // Add flags column to sessions table
+  if (!sessionColNames.has('flags')) {
+    database.exec("ALTER TABLE sessions ADD COLUMN flags TEXT NOT NULL DEFAULT ''");
+  }
+
   // Migrate video_recordings table for WebM format
   const videoCols = database.pragma('table_info(video_recordings)') as Array<{ name: string }>;
   const videoColNames = new Set(videoCols.map((c) => c.name));

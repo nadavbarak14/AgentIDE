@@ -1,7 +1,6 @@
 import path from 'node:path';
 import type { Repository } from '../models/repository.js';
 import type { Project, CreateProjectInput, UpdateProjectInput } from '../models/types.js';
-import { isWithinHomeDir } from '../api/routes/directories.js';
 import { logger } from './logger.js';
 
 export class ProjectService {
@@ -12,11 +11,6 @@ export class ProjectService {
     const worker = this.repo.getWorker(input.workerId);
     if (!worker) {
       throw new Error(`Worker not found: ${input.workerId}`);
-    }
-
-    // Validate path within $HOME for local workers
-    if (worker.type === 'local' && !isWithinHomeDir(input.directoryPath)) {
-      throw new Error('Directory not allowed: path must be within home directory');
     }
 
     // Auto-derive display name if not provided

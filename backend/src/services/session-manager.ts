@@ -125,14 +125,18 @@ export class SessionManager extends EventEmitter {
     const enabledExtensions = this.repo.getSessionExtensions(session.id);
     log.info({ enabledExtensions }, 'session enabled extensions');
 
+    // Parse user-provided flags
+    const userFlags = parseFlags(session.flags);
+
     if (startFresh || session.worktree) {
-      const args = session.worktree ? ['--worktree'] : [];
-      log.info({ worktree: session.worktree, startFresh }, 'spawning new claude process');
+      const args = session.worktree ? ['--worktree', ...userFlags] : [...userFlags];
+      log.info({ worktree: session.worktree, startFresh, flags: session.flags }, 'spawning new claude process');
       return this.ptySpawner.spawn(session.id, session.workingDirectory, args, enabledExtensions);
     } else {
-      log.info({ dir: session.workingDirectory }, 'spawning claude with --continue');
+      const args = ['--continue', ...userFlags];
+      log.info({ dir: session.workingDirectory, flags: session.flags }, 'spawning claude with --continue');
       this.continueSessions.set(session.id, Date.now());
-      return this.ptySpawner.spawn(session.id, session.workingDirectory, ['--continue'], enabledExtensions);
+      return this.ptySpawner.spawn(session.id, session.workingDirectory, args, enabledExtensions);
     }
   }
 
@@ -156,8 +160,9 @@ export class SessionManager extends EventEmitter {
       }
     }
 
-    const args = session.worktree ? ['--worktree'] : [];
-    log.info({ worktree: session.worktree, workerId }, 'spawning new remote claude process');
+    const userFlags = parseFlags(session.flags);
+    const args = session.worktree ? ['--worktree', ...userFlags] : [...userFlags];
+    log.info({ worktree: session.worktree, workerId, flags: session.flags }, 'spawning new remote claude process');
     return bridge.spawn(session.id, workerId, session.workingDirectory, args);
   }
 
@@ -639,4 +644,66 @@ export class SessionManager extends EventEmitter {
 
 function escapeShellArg(arg: string): string {
   return `'${arg.replace(/'/g, "'\\''")}'`;
+}
+
+/**
+ * Parse a flags string into an array of tokens, respecting quoted values.
+ * Deduplicates by flag name (keeps last occurrence).
+ * Example: '--dangerously-skip-permissions --allowedTools "Read,Grep"'
+ *   → ['--dangerously-skip-permissions', '--allowedTools', 'Read,Grep']
+ */
+export function parseFlags(flagString: string): string[] {
+  const trimmed = flagString.trim();
+  if (!trimmed) return [];
+
+  const tokens: string[] = [];
+  let current = '';
+  let inQuote: string | null = null;
+
+  for (let i = 0; i < trimmed.length; i++) {
+    const char = trimmed[i];
+
+    if (inQuote) {
+      if (char === inQuote) {
+        inQuote = null;
+      } else {
+        current += char;
+      }
+    } else if (char === '"' || char === "'") {
+      inQuote = char;
+    } else if (char === ' ' || char === '\t') {
+      if (current) {
+        tokens.push(current);
+        current = '';
+      }
+    } else {
+      current += char;
+    }
+  }
+  if (current) tokens.push(current);
+
+  // Deduplicate by flag name (keep last occurrence)
+  const seen = new Map<string, number>();
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (token.startsWith('-')) {
+      const flagName = token.split('=')[0];
+      seen.set(flagName, i);
+    }
+  }
+
+  const result: string[] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (token.startsWith('-')) {
+      const flagName = token.split('=')[0];
+      if (seen.get(flagName) === i) {
+        result.push(token);
+      }
+    } else {
+      result.push(token);
+    }
+  }
+
+  return result;
 }
