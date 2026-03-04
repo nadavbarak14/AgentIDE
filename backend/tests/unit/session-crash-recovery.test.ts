@@ -9,9 +9,6 @@ describe('Session Crash Recovery', () => {
   let remoteWorker: Worker;
 
   beforeEach(() => {
-    createTestDb();
-    repo = new Repository(require('better-sqlite3')(':memory:'));
-    // Re-create with proper test DB
     const db = createTestDb();
     repo = new Repository(db);
 
@@ -151,7 +148,7 @@ describe('Session Crash Recovery', () => {
 
   describe('listSessions ordering', () => {
     it('orders crashed sessions after active but before completed', () => {
-      const s1 = repo.createSession({ title: 'Active', workingDirectory: '/tmp/a', targetWorker: localWorker.id });
+      repo.createSession({ title: 'Active', workingDirectory: '/tmp/a', targetWorker: localWorker.id });
       const s2 = repo.createSession({ title: 'Completed', workingDirectory: '/tmp/b', targetWorker: localWorker.id });
       const s3 = repo.createSession({ title: 'Crashed', workingDirectory: '/tmp/c', targetWorker: localWorker.id });
 
