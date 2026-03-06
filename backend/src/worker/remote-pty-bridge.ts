@@ -9,6 +9,7 @@ import { escapeShellArg, getTmuxSessionName } from './tmux-utils.js';
 
 export class RemotePtyBridge extends EventEmitter {
   private channels = new Map<string, ClientChannel>();
+  private sessionWorkerIds = new Map<string, string>();
   private outputBuffers = new Map<string, string>();
   private lastOutputTime = new Map<string, number>();
   private scrollbackDir: string;
@@ -133,6 +134,7 @@ export class RemotePtyBridge extends EventEmitter {
 
     const stream = await this.tunnelManager.shell(workerId, { cols: 120, rows: 40 });
     this.channels.set(sessionId, stream);
+    this.sessionWorkerIds.set(sessionId, workerId);
     this.outputBuffers.set(sessionId, '');
     this.lastOutputTime.set(sessionId, Date.now());
 
@@ -219,6 +221,7 @@ export class RemotePtyBridge extends EventEmitter {
 
     const stream = await this.tunnelManager.shell(workerId, { cols: 120, rows: 40 });
     this.channels.set(sessionId, stream);
+    this.sessionWorkerIds.set(sessionId, workerId);
     this.outputBuffers.set(sessionId, '');
     this.lastOutputTime.set(sessionId, Date.now());
 
@@ -285,21 +288,24 @@ export class RemotePtyBridge extends EventEmitter {
     const log = createSessionLogger(sessionId);
     const stream = this.channels.get(sessionId);
     const tmuxName = getTmuxSessionName(sessionId);
+    const workerId = this.sessionWorkerIds.get(sessionId);
 
     if (stream) {
       log.info({ tmuxSession: tmuxName }, 'killing remote session and tmux session');
-      // Send Ctrl+C then exit to terminate the remote process
-      stream.write('\x03');
-      setTimeout(() => {
-        try {
-          // Kill the tmux session to clean up, then exit the SSH shell
-          stream.write(`tmux kill-session -t ${escapeShellArg(tmuxName)} 2>/dev/null\n`);
-          stream.write('exit\n');
-          stream.close();
-        } catch {
-          // Stream may already be closed
-        }
-      }, 500);
+
+      // Kill the tmux session via a separate exec channel (not through the attached stream)
+      // This avoids the kill commands showing up in Claude's terminal
+      if (workerId) {
+        const killCmd = `tmux kill-session -t ${escapeShellArg(tmuxName)} 2>/dev/null`;
+        this.tunnelManager.exec(workerId, killCmd).catch((err) => {
+          log.warn({ err: (err as Error).message }, 'failed to kill tmux session via exec, closing stream');
+        }).finally(() => {
+          try { stream.close(); } catch { /* already closed */ }
+        });
+      } else {
+        // No workerId — fallback to closing the stream directly
+        try { stream.close(); } catch { /* already closed */ }
+      }
     }
   }
 
@@ -345,6 +351,7 @@ export class RemotePtyBridge extends EventEmitter {
   private cleanup(sessionId: string): void {
     this.flushScrollback(sessionId);
     this.channels.delete(sessionId);
+    this.sessionWorkerIds.delete(sessionId);
     this.outputBuffers.delete(sessionId);
     this.lastOutputTime.delete(sessionId);
     this.idleNotified.delete(sessionId);
