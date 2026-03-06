@@ -52,6 +52,8 @@ Auto-generated from all feature plans. Last updated: 2026-02-17
 - SQLite (better-sqlite3) with WAL mode — existing `sessions` table, no schema changes (021-remove-completed-sessions)
 - TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, better-sqlite3, node-pty, ws 8, ssh2, Tailwind CSS 3, Vite 6 (023-session-persistence)
 - SQLite (better-sqlite3) with WAL mode — existing `sessions` table (add `crash_recovered_at` column), existing `settings` table (add `hub_status` key) (023-session-persistence)
+- TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, better-sqlite3, Tailwind CSS 3, Vite 6, xterm.js 5 (025-preview-device-presets)
+- SQLite (better-sqlite3) with WAL mode - existing `panel_states` table, one new column (`mobile_device_id`) (025-preview-device-presets)
 
 - TypeScript 5.x, Node.js 20 LTS + React 18, Tailwind CSS 3, xterm.js 5, Monaco Editor, Express, node-pty, ssh2, chokidar, diff2html, ws (001-c3-dashboard)
 
@@ -71,9 +73,9 @@ npm test && npm run lint
 TypeScript 5.x, Node.js 20 LTS: Follow standard conventions
 
 ## Recent Changes
+- 025-preview-device-presets: Added TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, better-sqlite3, Tailwind CSS 3, Vite 6, xterm.js 5
 - 024-fix-arrow-nav: Added TypeScript 5.7, Node.js 20 LTS + React 18, Tailwind CSS 3, Vite 6
 - 023-session-persistence: Added TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, better-sqlite3, node-pty, ws 8, ssh2, Tailwind CSS 3, Vite 6
-- 021-remove-completed-sessions: Added TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, better-sqlite3, ws 8, Tailwind CSS 3, Vite 6
 
 
 <!-- MANUAL ADDITIONS START -->

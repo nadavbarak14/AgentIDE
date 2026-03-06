@@ -210,6 +210,16 @@ export function SessionCard({
             panel.setCustomViewport(w, h);
             ensurePanelOpen('preview');
           }
+        } else if (msg.command === 'view-set-device') {
+          const deviceId = String(msg.params.deviceId || '');
+          if (deviceId) {
+            panel.setPreviewViewport('mobile');
+            panel.setMobileDeviceId(deviceId);
+            ensurePanelOpen('preview');
+          }
+        } else if (msg.command === 'view-set-desktop') {
+          panel.setPreviewViewport('desktop');
+          ensurePanelOpen('preview');
         } else if (msg.command && String(msg.command).startsWith('view-')) {
           // view-* board commands — relay to bridge silently (no panel flashing)
           const requestId = msg.requestId;
@@ -265,7 +275,8 @@ export function SessionCard({
 
               switch (msg.command) {
                 case 'view-screenshot': {
-                  const r = await bridge.captureScreenshotWithResult();
+                  const screenshotMode = msg.params?.mode === 'viewport' ? 'viewport' as const : 'full' as const;
+                  const r = await bridge.captureScreenshotWithResult(screenshotMode);
                   if (r.dataUrl) {
                     const saveRes = await fetch(`/api/sessions/${session.id}/screenshots`, {
                       method: 'POST',
@@ -279,9 +290,11 @@ export function SessionCard({
                   }
                   break;
                 }
-                case 'view-record-start':
-                  bridge.startRecording();
+                case 'view-record-start': {
+                  const recordMode = msg.params?.mode === 'viewport' ? 'viewport' as const : 'full' as const;
+                  bridge.startRecording(recordMode);
                   break;
+                }
                 case 'view-record-stop': {
                   const r = await bridge.stopRecordingWithResult();
                   if (r.videoDataUrl) {
@@ -517,6 +530,14 @@ export function SessionCard({
       panel.setTerminalPosition('center');
     }
   }, [showLeftPanel, showRightPanel, panel.terminalPosition, showToolbar, panel]);
+
+  // Respect restored terminal position: if loaded as 'bottom', treat as user override
+  // so auto-switching doesn't move it back to center
+  useEffect(() => {
+    if (panel.terminalPosition === 'bottom') {
+      userOverrideRef.current = true;
+    }
+  }, [session.id]); // eslint-disable-line -- only on session change (initial load)
 
   // Clear user override when all panels close
   useEffect(() => {
@@ -831,6 +852,8 @@ export function SessionCard({
             customViewportWidth={panel.customViewportWidth}
             customViewportHeight={panel.customViewportHeight}
             onCustomViewport={(w, h) => panel.setCustomViewport(w, h)}
+            selectedDeviceId={panel.mobileDeviceId}
+            onDevicePresetSelect={(id) => panel.setMobileDeviceId(id)}
             bridgeRef={previewBridgeRef}
             requestedUrl={panel.previewUrl}
             navCounter={panel.previewNavCounter}

@@ -18,11 +18,13 @@ export function PreviewOverlay({ sessionId, bridge, containerWidth, containerHei
   const [sending, setSending] = useState(false);
   // Screenshot state
   const [screenshotDataUrl, setScreenshotDataUrl] = useState<string | null>(null);
-  const [screenshotMode, setScreenshotMode] = useState<'full' | 'viewport'>('full');
+  const [screenshotDropdownOpen, setScreenshotDropdownOpen] = useState(false);
+  const screenshotDropdownRef = useRef<HTMLDivElement>(null);
   // Recording state
   const [showRecordingPlayer, setShowRecordingPlayer] = useState(false);
   const [recordingTimer, setRecordingTimer] = useState(0);
-  const [recordingMode, setRecordingMode] = useState<'full' | 'viewport'>('full');
+  const [recordDropdownOpen, setRecordDropdownOpen] = useState(false);
+  const recordDropdownRef = useRef<HTMLDivElement>(null);
   const recordingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Handle element selection from bridge
@@ -70,9 +72,10 @@ export function PreviewOverlay({ sessionId, bridge, containerWidth, containerHei
     }
   }, [bridge.screenshotDataUrl]);
 
-  const handleCaptureScreenshot = useCallback(() => {
-    bridge.captureScreenshot(screenshotMode);
-  }, [bridge, screenshotMode]);
+  const handleCaptureScreenshot = useCallback((mode: 'full' | 'viewport') => {
+    bridge.captureScreenshot(mode);
+    setScreenshotDropdownOpen(false);
+  }, [bridge]);
 
   const handleSaveAnnotatedScreenshot = useCallback(async (annotatedDataUrl: string) => {
     try {
@@ -85,23 +88,32 @@ export function PreviewOverlay({ sessionId, bridge, containerWidth, containerHei
   }, [sessionId]);
 
   // Recording handlers
-  const handleToggleRecording = useCallback(() => {
-    if (bridge.isRecording) {
-      bridge.stopRecording();
-      if (recordingIntervalRef.current) {
-        clearInterval(recordingIntervalRef.current);
-        recordingIntervalRef.current = null;
-      }
-      // Player will show when videoDataUrl arrives from bridge
-      setShowRecordingPlayer(true);
-    } else {
-      bridge.startRecording(recordingMode);
-      setRecordingTimer(0);
-      recordingIntervalRef.current = setInterval(() => {
-        setRecordingTimer((t) => t + 1);
-      }, 1000);
+  const handleStopRecording = useCallback(() => {
+    bridge.stopRecording();
+    if (recordingIntervalRef.current) {
+      clearInterval(recordingIntervalRef.current);
+      recordingIntervalRef.current = null;
     }
-  }, [bridge, recordingMode]);
+    setShowRecordingPlayer(true);
+  }, [bridge]);
+
+  const handleStartRecording = useCallback((mode: 'full' | 'viewport') => {
+    bridge.startRecording(mode);
+    setRecordingTimer(0);
+    recordingIntervalRef.current = setInterval(() => {
+      setRecordingTimer((t) => t + 1);
+    }, 1000);
+    setRecordDropdownOpen(false);
+  }, [bridge]);
+
+  const handleRecordButtonClick = useCallback(() => {
+    if (bridge.isRecording) {
+      handleStopRecording();
+    } else {
+      setRecordDropdownOpen((prev) => !prev);
+      setScreenshotDropdownOpen(false);
+    }
+  }, [bridge.isRecording, handleStopRecording]);
 
   const handleSendRecording = useCallback(async () => {
     // For video recordings, save the video data URL as a screenshot (it's a data URL)
@@ -125,6 +137,31 @@ export function PreviewOverlay({ sessionId, bridge, containerWidth, containerHei
     };
   }, []);
 
+  // Click-outside and Escape handler for dropdowns
+  useEffect(() => {
+    if (!screenshotDropdownOpen && !recordDropdownOpen) return;
+    const handleMouseDown = (e: MouseEvent) => {
+      if (screenshotDropdownOpen && screenshotDropdownRef.current && !screenshotDropdownRef.current.contains(e.target as Node)) {
+        setScreenshotDropdownOpen(false);
+      }
+      if (recordDropdownOpen && recordDropdownRef.current && !recordDropdownRef.current.contains(e.target as Node)) {
+        setRecordDropdownOpen(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setScreenshotDropdownOpen(false);
+        setRecordDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleMouseDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleMouseDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [screenshotDropdownOpen, recordDropdownOpen]);
+
   return (
     <div className="absolute inset-0 pointer-events-none z-20">
       {/* Toolbar */}
@@ -143,83 +180,65 @@ export function PreviewOverlay({ sessionId, bridge, containerWidth, containerHei
           👁️
         </button>
 
-        {/* Screenshot mode selector */}
-        <div className="flex gap-0.5 border border-gray-600 rounded">
+        {/* Screenshot button with dropdown */}
+        <div className="relative" ref={screenshotDropdownRef}>
           <button
-            onClick={() => setScreenshotMode('viewport')}
-            className={`px-2 py-1 text-xs rounded-l ${
-              screenshotMode === 'viewport'
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-            }`}
-            title="Screenshot: current view only"
+            onClick={() => { setScreenshotDropdownOpen((prev) => !prev); setRecordDropdownOpen(false); }}
+            className="w-7 h-7 flex items-center justify-center rounded text-sm bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-600"
+            title="Capture screenshot"
+            disabled={!bridge.isReady}
           >
-            View
+            📸
           </button>
-          <button
-            onClick={() => setScreenshotMode('full')}
-            className={`px-2 py-1 text-xs rounded-r ${
-              screenshotMode === 'full'
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-            }`}
-            title="Screenshot: full page"
-          >
-            Full
-          </button>
+          {screenshotDropdownOpen && (
+            <div className="absolute right-0 top-full mt-1 z-50 w-28 bg-gray-800 border border-gray-600 rounded shadow-lg py-0.5">
+              <button
+                onClick={() => handleCaptureScreenshot('viewport')}
+                className="w-full px-3 py-1.5 text-xs text-left text-gray-300 hover:bg-gray-700"
+              >
+                View
+              </button>
+              <button
+                onClick={() => handleCaptureScreenshot('full')}
+                className="w-full px-3 py-1.5 text-xs text-left text-gray-300 hover:bg-gray-700"
+              >
+                Full Page
+              </button>
+            </div>
+          )}
         </div>
 
-        {/* Screenshot button */}
-        <button
-          onClick={handleCaptureScreenshot}
-          className="w-7 h-7 flex items-center justify-center rounded text-sm bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-600"
-          title="Capture screenshot"
-          disabled={!bridge.isReady}
-        >
-          📸
-        </button>
-
-        {/* Recording mode selector */}
-        <div className="flex gap-0.5 border border-gray-600 rounded">
+        {/* Record button with dropdown */}
+        <div className="relative" ref={recordDropdownRef}>
           <button
-            onClick={() => setRecordingMode('viewport')}
-            className={`px-2 py-1 text-xs rounded-l ${
-              recordingMode === 'viewport'
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+            onClick={handleRecordButtonClick}
+            className={`w-7 h-7 flex items-center justify-center rounded text-sm ${
+              bridge.isRecording
+                ? 'bg-red-600 text-white animate-pulse'
+                : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-600'
             }`}
-            title="Record: current view only"
-            disabled={bridge.isRecording}
+            title={bridge.isRecording ? `Stop recording (${recordingTimer}s)` : 'Record video'}
+            disabled={!bridge.isReady}
           >
-            View
+            {bridge.isRecording ? '⏹️' : '⏺️'}
           </button>
-          <button
-            onClick={() => setRecordingMode('full')}
-            className={`px-2 py-1 text-xs rounded-r ${
-              recordingMode === 'full'
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-            }`}
-            title="Record: full page"
-            disabled={bridge.isRecording}
-          >
-            Full
-          </button>
+          {recordDropdownOpen && !bridge.isRecording && (
+            <div className="absolute right-0 top-full mt-1 z-50 w-28 bg-gray-800 border border-gray-600 rounded shadow-lg py-0.5">
+              <button
+                onClick={() => handleStartRecording('viewport')}
+                className="w-full px-3 py-1.5 text-xs text-left text-gray-300 hover:bg-gray-700"
+              >
+                View
+              </button>
+              <button
+                onClick={() => handleStartRecording('full')}
+                className="w-full px-3 py-1.5 text-xs text-left text-gray-300 hover:bg-gray-700"
+              >
+                Full Page
+              </button>
+            </div>
+          )}
         </div>
-
-        {/* Record button */}
-        <button
-          onClick={handleToggleRecording}
-          className={`w-7 h-7 flex items-center justify-center rounded text-sm ${
-            bridge.isRecording
-              ? 'bg-red-600 text-white animate-pulse'
-              : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-600'
-          }`}
-          title={bridge.isRecording ? `Stop recording (${recordingTimer}s)` : 'Record video'}
-          disabled={!bridge.isReady}
-        >
-          {bridge.isRecording ? '⏹️' : '⏺️'}
-        </button>
 
         {/* Recording timer */}
         {bridge.isRecording && (

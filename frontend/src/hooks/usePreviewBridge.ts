@@ -46,7 +46,7 @@ export interface UsePreviewBridgeReturn {
   clickElement: (role: string, name: string) => Promise<Record<string, unknown>>;
   typeElement: (role: string, name: string, text: string) => Promise<Record<string, unknown>>;
   navigateTo: (url: string) => Promise<Record<string, unknown>>;
-  captureScreenshotWithResult: () => Promise<Record<string, unknown>>;
+  captureScreenshotWithResult: (mode?: 'full' | 'viewport') => Promise<Record<string, unknown>>;
   stopRecordingWithResult: () => Promise<Record<string, unknown>>;
   sendCommandWithResult: (message: Record<string, unknown>, timeoutMs?: number) => Promise<Record<string, unknown>>;
 }
