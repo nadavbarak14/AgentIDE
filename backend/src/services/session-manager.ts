@@ -529,14 +529,14 @@ export class SessionManager extends EventEmitter {
           log.info('successfully reattached to remote tmux session');
           recoveredCount++;
         } else {
-          // tmux session is dead — leave as crashed
-          this.repo.setCrashRecoveredAt(session.id);
-          log.info('remote tmux session is dead, leaving as crashed');
+          // tmux session is dead — mark as completed
+          this.repo.completeSession(session.id, session.claudeSessionId);
+          log.info('remote tmux session is dead, marked as completed');
         }
       } catch (err) {
-        // Worker unreachable or other error — leave as crashed
-        log.warn({ err }, 'failed to recover remote session');
-        this.repo.setCrashRecoveredAt(session.id);
+        // Worker unreachable or other error — mark as completed
+        log.warn({ err }, 'failed to recover remote session, marking as completed');
+        this.repo.completeSession(session.id, session.claudeSessionId);
       }
     }
 
@@ -576,13 +576,13 @@ export class SessionManager extends EventEmitter {
           log.info('successfully reattached to local tmux session');
           recoveredCount++;
         } else {
-          // tmux session is dead — leave as crashed
-          this.repo.setCrashRecoveredAt(session.id);
-          log.info('local tmux session is dead, leaving as crashed');
+          // tmux session is dead — mark as completed
+          this.repo.completeSession(session.id, session.claudeSessionId);
+          log.info('local tmux session is dead, marked as completed');
         }
       } catch (err) {
         log.warn({ err }, 'failed to recover local session');
-        this.repo.setCrashRecoveredAt(session.id);
+        this.repo.completeSession(session.id, session.claudeSessionId);
       }
     }
 
@@ -592,28 +592,20 @@ export class SessionManager extends EventEmitter {
 
   /**
    * Resume sessions that were active before a restart.
-   * When wasCrash is true, sessions are marked as 'crashed' (preserved for review).
-   * When wasCrash is false (clean shutdown), sessions are marked as 'completed' + auto-deleted.
+   * Always marks sessions as 'crashed' so recovery methods can attempt tmux reattachment.
+   * Sessions that can't be recovered will be completed by the recovery methods.
    */
   resumeSessions(_ptySpawner: PtySpawner, wasCrash: boolean = false): void {
     const activeSessions = this.repo.listSessions('active');
     if (activeSessions.length === 0) return;
 
+    // Always mark as crashed so recovery can attempt tmux reattachment
+    // tmux sessions survive both clean restarts and crashes
+    const crashedCount = this.repo.markSessionsCrashed();
     if (wasCrash) {
-      // Crash detected — mark all active sessions as crashed (preserve for review)
-      const crashedCount = this.repo.markSessionsCrashed();
-      logger.warn({ count: crashedCount }, 'crash detected: marked active sessions as crashed');
+      logger.warn({ count: crashedCount }, 'crash detected: marked active sessions as crashed for recovery');
     } else {
-      // Clean shutdown — mark completed and auto-delete (existing behavior)
-      logger.info({ count: activeSessions.length }, 'checking active sessions for resume');
-
-      for (const session of activeSessions) {
-        this.repo.completeSession(session.id, session.claudeSessionId);
-        logger.info(
-          { sessionId: session.id, title: session.title, dir: session.workingDirectory, hadClaudeSessionId: !!session.claudeSessionId },
-          'marked detached session as completed for restart',
-        );
-      }
+      logger.info({ count: crashedCount }, 'clean restart: marked active sessions as crashed for tmux recovery');
     }
   }
 

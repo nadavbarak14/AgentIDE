@@ -54,6 +54,33 @@ export class PtySpawner extends EventEmitter {
   }
 
   /**
+   * Build permission allow-list for all bundled adyx skill scripts.
+   * Returns entries like "Bash(.claude/skills/adyx.view-navigate/scripts/adyx.view-navigate.sh:*)"
+   */
+  static buildSkillPermissions(): string[] {
+    const bundledSkillsDir = path.resolve(import.meta.dirname, '../../../.claude-skills/skills');
+    const allow: string[] = [];
+    if (!fs.existsSync(bundledSkillsDir)) return allow;
+
+    for (const skillEntry of fs.readdirSync(bundledSkillsDir, { withFileTypes: true })) {
+      if (!skillEntry.isDirectory() && !skillEntry.isSymbolicLink()) continue;
+      const skillName = skillEntry.name;
+      let scriptsDir: string;
+      try {
+        const realPath = fs.realpathSync(path.join(bundledSkillsDir, skillName));
+        scriptsDir = path.join(realPath, 'scripts');
+      } catch { continue; }
+      if (!fs.existsSync(scriptsDir)) continue;
+
+      for (const script of fs.readdirSync(scriptsDir)) {
+        // Allow both relative path formats Claude Code might use
+        allow.push(`Bash(.claude/skills/${skillName}/scripts/${script}:*)`);
+      }
+    }
+    return allow;
+  }
+
+  /**
    * Generate a Claude Code settings file with hooks that callback to the C3 Hub.
    */
   private generateHookSettings(): string {
@@ -66,6 +93,9 @@ export class PtySpawner extends EventEmitter {
 
     const settingsPath = path.join(settingsDir, 'settings.json');
     const settings = {
+      permissions: {
+        allow: PtySpawner.buildSkillPermissions(),
+      },
       hooks: {
         SessionEnd: [
           {
@@ -93,7 +123,7 @@ export class PtySpawner extends EventEmitter {
     };
 
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
-    logger.info({ settingsPath, hookScript }, 'generated hook settings for claude processes');
+    logger.info({ settingsPath, hookScript, skillPermissions: settings.permissions.allow.length }, 'generated hook settings for claude processes');
     return settingsPath;
   }
 
