@@ -57,7 +57,7 @@ export class SessionManager extends EventEmitter {
     log.info({ title: session.title, dir: session.workingDirectory }, 'session created');
 
     // Activate immediately
-    this.activateSession(session.id, input.startFresh).catch((err) => {
+    this.activateSession(session.id, input.continueLatest, input.resume).catch((err) => {
       createSessionLogger(session.id).error({ err }, 'failed to activate session');
     });
 
@@ -76,7 +76,7 @@ export class SessionManager extends EventEmitter {
    * Activate a queued session — spawn the Claude process.
    * Routes to local PtySpawner or RemotePtyBridge based on worker type.
    */
-  async activateSession(sessionId: string, startFresh?: boolean): Promise<Session | null> {
+  async activateSession(sessionId: string, continueLatest?: boolean, resume?: boolean): Promise<Session | null> {
     const session = this.repo.getSession(sessionId);
     if (!session) return null;
     const log = createSessionLogger(sessionId);
@@ -95,10 +95,10 @@ export class SessionManager extends EventEmitter {
       let ptyProc: PtyProcess;
 
       if (isRemote && this._remotePtyBridge && worker) {
-        ptyProc = await this.activateRemoteSession(session, worker.id, log);
+        ptyProc = await this.activateRemoteSession(session, worker.id, log, continueLatest, resume);
         this.remoteSessions.add(sessionId);
       } else {
-        ptyProc = this.activateLocalSession(session, log, startFresh);
+        ptyProc = this.activateLocalSession(session, log, continueLatest, resume);
       }
 
       this.activePtys.set(sessionId, ptyProc);
@@ -119,7 +119,8 @@ export class SessionManager extends EventEmitter {
   private activateLocalSession(
     session: Session,
     log: ReturnType<typeof createSessionLogger>,
-    startFresh?: boolean,
+    continueLatest?: boolean,
+    resume?: boolean,
   ): PtyProcess {
     // Get per-session enabled extensions for skill filtering
     const enabledExtensions = this.repo.getSessionExtensions(session.id);
@@ -128,22 +129,32 @@ export class SessionManager extends EventEmitter {
     // Parse user-provided flags
     const userFlags = parseFlags(session.flags);
 
-    if (startFresh || session.worktree) {
-      const args = session.worktree ? ['--worktree', ...userFlags] : [...userFlags];
-      log.info({ worktree: session.worktree, startFresh, flags: session.flags }, 'spawning new claude process');
-      return this.ptySpawner.spawn(session.id, session.workingDirectory, args, enabledExtensions);
-    } else {
-      const args = ['--continue', ...userFlags];
+    // Priority: worktree > resume > continueLatest > fresh (default)
+    let args: string[];
+    if (session.worktree) {
+      args = ['--worktree', ...userFlags];
+      log.info({ worktree: true, flags: session.flags }, 'spawning claude with --worktree');
+    } else if (resume) {
+      args = ['--resume', ...userFlags];
+      log.info({ dir: session.workingDirectory, flags: session.flags }, 'spawning claude with --resume');
+    } else if (continueLatest) {
+      args = ['--continue', ...userFlags];
       log.info({ dir: session.workingDirectory, flags: session.flags }, 'spawning claude with --continue');
       this.continueSessions.set(session.id, Date.now());
-      return this.ptySpawner.spawn(session.id, session.workingDirectory, args, enabledExtensions);
+    } else {
+      args = [...userFlags];
+      log.info({ dir: session.workingDirectory, flags: session.flags }, 'spawning new claude process');
     }
+
+    return this.ptySpawner.spawn(session.id, session.workingDirectory, args, enabledExtensions);
   }
 
   private async activateRemoteSession(
     session: Session,
     workerId: string,
     log: ReturnType<typeof createSessionLogger>,
+    continueLatest?: boolean,
+    resume?: boolean,
   ): Promise<PtyProcess> {
     const bridge = this._remotePtyBridge!;
 
@@ -161,8 +172,17 @@ export class SessionManager extends EventEmitter {
     }
 
     const userFlags = parseFlags(session.flags);
-    const args = session.worktree ? ['--worktree', ...userFlags] : [...userFlags];
-    log.info({ worktree: session.worktree, workerId, flags: session.flags }, 'spawning new remote claude process');
+    let args: string[];
+    if (session.worktree) {
+      args = ['--worktree', ...userFlags];
+    } else if (resume) {
+      args = ['--resume', ...userFlags];
+    } else if (continueLatest) {
+      args = ['--continue', ...userFlags];
+    } else {
+      args = [...userFlags];
+    }
+    log.info({ worktree: session.worktree, workerId, continueLatest, resume, flags: session.flags }, 'spawning remote claude process');
     return bridge.spawn(session.id, workerId, session.workingDirectory, args);
   }
 

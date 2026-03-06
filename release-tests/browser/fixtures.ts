@@ -57,7 +57,6 @@ export async function cleanupSessions(baseURL: string): Promise<void> {
 interface CreateSessionOpts {
   title?: string;
   workingDirectory?: string;
-  startFresh?: boolean;
 }
 
 interface SessionResponse {
@@ -75,9 +74,9 @@ export async function createTestSession(
   const body = {
     title: opts.title || `Test Session ${Date.now()}`,
     workingDirectory: opts.workingDirectory || info.dataDir,
-    // Always use startFresh=true in tests: avoids the --continue retry mechanism
-    // which re-spawns Claude on non-zero exit (signal kill) within 30s.
-    startFresh: opts.startFresh ?? true,
+    // Default is fresh (no --continue), so no special flag needed.
+    // This avoids the --continue retry mechanism which re-spawns Claude
+    // on non-zero exit (signal kill) within 30s.
   };
 
   const res = await fetch(`${baseURL}/api/sessions`, {

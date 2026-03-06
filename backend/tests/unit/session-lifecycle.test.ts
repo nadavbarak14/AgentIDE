@@ -108,7 +108,7 @@ describe('Session Lifecycle — No queue, immediate activation', () => {
   });
 
   it('auto-deletes session on non-zero exit (failed)', () => {
-    const s1 = sessionManager.createSession({ workingDirectory: '/p1', title: 'S1', startFresh: true });
+    const s1 = sessionManager.createSession({ workingDirectory: '/p1', title: 'S1' });
     fakeSpawner.simulateExit(s1.id, 1, null);
 
     // Session is auto-deleted after failure

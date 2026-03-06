@@ -109,4 +109,56 @@ describe('Session Flags API', () => {
     expect(res.status).toBe(201);
     expect(res.body.flags).toBe('');
   });
+
+  it('default session (no flags) spawns fresh — no --continue in args', async () => {
+    let capturedArgs: string[] | undefined;
+    const origSpawn = ptySpawner.spawn.bind(ptySpawner);
+    ptySpawner.spawn = function (sessionId: string, workingDirectory: string, args?: string[], enabledExtensions?: string[]) {
+      capturedArgs = args;
+      return origSpawn(sessionId, workingDirectory, args, enabledExtensions);
+    };
+
+    const dir = path.join(tmpDir, 'default-session');
+    await request(app)
+      .post('/api/sessions')
+      .send({ workingDirectory: dir, title: 'Default' });
+
+    expect(capturedArgs).toBeDefined();
+    expect(capturedArgs).not.toContain('--continue');
+    expect(capturedArgs).not.toContain('--resume');
+  });
+
+  it('continueLatest=true passes --continue to spawn', async () => {
+    let capturedArgs: string[] | undefined;
+    const origSpawn = ptySpawner.spawn.bind(ptySpawner);
+    ptySpawner.spawn = function (sessionId: string, workingDirectory: string, args?: string[], enabledExtensions?: string[]) {
+      capturedArgs = args;
+      return origSpawn(sessionId, workingDirectory, args, enabledExtensions);
+    };
+
+    const dir = path.join(tmpDir, 'continue-session');
+    await request(app)
+      .post('/api/sessions')
+      .send({ workingDirectory: dir, title: 'Continue', continueLatest: true });
+
+    expect(capturedArgs).toBeDefined();
+    expect(capturedArgs![0]).toBe('--continue');
+  });
+
+  it('resume=true passes --resume to spawn', async () => {
+    let capturedArgs: string[] | undefined;
+    const origSpawn = ptySpawner.spawn.bind(ptySpawner);
+    ptySpawner.spawn = function (sessionId: string, workingDirectory: string, args?: string[], enabledExtensions?: string[]) {
+      capturedArgs = args;
+      return origSpawn(sessionId, workingDirectory, args, enabledExtensions);
+    };
+
+    const dir = path.join(tmpDir, 'resume-session');
+    await request(app)
+      .post('/api/sessions')
+      .send({ workingDirectory: dir, title: 'Resume', resume: true });
+
+    expect(capturedArgs).toBeDefined();
+    expect(capturedArgs![0]).toBe('--resume');
+  });
 });
