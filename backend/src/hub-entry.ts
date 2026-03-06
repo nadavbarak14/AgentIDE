@@ -273,36 +273,32 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
   });
 
   // Resume sessions that were active before restart
-  // This must happen BEFORE worker reconnection so crashed sessions are marked first
+  // This marks all active sessions as 'crashed' so recovery can attempt tmux reattachment
   sessionManager.resumeSessions(ptySpawner, wasCrash);
 
-  // Attempt recovery of crashed local sessions via tmux reattachment
-  if (wasCrash) {
-    try {
-      const recovered = sessionManager.recoverCrashedLocalSessions();
-      if (recovered > 0) {
-        logger.info({ recovered }, 'recovered crashed local sessions via tmux');
-      }
-    } catch (err) {
-      logger.warn({ err: (err as Error).message }, 'failed to recover crashed local sessions');
+  // Always attempt recovery of local sessions via tmux reattachment
+  // tmux sessions survive both clean restarts and crashes
+  try {
+    const recovered = sessionManager.recoverCrashedLocalSessions();
+    if (recovered > 0) {
+      logger.info({ recovered }, 'recovered local sessions via tmux reattachment');
     }
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, 'failed to recover local sessions');
   }
 
   // Reconnect existing remote workers on startup (fire and forget)
-  // After connecting, re-register any active sessions with the remote agent
-  // If crash was detected, also attempt to recover crashed remote sessions
+  // After connecting, always attempt to recover sessions via tmux reattachment
   for (const worker of repo.listWorkers().filter((w) => w.type === 'remote')) {
     workerManager.connectWorker(worker).then(async () => {
-      // After worker reconnects, attempt recovery of crashed remote sessions
-      if (wasCrash) {
-        try {
-          const recovered = await sessionManager.recoverCrashedRemoteSessions();
-          if (recovered > 0) {
-            logger.info({ workerId: worker.id, recovered }, 'recovered crashed remote sessions after worker reconnect');
-          }
-        } catch (err) {
-          logger.warn({ workerId: worker.id, err: (err as Error).message }, 'failed to recover crashed remote sessions');
+      // After worker reconnects, attempt recovery of remote sessions via tmux
+      try {
+        const recovered = await sessionManager.recoverCrashedRemoteSessions();
+        if (recovered > 0) {
+          logger.info({ workerId: worker.id, recovered }, 'recovered remote sessions via tmux after worker reconnect');
         }
+      } catch (err) {
+        logger.warn({ workerId: worker.id, err: (err as Error).message }, 'failed to recover remote sessions');
       }
 
       if (!worker.remoteAgentPort) return;
@@ -332,7 +328,7 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
     if (req.path.includes('/proxy/') || req.path.includes('/proxy-url/')) {
       next();
     } else {
-      express.json()(req, res, next);
+      express.json({ limit: '10mb' })(req, res, next);
     }
   });
 

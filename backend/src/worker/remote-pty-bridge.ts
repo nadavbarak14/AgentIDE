@@ -4,7 +4,7 @@ import path from 'node:path';
 import type { ClientChannel } from 'ssh2';
 import { type TunnelManager, REVERSE_TUNNEL_PORT } from '../hub/tunnel.js';
 import { createSessionLogger, logger } from '../services/logger.js';
-import type { PtyProcess } from './pty-spawner.js';
+import { PtySpawner, type PtyProcess } from './pty-spawner.js';
 import { escapeShellArg, getTmuxSessionName } from './tmux-utils.js';
 
 export class RemotePtyBridge extends EventEmitter {
@@ -42,6 +42,9 @@ export class RemotePtyBridge extends EventEmitter {
 
     // Create directory and settings file on remote server
     const settings = {
+      permissions: {
+        allow: PtySpawner.buildSkillPermissions(),
+      },
       hooks: {}  // No hooks for remote workers yet
     };
 

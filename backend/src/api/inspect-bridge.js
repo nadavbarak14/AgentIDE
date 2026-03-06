@@ -808,6 +808,28 @@
     });
   }
 
+  /**
+   * Convert a raw URL (e.g. http://localhost:5173/login) to a proxy URL
+   * so navigation stays within the proxy iframe context.
+   */
+  function toProxyPath(rawUrl) {
+    // Extract the proxy base from current location: /api/sessions/{id}/proxy/{port}
+    var currentPath = window.location.pathname;
+    var proxyBase = currentPath.match(/^(\/api\/sessions\/[^/]+\/proxy\/)\d+/);
+    if (!proxyBase) return rawUrl; // Not in a proxy context — use URL as-is
+
+    // Parse the target URL to extract host:port and path
+    try {
+      var parsed = new URL(rawUrl);
+      var targetPort = parsed.port || (parsed.protocol === 'https:' ? '443' : '80');
+      var targetPath = parsed.pathname + parsed.search + parsed.hash;
+      return proxyBase[1] + targetPort + targetPath;
+    } catch (e) {
+      // If URL parsing fails (relative URL, etc), use as-is
+      return rawUrl;
+    }
+  }
+
   function navigateTo(url, msgId) {
     postToParent({
       type: 'c3:bridge:navigated',
@@ -815,9 +837,11 @@
       url: url,
       msgId: msgId || null,
     });
+    // Convert to proxy URL so navigation stays within the proxy iframe
+    var targetUrl = toProxyPath(url);
     // Small delay to let postMessage send before navigation destroys the page
     setTimeout(function () {
-      window.location.href = url;
+      window.location.href = targetUrl;
     }, 50);
   }
 
