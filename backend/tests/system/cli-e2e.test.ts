@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn, execSync, type ChildProcess } from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -176,5 +176,108 @@ describe('System: CLI E2E', { timeout: 30000 }, () => {
     // Sessions should be accessible (no auth required)
     const sessionsRes = await fetch(`http://127.0.0.1:${sp.port}/api/sessions`);
     expect(sessionsRes.status).toBe(200);
+  });
+});
+
+// --- adyx agent tests ---
+
+function startAgent(
+  args: string[] = [],
+  options?: { timeout?: number },
+): Promise<ServerProcess> {
+  const timeout = options?.timeout || 15000;
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'adyx-agent-test-'));
+
+  return new Promise((resolve, reject) => {
+    const proc = spawn(tsxBin, [CLI_PATH, 'agent', ...args], {
+      cwd: tmpDir,
+      env: {
+        ...process.env,
+        HOME: tmpDir,
+        LOG_LEVEL: 'info',
+      },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    proc.stdout?.on('data', (data: Buffer) => {
+      stdout += data.toString();
+    });
+
+    proc.stderr?.on('data', (data: Buffer) => {
+      stderr += data.toString();
+    });
+
+    const checkReady = () => {
+      const combined = stdout + stderr;
+      // Remote agent logs: "Remote agent listening on <host>:<port>"
+      const portMatch = combined.match(/listening on [\w.:]+:(\d+)/i);
+      if (portMatch) {
+        const port = parseInt(portMatch[1], 10);
+        resolve({
+          proc,
+          port,
+          baseUrl: `http://127.0.0.1:${port}`,
+          tmpDir,
+        });
+        return true;
+      }
+      return false;
+    };
+
+    proc.stdout?.on('data', () => checkReady());
+    proc.stderr?.on('data', () => checkReady());
+
+    proc.on('error', (err) => reject(err));
+    proc.on('exit', (code) => {
+      if (!checkReady()) {
+        reject(new Error(`Agent exited with code ${code} before ready.\nstdout: ${stdout}\nstderr: ${stderr}`));
+      }
+    });
+
+    setTimeout(() => {
+      if (!checkReady()) {
+        proc.kill('SIGTERM');
+        reject(new Error(`Agent did not start within ${timeout}ms.\nstdout: ${stdout}\nstderr: ${stderr}`));
+      }
+    }, timeout);
+  });
+}
+
+describe('System: CLI Agent E2E', { timeout: 30000 }, () => {
+  const agents: ServerProcess[] = [];
+
+  afterEach(async () => {
+    for (const sp of agents) {
+      await killServer(sp);
+      cleanup(sp.tmpDir);
+    }
+    agents.length = 0;
+  });
+
+  it('adyx agent --port PORT launches and listens', async () => {
+    const port = 19000 + Math.floor(Math.random() * 1000);
+    const sp = await startAgent(['--port', String(port)]);
+    agents.push(sp);
+
+    expect(sp.port).toBe(port);
+  });
+});
+
+// --- adyx doctor tests ---
+
+describe('System: CLI Doctor', { timeout: 15000 }, () => {
+  it('adyx doctor prints dependency report and exits 0', () => {
+    const output = execSync(`${tsxBin} ${CLI_PATH} doctor`, {
+      encoding: 'utf-8',
+      timeout: 10000,
+    });
+
+    expect(output).toContain('Adyx Dependency Check');
+    expect(output).toContain('Node.js');
+    expect(output).toContain('tmux');
+    expect(output).toContain('GitHub CLI');
   });
 });

@@ -74,7 +74,14 @@ export interface HubOptions {
   host?: string;
 }
 
-export async function startHub(options: HubOptions = {}): Promise<http.Server> {
+export interface HubResult {
+  server: http.Server;
+  url: string;
+  port: number;
+  host: string;
+}
+
+export async function startHub(options: HubOptions = {}): Promise<HubResult> {
   const port = options.port || parseInt(process.env.PORT || '3000', 10);
   const host = options.host || process.env.HOST || '0.0.0.0';
 
@@ -878,11 +885,14 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
   setupWebSocket(server, repo, sessionManager, ptySpawner, fileWatcher, shellSpawner, remotePtyBridge);
 
   // Start server
-  server.listen(port, host, () => {
-    logger.info(
-      { port, host },
-      `Adyx started on http://${host}:${port}`,
-    );
+  await new Promise<void>((resolve) => {
+    server.listen(port, host, () => {
+      logger.info(
+        { port, host },
+        `Adyx started on http://${host}:${port}`,
+      );
+      resolve();
+    });
   });
 
   // Start worker health checks
@@ -911,7 +921,9 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
 
-  return server;
+  const displayHost = host === '0.0.0.0' ? '127.0.0.1' : host;
+  const actualPort = (server.address() as import('node:net').AddressInfo)?.port || port;
+  return { server, url: `http://${displayHost}:${actualPort}`, port: actualPort, host };
 }
 
 // Direct execution (when run as hub-entry.ts directly)

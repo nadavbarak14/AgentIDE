@@ -26,6 +26,7 @@
     "README.md"
   ],
   "scripts": {
+    "postinstall": "node backend/scripts/postinstall.cjs",
     "register-extensions": "node scripts/register-extension-skills.js",
     "predev:backend": "npm run register-extensions",
     "predev:frontend": "npm run register-extensions",
