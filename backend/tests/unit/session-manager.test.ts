@@ -154,4 +154,91 @@ describe('SessionManager - Worker Lookup', () => {
       expect(session.workerId).toBe(remoteWorker.id);
     });
   });
+
+  describe('session spawn flags', () => {
+    let spawnArgs: string[] | undefined;
+
+    beforeEach(() => {
+      // Capture args passed to spawn
+      const ptySpawner = createMockPtySpawner();
+      const origSpawn = ptySpawner.spawn.bind(ptySpawner);
+      ptySpawner.spawn = function (sessionId: string, workingDirectory: string, args?: string[], enabledExtensions?: string[]) {
+        spawnArgs = args;
+        return origSpawn(sessionId, workingDirectory, args, enabledExtensions);
+      };
+      sessionManager = new SessionManager(repo, ptySpawner);
+    });
+
+    it('default (no flags) spawns fresh — no --continue', () => {
+      sessionManager.createSession({
+        title: 'Fresh Session',
+        workingDirectory: '/home/user/project',
+      });
+
+      expect(spawnArgs).toBeDefined();
+      expect(spawnArgs).not.toContain('--continue');
+      expect(spawnArgs).not.toContain('--resume');
+    });
+
+    it('continueLatest=true passes --continue', () => {
+      sessionManager.createSession({
+        title: 'Continue Session',
+        workingDirectory: '/home/user/project',
+        continueLatest: true,
+      });
+
+      expect(spawnArgs).toBeDefined();
+      expect(spawnArgs![0]).toBe('--continue');
+    });
+
+    it('resume=true passes --resume', () => {
+      sessionManager.createSession({
+        title: 'Resume Session',
+        workingDirectory: '/home/user/project',
+        resume: true,
+      });
+
+      expect(spawnArgs).toBeDefined();
+      expect(spawnArgs![0]).toBe('--resume');
+    });
+
+    it('worktree=true passes --worktree (overrides continueLatest)', () => {
+      sessionManager.createSession({
+        title: 'Worktree Session',
+        workingDirectory: '/home/user/project',
+        worktree: true,
+        continueLatest: true,
+      });
+
+      expect(spawnArgs).toBeDefined();
+      expect(spawnArgs![0]).toBe('--worktree');
+      expect(spawnArgs).not.toContain('--continue');
+    });
+
+    it('resume takes precedence over continueLatest', () => {
+      sessionManager.createSession({
+        title: 'Both Flags',
+        workingDirectory: '/home/user/project',
+        continueLatest: true,
+        resume: true,
+      });
+
+      expect(spawnArgs).toBeDefined();
+      expect(spawnArgs![0]).toBe('--resume');
+      expect(spawnArgs).not.toContain('--continue');
+    });
+
+    it('user flags are appended after decision flag', () => {
+      sessionManager.createSession({
+        title: 'Flags Session',
+        workingDirectory: '/home/user/project',
+        continueLatest: true,
+        flags: '--dangerously-skip-permissions',
+      });
+
+      expect(spawnArgs).toBeDefined();
+      expect(spawnArgs![0]).toBe('--continue');
+      expect(spawnArgs).toContain('--dangerously-skip-permissions');
+    });
+  });
 });

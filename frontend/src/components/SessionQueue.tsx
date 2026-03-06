@@ -16,14 +16,15 @@ interface PredefinedFlag {
 const PREDEFINED_FLAGS: PredefinedFlag[] = [
   { id: 'skip-permissions', label: 'Skip Permissions', flag: '--dangerously-skip-permissions', description: 'Skip all permission prompts', warningLevel: 'caution', isPseudo: false },
   { id: 'worktree', label: 'Worktree', flag: '--worktree', description: 'Use isolated git branch', warningLevel: 'normal', isPseudo: true },
-  { id: 'clean-start', label: 'Clean Start', flag: '', description: 'Start fresh conversation', warningLevel: 'normal', isPseudo: true },
+  { id: 'continue-latest', label: 'Continue Latest', flag: '', description: 'Resume most recent conversation (-c)', warningLevel: 'normal', isPseudo: true },
+  { id: 'resume', label: 'Resume', flag: '', description: 'Pick a session to resume (--resume)', warningLevel: 'normal', isPseudo: true },
 ];
 
 interface SessionQueueProps {
   activeSessions: Session[];
   workers: Worker[];
   onRequestAddMachine?: () => void;
-  onCreateSession: (workingDirectory: string, title: string, targetWorker?: string | null, worktree?: boolean, startFresh?: boolean, flags?: string) => Promise<unknown>;
+  onCreateSession: (workingDirectory: string, title: string, targetWorker?: string | null, worktree?: boolean, continueLatest?: boolean, resume?: boolean, flags?: string) => Promise<unknown>;
   onFocusSession: (id: string) => void;
   onKillSession: (id: string) => void;
 }
@@ -40,7 +41,8 @@ export function SessionQueue({
   const [title, setTitle] = useState('');
   const [targetWorker, setTargetWorker] = useState<string | null>(null);
   const [worktree, setWorktree] = useState(false);
-  const [startFresh, setStartFresh] = useState(false);
+  const [continueLatest, setContinueLatest] = useState(false);
+  const [resume, setResume] = useState(false);
   const [flags, setFlags] = useState('');
   const [creating, setCreating] = useState(false);
 
@@ -61,12 +63,13 @@ export function SessionQueue({
     if (!directory.trim() || !title.trim()) return;
     setCreating(true);
     try {
-      await onCreateSession(directory.trim(), title.trim(), targetWorker, worktree, startFresh, flags.trim() || undefined);
+      await onCreateSession(directory.trim(), title.trim(), targetWorker, worktree, continueLatest, resume, flags.trim() || undefined);
       setDirectory('');
       setTitle('');
       setTargetWorker(null);
       setWorktree(false);
-      setStartFresh(false);
+      setContinueLatest(false);
+      setResume(false);
       setFlags('');
     } finally {
       setCreating(false);
@@ -103,7 +106,8 @@ export function SessionQueue({
           <div className="flex flex-wrap gap-1.5">
             {PREDEFINED_FLAGS.map((pf) => {
               const isActive = pf.id === 'worktree' ? worktree
-                : pf.id === 'clean-start' ? startFresh
+                : pf.id === 'continue-latest' ? continueLatest
+                : pf.id === 'resume' ? resume
                 : flags.includes(pf.flag);
               const activeClass = pf.warningLevel === 'caution' && isActive
                 ? 'bg-amber-600/30 border-amber-500/50 text-amber-300'
@@ -118,8 +122,14 @@ export function SessionQueue({
                   onClick={() => {
                     if (pf.id === 'worktree') {
                       setWorktree(!worktree);
-                    } else if (pf.id === 'clean-start') {
-                      setStartFresh(!startFresh);
+                    } else if (pf.id === 'continue-latest') {
+                      const next = !continueLatest;
+                      setContinueLatest(next);
+                      if (next) setResume(false);
+                    } else if (pf.id === 'resume') {
+                      const next = !resume;
+                      setResume(next);
+                      if (next) setContinueLatest(false);
                     } else {
                       setFlags((prev) => {
                         const trimmed = prev.trim();

@@ -27,7 +27,8 @@ export interface CreateSessionInput {
   title: string;
   targetWorker?: string | null;
   worktree?: boolean;
-  startFresh?: boolean;
+  continueLatest?: boolean;
+  resume?: boolean;
   flags?: string;
 }
 
