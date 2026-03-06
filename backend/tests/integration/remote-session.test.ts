@@ -143,13 +143,19 @@ describe('RemotePtyBridge', () => {
     expect(mockTm.mockChannel.windowSet).toBe(true);
   });
 
-  it('kill() sends Ctrl+C and closes the channel', async () => {
+  it('kill() kills tmux session via exec and closes the channel', async () => {
     await bridge.spawn('session-1', 'worker-1', '/home/remote/project');
+    const execCallsBefore = (mockTm.exec as ReturnType<typeof vi.fn>).mock.calls.length;
 
     bridge.kill('session-1');
 
-    // Should have sent Ctrl+C
-    expect(mockTm.mockChannel.written).toContain('\x03');
+    // Should have called exec to kill tmux session (not written into the stream)
+    await vi.waitFor(() => {
+      const execCallsAfter = (mockTm.exec as ReturnType<typeof vi.fn>).mock.calls.length;
+      expect(execCallsAfter).toBeGreaterThan(execCallsBefore);
+    });
+    const lastExecCall = (mockTm.exec as ReturnType<typeof vi.fn>).mock.calls.at(-1);
+    expect(lastExecCall?.[1]).toContain('tmux kill-session');
   });
 
   it('handles SSH disconnect (stream error)', async () => {
