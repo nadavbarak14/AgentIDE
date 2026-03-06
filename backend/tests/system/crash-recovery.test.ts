@@ -120,37 +120,45 @@ describe('Crash Recovery System Tests', () => {
   });
 
   describe('clean shutdown lifecycle', () => {
-    it('clean shutdown marks sessions completed and deletes them', () => {
+    it('clean shutdown marks sessions crashed for tmux recovery, then completed after failed recovery', () => {
       // Phase 1: Hub running with active sessions
       repo.setHubStatus('running');
       const s1 = repo.createSession({ title: 'S1', workingDirectory: path.join(tmpDir, 'p1') });
       const s2 = repo.createSession({ title: 'S2', workingDirectory: path.join(tmpDir, 'p2') });
 
-      // Phase 2: Clean shutdown
+      // Phase 2: Clean shutdown — sessions marked crashed for tmux recovery attempt
       repo.setHubStatus('stopped');
       sessionManager.resumeSessions(ptySpawner, false); // Not a crash
+      expect(repo.getSession(s1.id)?.status).toBe('crashed');
+      expect(repo.getSession(s2.id)?.status).toBe('crashed');
 
-      // Sessions marked completed
+      // Phase 3: Recovery attempt — no tmux available, sessions marked completed
+      ptySpawner.reattachSession = () => null;
+      sessionManager.recoverCrashedLocalSessions();
       expect(repo.getSession(s1.id)?.status).toBe('completed');
       expect(repo.getSession(s2.id)?.status).toBe('completed');
 
-      // Phase 3: Delete non-active
+      // Phase 4: Delete non-active
       const deleted = repo.deleteNonActiveSessions();
       expect(deleted).toBe(2);
 
-      // Phase 4: Verify empty dashboard
+      // Phase 5: Verify empty dashboard
       expect(repo.listSessions()).toHaveLength(0);
       expect(repo.getHubStatus()).toBe('stopped');
     });
 
-    it('restart after clean shutdown shows no crashed sessions', () => {
+    it('restart after clean shutdown shows no sessions after recovery', () => {
       // Phase 1: Full lifecycle — run, shutdown cleanly, restart
       repo.setHubStatus('running');
       repo.createSession({ title: 'S1', workingDirectory: path.join(tmpDir, 'p1') });
 
-      // Clean shutdown
+      // Clean shutdown — sessions marked crashed for recovery
       repo.setHubStatus('stopped');
       sessionManager.resumeSessions(ptySpawner, false);
+
+      // Recovery attempt — no tmux, sessions completed
+      ptySpawner.reattachSession = () => null;
+      sessionManager.recoverCrashedLocalSessions();
       repo.deleteNonActiveSessions();
 
       // Phase 2: Restart detection
@@ -186,10 +194,8 @@ describe('Crash Recovery System Tests', () => {
       const recovered = sessionManager.recoverCrashedLocalSessions();
       expect(recovered).toBe(0);
 
-      // Session still crashed, but crash_recovered_at is set
-      expect(repo.getSession(s1.id)?.status).toBe('crashed');
-      const row = (repo as any).db.prepare('SELECT crash_recovered_at FROM sessions WHERE id = ?').get(s1.id) as { crash_recovered_at: string | null };
-      expect(row.crash_recovered_at).toBeTruthy();
+      // Session marked completed when tmux is dead (no longer left as crashed)
+      expect(repo.getSession(s1.id)?.status).toBe('completed');
     });
 
     it('recoverCrashedLocalSessions re-activates session when reattach succeeds', () => {
