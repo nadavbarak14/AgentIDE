@@ -694,7 +694,7 @@ export function createFilesRouter(repo: Repository, agentTunnelManager?: AgentTu
   });
 
   // GET /api/sessions/:id/proxy-url/:encodedUrl — proxy external URLs (strip X-Frame-Options/CSP)
-  router.all('/:id/proxy-url/:encodedUrl', validateUuid('id'), async (req, res) => {
+  router.all('/:id/proxy-url/:encodedUrl(*)', validateUuid('id'), async (req, res) => {
     const sessionId = req.params.id as string;
     const session = repo.getSession(sessionId);
     if (!session) {
@@ -702,12 +702,21 @@ export function createFilesRouter(repo: Repository, agentTunnelManager?: AgentTu
       return;
     }
 
+    // Express auto-decodes route params, so encodedUrl is already decoded.
+    // It can be a full URL like "http://host:port/path" (both from fully-encoded
+    // redirects and from rewriteHtmlForProxy's origin-encoded + path format).
+    const rawParam = req.params.encodedUrl as string;
     let targetUrl: URL;
     try {
-      targetUrl = new URL(decodeURIComponent(req.params.encodedUrl as string));
+      targetUrl = new URL(rawParam);
     } catch {
-      res.status(400).json({ error: 'Invalid URL' });
-      return;
+      try {
+        // Fallback: try decoding once more (in case of double-encoding)
+        targetUrl = new URL(decodeURIComponent(rawParam));
+      } catch {
+        res.status(400).json({ error: 'Invalid URL' });
+        return;
+      }
     }
 
     if (targetUrl.protocol !== 'http:' && targetUrl.protocol !== 'https:') {
@@ -781,62 +790,33 @@ export function createFilesRouter(repo: Repository, agentTunnelManager?: AgentTu
 
         const contentType = (proxyRes.headers['content-type'] || '').toLowerCase();
         if (contentType.includes('text/html')) {
-          // Buffer HTML responses to inject scripts and base tag
+          // Buffer HTML responses to rewrite URLs through the proxy
           const chunks: Buffer[] = [];
           proxyRes.on('data', (chunk: Buffer) => chunks.push(chunk));
           proxyRes.on('end', () => {
             let body = Buffer.concat(chunks).toString('utf-8');
-            // Inject <base> tag to make relative URLs resolve against the remote server
-            const baseTag = `<base href="${targetUrl.href}">`;
-            body = body.replace(/<head[^>]*>/i, (match) => `${match}\n${baseTag}`);
+            // Use the same full URL rewriting as the regular proxy —
+            // rewrites src/href, injects URL interceptor, bridge script
+            const proxyBase = `/api/sessions/${sessionId}/proxy-url/${encodeURIComponent(targetUrl.origin)}`;
+            body = rewriteHtmlForProxy(body, proxyBase);
 
-            // Inject script to fix localhost references and prevent cross-origin errors
-            const remoteHost = targetUrl.hostname;
-            const interceptorScript = `<script>
-// Rewrite localhost URLs to use remote server's IP/hostname
-function rewriteLocalhostUrl(url) {
-  if (typeof url !== 'string') return url;
-  return url.replace(/^(https?:\\/\\/)localhost(:[0-9]+)?(\\/|$)/i, '$1${remoteHost}$2$3')
-            .replace(/^(wss?:\\/\\/)localhost(:[0-9]+)?(\\/|$)/i, '$1${remoteHost}$2$3');
-}
-
-// Intercept WebSocket to rewrite localhost URLs
-var OriginalWebSocket = window.WebSocket;
-window.WebSocket = function(url) {
-  var rewritten = rewriteLocalhostUrl(url);
-  try { return new OriginalWebSocket(rewritten); }
-  catch(e) { console.warn('[Proxy] WebSocket failed:', url); return null; }
-};
-
-// Intercept fetch to rewrite localhost URLs
-var OriginalFetch = window.fetch;
-window.fetch = function() {
-  if (arguments.length > 0 && typeof arguments[0] === 'string') {
-    arguments[0] = rewriteLocalhostUrl(arguments[0]);
-  }
-  return OriginalFetch.apply(this, arguments);
-};
-
-// Intercept XMLHttpRequest.open to rewrite localhost URLs
-var OriginalXHROpen = XMLHttpRequest.prototype.open;
-XMLHttpRequest.prototype.open = function(method, url) {
-  if (typeof url === 'string') {
-    url = rewriteLocalhostUrl(url);
-  }
-  return OriginalXHROpen.apply(this, [method, url].concat(Array.prototype.slice.call(arguments, 2)));
-};
-
-// Stub out history API to prevent cross-origin errors
-window.history.replaceState = function() { return null; };
-window.history.pushState = function() { return null; };
-</script>`;
-            body = body.replace(/<head[^>]*>/i, (match) => `${match}\n${interceptorScript}`);
-
-            const modified = injectBridgeScript(body);
             delete responseHeaders['content-length'];
-            responseHeaders['content-length'] = String(Buffer.byteLength(modified));
+            responseHeaders['content-length'] = String(Buffer.byteLength(body));
             res.writeHead(proxyRes.statusCode || 200, responseHeaders);
-            res.end(modified);
+            res.end(body);
+          });
+        } else if (contentType.includes('text/css')) {
+          // Buffer CSS to rewrite url() references through the proxy
+          const cssChunks: Buffer[] = [];
+          proxyRes.on('data', (chunk: Buffer) => cssChunks.push(chunk));
+          proxyRes.on('end', () => {
+            const proxyBase = `/api/sessions/${sessionId}/proxy-url/${encodeURIComponent(targetUrl.origin)}`;
+            let css = Buffer.concat(cssChunks).toString('utf-8');
+            css = rewriteCssForProxy(css, proxyBase);
+            delete responseHeaders['content-length'];
+            responseHeaders['content-length'] = String(Buffer.byteLength(css));
+            res.writeHead(proxyRes.statusCode || 200, responseHeaders);
+            res.end(css);
           });
         } else {
           res.writeHead(proxyRes.statusCode || 200, responseHeaders);

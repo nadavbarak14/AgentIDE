@@ -3,6 +3,10 @@
 (function () {
   'use strict';
 
+  // Prevent loading the bridge more than once per page
+  if (window.__c3BridgeLoaded) return;
+  window.__c3BridgeLoaded = true;
+
   console.log('[c3-inspect-bridge] v6 loaded');
 
   // --- State ---
@@ -813,21 +817,34 @@
    * so navigation stays within the proxy iframe context.
    */
   function toProxyPath(rawUrl) {
-    // Extract the proxy base from current location: /api/sessions/{id}/proxy/{port}
     var currentPath = window.location.pathname;
-    var proxyBase = currentPath.match(/^(\/api\/sessions\/[^/]+\/proxy\/)\d+/);
-    if (!proxyBase) return rawUrl; // Not in a proxy context — use URL as-is
 
-    // Parse the target URL to extract host:port and path
-    try {
-      var parsed = new URL(rawUrl);
-      var targetPort = parsed.port || (parsed.protocol === 'https:' ? '443' : '80');
-      var targetPath = parsed.pathname + parsed.search + parsed.hash;
-      return proxyBase[1] + targetPort + targetPath;
-    } catch (e) {
-      // If URL parsing fails (relative URL, etc), use as-is
-      return rawUrl;
+    // Regular proxy: /api/sessions/{id}/proxy/{port}
+    var proxyBase = currentPath.match(/^(\/api\/sessions\/[^/]+\/proxy\/)\d+/);
+    if (proxyBase) {
+      try {
+        var parsed = new URL(rawUrl);
+        var targetPort = parsed.port || (parsed.protocol === 'https:' ? '443' : '80');
+        var targetPath = parsed.pathname + parsed.search + parsed.hash;
+        return proxyBase[1] + targetPort + targetPath;
+      } catch (e) {
+        return rawUrl;
+      }
     }
+
+    // External proxy: /api/sessions/{id}/proxy-url/{encodedOrigin}/...
+    var proxyUrlBase = currentPath.match(/^(\/api\/sessions\/[^/]+\/proxy-url\/)[^/]+/);
+    if (proxyUrlBase) {
+      try {
+        var p = new URL(rawUrl);
+        var encodedOrigin = encodeURIComponent(p.origin);
+        return '/api/sessions/' + currentPath.split('/')[3] + '/proxy-url/' + encodedOrigin + p.pathname + p.search + p.hash;
+      } catch (e) {
+        return rawUrl;
+      }
+    }
+
+    return rawUrl; // Not in a proxy context
   }
 
   function navigateTo(url, msgId) {
