@@ -344,6 +344,11 @@ function migrate(database: Database.Database): void {
     database.exec("ALTER TABLE sessions ADD COLUMN flags TEXT NOT NULL DEFAULT ''");
   }
 
+  // Add mobile_device_id column to panel_states
+  if (!colNames.has('mobile_device_id')) {
+    database.exec('ALTER TABLE panel_states ADD COLUMN mobile_device_id TEXT DEFAULT NULL');
+  }
+
   // Migrate video_recordings table for WebM format
   const videoCols = database.pragma('table_info(video_recordings)') as Array<{ name: string }>;
   const videoColNames = new Set(videoCols.map((c) => c.name));

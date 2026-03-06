@@ -226,6 +226,7 @@ export interface PanelStateData {
   previewViewport: string;
   customViewportWidth: number | null;
   customViewportHeight: number | null;
+  mobileDeviceId: string | null;
   fontSize: number;
   panelWidthPercent: number;
 }

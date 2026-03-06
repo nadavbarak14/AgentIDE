@@ -106,6 +106,7 @@ function rowToPanelState(row: Record<string, unknown>): PanelState {
     previewViewport: (row.preview_viewport as ViewportMode) || 'desktop',
     customViewportWidth: row.custom_viewport_width as number | null,
     customViewportHeight: row.custom_viewport_height as number | null,
+    mobileDeviceId: (row.mobile_device_id as string | null) ?? null,
     fontSize: (row.font_size as number) ?? 14,
     panelWidthPercent: row.panel_width_percent as number,
     updatedAt: row.updated_at as string,
@@ -593,6 +594,7 @@ export class Repository {
       previewViewport?: ViewportMode;
       customViewportWidth?: number | null;
       customViewportHeight?: number | null;
+      mobileDeviceId?: string | null;
       fontSize?: number;
       panelWidthPercent: number;
     },
@@ -611,9 +613,9 @@ export class Repository {
          (session_id, active_panel, left_panel, right_panel, left_width_percent, right_width_percent,
           bottom_panel, bottom_height_percent, terminal_position, terminal_visible,
           file_tabs, active_tab_index, tab_scroll_positions,
-          git_scroll_position, preview_url, preview_viewport, custom_viewport_width, custom_viewport_height, font_size,
+          git_scroll_position, preview_url, preview_viewport, custom_viewport_width, custom_viewport_height, mobile_device_id, font_size,
           panel_width_percent, enabled_extensions, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
       )
       .run(
         sessionId,
@@ -634,6 +636,7 @@ export class Repository {
         input.previewViewport || 'desktop',
         input.customViewportWidth ?? null,
         input.customViewportHeight ?? null,
+        input.mobileDeviceId ?? null,
         input.fontSize ?? 14,
         input.panelWidthPercent,
         enabledExt,

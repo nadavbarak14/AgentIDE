@@ -250,6 +250,7 @@ export function createSessionsRouter(repo: Repository, sessionManager: SessionMa
         previewViewport: 'desktop',
         customViewportWidth: null,
         customViewportHeight: null,
+        mobileDeviceId: null,
         fontSize: 14,
         activePanel: 'none',
         fileTabs: [],
@@ -275,7 +276,7 @@ export function createSessionsRouter(repo: Repository, sessionManager: SessionMa
     const viewMode = req.query.viewMode as string | undefined;
     const storageKey = viewMode ? `${id}:${viewMode}` : id;
 
-    const { activePanel, leftPanel, rightPanel, leftWidthPercent, rightWidthPercent, fileTabs, activeTabIndex, tabScrollPositions, gitScrollPosition, previewUrl, panelWidthPercent, bottomPanel, bottomHeightPercent, terminalPosition, terminalVisible, previewViewport, customViewportWidth, customViewportHeight, fontSize } = req.body;
+    const { activePanel, leftPanel, rightPanel, leftWidthPercent, rightWidthPercent, fileTabs, activeTabIndex, tabScrollPositions, gitScrollPosition, previewUrl, panelWidthPercent, bottomPanel, bottomHeightPercent, terminalPosition, terminalVisible, previewViewport, customViewportWidth, customViewportHeight, mobileDeviceId, fontSize } = req.body;
 
     // Validate activePanel (accept any string — extensions and custom panels like 'issues', 'shell' etc.)
     if (typeof activePanel !== 'string') {
@@ -332,6 +333,7 @@ export function createSessionsRouter(repo: Repository, sessionManager: SessionMa
       previewViewport: previewViewport ?? 'desktop',
       customViewportWidth: customViewportWidth ?? null,
       customViewportHeight: customViewportHeight ?? null,
+      mobileDeviceId: mobileDeviceId ?? null,
       fontSize: fontSize ?? 14,
       fileTabs,
       activeTabIndex,

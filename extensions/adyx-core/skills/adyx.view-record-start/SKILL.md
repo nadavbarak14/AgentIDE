@@ -1,27 +1,30 @@
 ---
 name: adyx.view-record-start
-description: Start recording the preview browser as a WebM video. Use /view.record-stop to stop and get the file path. No arguments.
+description: Start recording the preview browser as a WebM video. Optional argument: mode ("full" for full page, "viewport" for visible area only; defaults to "full"). Use /view.record-stop to stop and get the file path.
 ---
 
 # View Record Start
 
-Start recording the preview browser viewport as a WebM video. Use `/view.record-stop` to stop recording and retrieve the saved file path.
+Start recording the preview browser as a WebM video. Use `/view.record-stop` to stop recording and retrieve the saved file path.
 
 ## Usage
 
 ```bash
-./scripts/view-record-start.sh
+./scripts/adyx.view-record-start.sh [mode]
 ```
 
 ## Parameters
 
-None.
+- `mode` (optional): Recording mode - "full" (default, captures full page) or "viewport" (visible area only)
 
 ## Examples
 
 ```bash
-# Start recording the preview browser
-./scripts/view-record-start.sh
+# Start recording full page (default)
+./scripts/adyx.view-record-start.sh
+
+# Start recording viewport only
+./scripts/adyx.view-record-start.sh viewport
 
 # ... interact with the preview ...
 

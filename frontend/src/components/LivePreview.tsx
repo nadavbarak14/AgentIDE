@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { usePreviewBridge, type UsePreviewBridgeReturn } from '../hooks/usePreviewBridge';
 import { PreviewOverlay } from './PreviewOverlay';
+import { BRANDS, getPresetsByBrand, getPresetById, type DevicePreset } from '../constants/devicePresets';
 
 type ViewportMode = 'desktop' | 'mobile' | 'custom';
 
@@ -16,6 +17,8 @@ interface LivePreviewProps {
   customViewportWidth?: number | null;
   customViewportHeight?: number | null;
   onCustomViewport?: (width: number, height: number) => void;
+  selectedDeviceId?: string | null;
+  onDevicePresetSelect?: (id: string) => void;
   bridgeRef?: React.MutableRefObject<UsePreviewBridgeReturn | null>;
   /** URL requested externally (e.g. open-preview skill). Takes priority over detected port. */
   requestedUrl?: string;
@@ -60,7 +63,7 @@ export function toProxyUrl(sessionId: string, displayUrl: string, isLocalDirect:
   return displayUrl;
 }
 
-export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose, refreshKey: _refreshKey = 0, viewportMode = 'desktop', onViewportChange, customViewportWidth, customViewportHeight, onCustomViewport, bridgeRef, requestedUrl, onUrlChange, navCounter: _navCounter = 0, isLocalSession = true }: LivePreviewProps) {
+export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose, refreshKey: _refreshKey = 0, viewportMode = 'desktop', onViewportChange, customViewportWidth, customViewportHeight, onCustomViewport, selectedDeviceId, onDevicePresetSelect, bridgeRef, requestedUrl, onUrlChange, navCounter: _navCounter = 0, isLocalSession = true }: LivePreviewProps) {
   // Skip proxy when hub is accessed via localhost and session is local
   const isLocalDirect = isLocalSession &&
     (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
@@ -73,6 +76,32 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [contentSize, setContentSize] = useState({ width: 0, height: 0 });
+  const [deviceDropdownOpen, setDeviceDropdownOpen] = useState(false);
+  const deviceDropdownRef = useRef<HTMLDivElement>(null);
+  const [rotated, setRotated] = useState(false);
+
+  // Click-outside and Escape handler for device dropdown
+  useEffect(() => {
+    if (!deviceDropdownOpen) return;
+    const handleMouseDown = (e: MouseEvent) => {
+      if (deviceDropdownRef.current && !deviceDropdownRef.current.contains(e.target as Node)) {
+        setDeviceDropdownOpen(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setDeviceDropdownOpen(false);
+    };
+    document.addEventListener('mousedown', handleMouseDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleMouseDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [deviceDropdownOpen]);
+
+  // Resolve the active device preset
+  const brandGroups = getPresetsByBrand();
+  const activeDevice: DevicePreset = (selectedDeviceId ? getPresetById(selectedDeviceId) : null) || brandGroups[BRANDS[0]][0];
 
   // Preview bridge for inspect mode, screenshots, and recordings
   const bridge = usePreviewBridge(iframeRef);
@@ -261,10 +290,10 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
           />
         </div>
         {/* Viewport toggle */}
-        <div className="flex rounded overflow-hidden border border-gray-700">
+        <div className="flex rounded border border-gray-700">
           <button
-            onClick={() => onViewportChange?.('desktop')}
-            className={`px-1.5 py-0.5 text-xs ${
+            onClick={() => { onViewportChange?.('desktop'); setDeviceDropdownOpen(false); }}
+            className={`px-1.5 py-0.5 text-xs rounded-l ${
               viewportMode === 'desktop'
                 ? 'bg-blue-600 text-white'
                 : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
@@ -273,20 +302,68 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
           >
             🖥
           </button>
-          <button
-            onClick={() => onViewportChange?.('mobile')}
-            className={`px-1.5 py-0.5 text-xs ${
-              viewportMode === 'mobile'
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-            }`}
-            title="Mobile viewport (375px)"
-          >
-            📱
-          </button>
+          <div className="relative" ref={deviceDropdownRef}>
+            <button
+              onClick={() => setDeviceDropdownOpen((prev) => !prev)}
+              className={`px-1.5 py-0.5 text-xs ${
+                viewportMode === 'mobile'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+              }`}
+              title={viewportMode === 'mobile' ? `Mobile: ${activeDevice.name}` : 'Mobile viewport'}
+            >
+              📱
+            </button>
+            {deviceDropdownOpen && (
+              <div className="absolute right-0 top-full mt-1 z-50 w-52 bg-gray-800 border border-gray-600 rounded shadow-lg py-1 max-h-80 overflow-y-auto">
+                {BRANDS.map((brand, bi) => (
+                  <div key={brand}>
+                    {bi > 0 && <div className="border-t border-gray-700 my-0.5" />}
+                    <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-gray-500 font-semibold">{brand}</div>
+                    {brandGroups[brand].map((preset) => (
+                      <button
+                        key={preset.id}
+                        onClick={() => {
+                          onDevicePresetSelect?.(preset.id);
+                          onViewportChange?.('mobile');
+                          setDeviceDropdownOpen(false);
+                        }}
+                        className={`w-full px-3 py-1.5 text-xs text-left flex justify-between items-center ${
+                          viewportMode === 'mobile' && activeDevice.id === preset.id
+                            ? 'bg-blue-600/20 text-blue-300'
+                            : 'text-gray-300 hover:bg-gray-700'
+                        }`}
+                      >
+                        <span>{preset.name}</span>
+                        <span className="text-gray-500 text-[10px]">{preset.width}x{preset.height}</span>
+                      </button>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          {viewportMode === 'mobile' && (
+            <button
+              onClick={() => setRotated((r) => !r)}
+              className={`px-1.5 py-0.5 text-xs flex items-center gap-1 ${
+                rotated
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+              }`}
+              title={rotated ? 'Switch to portrait' : 'Switch to landscape'}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M1 4v6h6" />
+                <path d="M23 20v-6h-6" />
+                <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10M23 14l-4.64 4.36A9 9 0 0 1 3.51 15" />
+              </svg>
+              <span>{rotated ? 'Landscape' : 'Portrait'}</span>
+            </button>
+          )}
           <button
             onClick={() => viewportMode === 'custom' ? onViewportChange?.('desktop') : handleApplyCustom()}
-            className={`px-1.5 py-0.5 text-xs ${
+            className={`px-1.5 py-0.5 text-xs rounded-r ${
               viewportMode === 'custom'
                 ? 'bg-blue-600 text-white'
                 : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
@@ -404,23 +481,114 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
             )}
             {viewportMode === 'mobile' ? (
               <div className="flex justify-center items-start h-full bg-gray-950 p-4 overflow-auto">
-                <div className="border-2 border-gray-500 rounded-[2rem] shadow-2xl overflow-hidden flex flex-col bg-black flex-shrink-0" style={{ width: 360 }}>
-                  {/* Notch */}
-                  <div className="h-7 bg-gray-900 flex items-center justify-center flex-shrink-0">
-                    <div className="w-20 h-4 bg-black rounded-full" />
-                  </div>
-                  <iframe
-                    ref={iframeRef}
-                    src={iframeUrl}
-                    className="border-0 bg-white flex-shrink-0"
-                    style={{ width: 360, height: 640 }}
-                    onLoad={handleIframeLoad}
-                    onError={() => { setError(true); setLoading(false); }}
-                  />
-                  {/* Home indicator */}
-                  <div className="h-5 bg-gray-900 flex items-center justify-center flex-shrink-0">
-                    <div className="w-24 h-1 bg-gray-600 rounded-full" />
-                  </div>
+                {(() => {
+                  const dev = activeDevice;
+                  const isPhone = dev.category === 'phone';
+                  const devW = rotated ? dev.height : dev.width;
+                  const devH = rotated ? dev.width : dev.height;
+                  const phoneLandscape = isPhone && rotated;
+                  const tabletLandscape = !isPhone && rotated;
+                  const isLandscape = phoneLandscape || tabletLandscape;
+                  const sidePad = isPhone ? 32 : 48;
+                  const topBottomPad = isPhone ? 32 : 48;
+                  const frameW = isLandscape ? devW + sidePad : devW;
+                  const frameH = isLandscape ? devH : devH + topBottomPad;
+                  const scale = contentSize.width > 0 && frameW > contentSize.width - 32
+                    ? Math.min((contentSize.width - 32) / frameW, (contentSize.height - 32) / frameH)
+                    : contentSize.height > 0 && frameH > contentSize.height - 32
+                      ? Math.min(1, (contentSize.height - 32) / frameH)
+                      : 1;
+                  return (
+                    <div
+                      className={`shadow-2xl overflow-hidden bg-black flex-shrink-0 ${
+                        phoneLandscape
+                          ? 'flex flex-row border-2 border-gray-500 rounded-xl'
+                          : tabletLandscape
+                            ? 'flex flex-row border-[3px] border-gray-600 rounded-2xl'
+                            : isPhone
+                              ? 'flex flex-col border-2 border-gray-500 rounded-[2rem]'
+                              : 'flex flex-col border-[3px] border-gray-600 rounded-2xl'
+                      }`}
+                      style={{ width: frameW, transform: scale < 1 ? `scale(${scale})` : undefined, transformOrigin: 'top center' }}
+                    >
+                      {phoneLandscape ? (
+                        <>
+                          {/* Left bezel with notch (rotated) */}
+                          <div className="w-7 bg-gray-900 flex items-center justify-center flex-shrink-0">
+                            <div className="w-4 h-20 bg-black rounded-full" />
+                          </div>
+                          <iframe
+                            ref={iframeRef}
+                            src={iframeUrl}
+                            className="border-0 bg-white flex-shrink-0"
+                            style={{ width: devW, height: devH }}
+                            onLoad={handleIframeLoad}
+                            onError={() => { setError(true); setLoading(false); }}
+                          />
+                          {/* Right bezel with home indicator (rotated) */}
+                          <div className="w-5 bg-gray-900 flex items-center justify-center flex-shrink-0">
+                            <div className="w-1 h-24 bg-gray-600 rounded-full" />
+                          </div>
+                        </>
+                      ) : isPhone ? (
+                        <>
+                          {/* Portrait phone — top notch */}
+                          <div className="h-7 bg-gray-900 flex items-center justify-center flex-shrink-0">
+                            <div className="w-20 h-4 bg-black rounded-full" />
+                          </div>
+                          <iframe
+                            ref={iframeRef}
+                            src={iframeUrl}
+                            className="border-0 bg-white flex-shrink-0"
+                            style={{ width: devW, height: devH }}
+                            onLoad={handleIframeLoad}
+                            onError={() => { setError(true); setLoading(false); }}
+                          />
+                          {/* Bottom home indicator */}
+                          <div className="h-5 bg-gray-900 flex items-center justify-center flex-shrink-0">
+                            <div className="w-24 h-1 bg-gray-600 rounded-full" />
+                          </div>
+                        </>
+                      ) : tabletLandscape ? (
+                        <>
+                          {/* Left bezel with camera */}
+                          <div className="w-6 bg-gray-900 flex items-center justify-center flex-shrink-0">
+                            <div className="w-2 h-2 bg-gray-700 rounded-full" />
+                          </div>
+                          <iframe
+                            ref={iframeRef}
+                            src={iframeUrl}
+                            className="border-0 bg-white flex-shrink-0"
+                            style={{ width: devW, height: devH }}
+                            onLoad={handleIframeLoad}
+                            onError={() => { setError(true); setLoading(false); }}
+                          />
+                          {/* Right bezel */}
+                          <div className="w-6 bg-gray-900 flex-shrink-0" />
+                        </>
+                      ) : (
+                        <>
+                          {/* Tablet portrait — top bezel with camera */}
+                          <div className="h-6 bg-gray-900 flex items-center justify-center flex-shrink-0">
+                            <div className="w-2 h-2 bg-gray-700 rounded-full" />
+                          </div>
+                          <iframe
+                            ref={iframeRef}
+                            src={iframeUrl}
+                            className="border-0 bg-white flex-shrink-0"
+                            style={{ width: devW, height: devH }}
+                            onLoad={handleIframeLoad}
+                            onError={() => { setError(true); setLoading(false); }}
+                          />
+                          {/* Bottom bezel */}
+                          <div className="h-6 bg-gray-900 flex-shrink-0" />
+                        </>
+                      )}
+                    </div>
+                  );
+                })()}
+                <div className="absolute bottom-2 left-1/2 -translate-x-1/2 text-[10px] text-gray-600">
+                  {activeDevice.name} ({rotated ? activeDevice.height : activeDevice.width}x{rotated ? activeDevice.width : activeDevice.height})
                 </div>
               </div>
             ) : viewportMode === 'custom' && customViewportWidth && customViewportHeight ? (

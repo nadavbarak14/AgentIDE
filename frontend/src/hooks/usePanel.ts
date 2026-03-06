@@ -27,6 +27,7 @@ export interface PanelStateValues {
   previewViewport: ViewportMode;
   customViewportWidth: number | null;
   customViewportHeight: number | null;
+  mobileDeviceId: string | null;
   fontSize: number;
   // Backward-compatible legacy field (derived from left/right)
   activePanel: string;
@@ -51,6 +52,7 @@ const DEFAULT_STATE: PanelStateValues = {
   previewViewport: 'desktop',
   customViewportWidth: null,
   customViewportHeight: null,
+  mobileDeviceId: null,
   fontSize: 14,
   activePanel: 'none',
   fileTabs: [],
@@ -91,6 +93,7 @@ export function usePanel(sessionId: string | null, viewMode: ViewMode = 'grid') 
   const [previewViewport, setPreviewViewport] = useState<ViewportMode>('desktop');
   const [customViewportWidth, setCustomViewportWidth] = useState<number | null>(null);
   const [customViewportHeight, setCustomViewportHeight] = useState<number | null>(null);
+  const [mobileDeviceId, setMobileDeviceId] = useState<string | null>(null);
   const [fontSize, setFontSize] = useState(14);
   const [fileTabs, setFileTabs] = useState<string[]>([]);
   const [activeTabIndex, setActiveTabIndex] = useState(0);
@@ -129,6 +132,7 @@ export function usePanel(sessionId: string | null, viewMode: ViewMode = 'grid') 
     previewViewport,
     customViewportWidth,
     customViewportHeight,
+    mobileDeviceId,
     fontSize,
     activePanel: deriveActivePanel(leftPanel as LeftPanel, rightPanel as RightPanel),
     fileTabs,
@@ -137,7 +141,7 @@ export function usePanel(sessionId: string | null, viewMode: ViewMode = 'grid') 
     gitScrollPosition,
     previewUrl,
     panelWidthPercent: rightWidthPercent, // legacy compat
-  }), [leftPanel, rightPanel, leftWidthPercent, rightWidthPercent, bottomPanel, bottomHeightPercent, terminalPosition, terminalVisible, previewViewport, customViewportWidth, customViewportHeight, fileTabs, activeTabIndex, tabScrollPositions, gitScrollPosition, previewUrl]);
+  }), [leftPanel, rightPanel, leftWidthPercent, rightWidthPercent, bottomPanel, bottomHeightPercent, terminalPosition, terminalVisible, previewViewport, customViewportWidth, customViewportHeight, mobileDeviceId, fileTabs, activeTabIndex, tabScrollPositions, gitScrollPosition, previewUrl]);
 
   // Keep a ref to the latest state so the storageKey-switch effect can read fresh values
   const stateRef = useRef<PanelStateValues>(getState());
@@ -170,6 +174,7 @@ export function usePanel(sessionId: string | null, viewMode: ViewMode = 'grid') 
     setPreviewViewport(state.previewViewport ?? 'desktop');
     setCustomViewportWidth(state.customViewportWidth ?? null);
     setCustomViewportHeight(state.customViewportHeight ?? null);
+    setMobileDeviceId(state.mobileDeviceId ?? null);
     setFontSize(state.fontSize ?? 14);
     setFileTabs(state.fileTabs);
     setActiveTabIndex(state.activeTabIndex);
@@ -313,6 +318,7 @@ export function usePanel(sessionId: string | null, viewMode: ViewMode = 'grid') 
       previewViewport,
       customViewportWidth,
       customViewportHeight,
+      mobileDeviceId,
       fontSize,
       activePanel: deriveActivePanel(leftPanel, rightPanel),
       fileTabs,
@@ -323,7 +329,7 @@ export function usePanel(sessionId: string | null, viewMode: ViewMode = 'grid') 
       panelWidthPercent: rightWidthPercent,
     };
     scheduleSave(storageKeyRef.current, state);
-  }, [leftPanel, rightPanel, leftWidthPercent, rightWidthPercent, bottomPanel, bottomHeightPercent, terminalPosition, terminalVisible, previewViewport, customViewportWidth, customViewportHeight, fontSize, fileTabs, activeTabIndex, tabScrollPositions, gitScrollPosition, previewUrl, scheduleSave]);
+  }, [leftPanel, rightPanel, leftWidthPercent, rightWidthPercent, bottomPanel, bottomHeightPercent, terminalPosition, terminalVisible, previewViewport, customViewportWidth, customViewportHeight, mobileDeviceId, fontSize, fileTabs, activeTabIndex, tabScrollPositions, gitScrollPosition, previewUrl, scheduleSave]);
 
   // Disable auto-save when storageKey changes (will re-enable after load completes)
   useEffect(() => {
@@ -359,12 +365,14 @@ export function usePanel(sessionId: string | null, viewMode: ViewMode = 'grid') 
     previewViewport,
     customViewportWidth,
     customViewportHeight,
+    mobileDeviceId,
     setBottomPanel,
     setBottomHeight: setBottomHeightPercent,
     setTerminalPosition,
     setTerminalVisible,
     setPreviewViewport,
     setCustomViewport,
+    setMobileDeviceId,
     fontSize,
     setFontSize,
     // Backward-compatible legacy fields
