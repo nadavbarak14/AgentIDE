@@ -237,6 +237,11 @@ export function usePanel(sessionId: string | null, viewMode: ViewMode = 'grid') 
     return () => {
       if (saveTimerRef.current) {
         clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+      // Flush save on unmount/key-change so panel state isn't lost
+      if (storageKeyRef.current) {
+        panelStateApi.save(storageKeyRef.current, stateRef.current).catch(() => {});
       }
     };
   }, [storageKey]); // eslint-disable-line -- intentionally only re-run on key change

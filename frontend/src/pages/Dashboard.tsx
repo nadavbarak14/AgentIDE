@@ -453,10 +453,17 @@ export function Dashboard() {
       if (mouseDownInSessionRef.current) return;
       if (relatedCard) return;
 
+      // Never auto-switch if only one session is displayed
+      if (displayedIdsRef.current.length <= 1) return;
+
+      // Never auto-switch away from the focused/current session
+      if (card.dataset.sessionId === currentSessionIdRef.current) return;
+
       setTimeout(() => {
         if (manualSwitchPendingRef.current) return;
         if (mouseDownInSessionRef.current) return;
         if ((document.activeElement as HTMLElement | null)?.closest('[data-session-id]')) return;
+        if (displayedIdsRef.current.length <= 1) return;
 
         const waiting = activeSessionsRef.current.find((s) => s.needsInput && s.id !== card.dataset.sessionId);
         if (!waiting) return;
