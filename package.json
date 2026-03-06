@@ -21,6 +21,7 @@
   "license": "MIT",
   "files": [
     "backend/dist/",
+    "backend/scripts/",
     "frontend/dist/",
     "package.json",
     "README.md"
