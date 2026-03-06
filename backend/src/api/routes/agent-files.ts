@@ -366,6 +366,18 @@ export function createAgentFilesRouter(fileWatcher: FileWatcher): Router {
     delete forwardHeaders['accept-encoding'];
     delete forwardHeaders['transfer-encoding']; // Prevent Content-Length + Transfer-Encoding conflict
     forwardHeaders['host'] = `localhost:${targetPort}`;
+    // Strip proxy prefix from Next.js headers so the server sees real app paths
+    if (forwardHeaders['next-url'] && typeof forwardHeaders['next-url'] === 'string') {
+      const nextUrl = forwardHeaders['next-url'];
+      if (nextUrl.startsWith(proxyBase + '/')) {
+        forwardHeaders['next-url'] = nextUrl.slice(proxyBase.length);
+      } else if (nextUrl === proxyBase) {
+        forwardHeaders['next-url'] = '/';
+      }
+    }
+    if (forwardHeaders['referer'] && typeof forwardHeaders['referer'] === 'string') {
+      forwardHeaders['referer'] = forwardHeaders['referer'].replace(proxyBase, '');
+    }
 
     const proxyReq = http.request(
       {
@@ -382,7 +394,7 @@ export function createAgentFilesRouter(fileWatcher: FileWatcher): Router {
         const responseHeaders = { ...proxyRes.headers };
         delete responseHeaders['x-frame-options'];
         delete responseHeaders['content-security-policy'];
-        const cleanedCookies = cleanSetCookieHeaders(proxyRes.headers['set-cookie']);
+        const cleanedCookies = cleanSetCookieHeaders(proxyRes.headers['set-cookie'], proxyBase);
         if (cleanedCookies.length > 0) {
           responseHeaders['set-cookie'] = cleanedCookies;
         }
