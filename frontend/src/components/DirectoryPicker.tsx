@@ -163,6 +163,7 @@ export function DirectoryPicker({ value, onChange, placeholder, workerId, isRemo
         >
           {suggestions.map((entry) => (
             <button
+              type="button"
               key={entry.path}
               onClick={() => handleSelect(entry)}
               className="w-full px-2 py-1.5 text-left text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-2"
@@ -175,6 +176,7 @@ export function DirectoryPicker({ value, onChange, placeholder, workerId, isRemo
 
           {showCreateHint && (
             <button
+              type="button"
               onClick={handleCreateDir}
               disabled={creating}
               className="w-full px-2 py-1.5 text-left text-sm text-green-400 hover:bg-gray-700 flex items-center gap-2 border-t border-gray-700"
