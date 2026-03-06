@@ -328,7 +328,7 @@ export async function startHub(options: HubOptions = {}): Promise<http.Server> {
     if (req.path.includes('/proxy/') || req.path.includes('/proxy-url/')) {
       next();
     } else {
-      express.json({ limit: '10mb' })(req, res, next);
+      express.json({ limit: '50mb' })(req, res, next);
     }
   });
 
