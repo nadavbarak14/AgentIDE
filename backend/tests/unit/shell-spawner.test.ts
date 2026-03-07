@@ -73,30 +73,17 @@ describe('ShellSpawner', () => {
   });
 
   describe('getDefaultShell', () => {
-    it('returns $SHELL when set', () => {
-      const original = process.env.SHELL;
-      process.env.SHELL = '/bin/zsh';
-      try {
-        expect(spawner.getDefaultShell()).toBe('/bin/zsh');
-      } finally {
-        if (original !== undefined) {
-          process.env.SHELL = original;
-        } else {
-          delete process.env.SHELL;
-        }
-      }
+    it('returns a valid shell path', () => {
+      // getDefaultShell() now uses PtySpawner.resolveShell() which tries
+      // /bin/bash first, then $SHELL, /bin/zsh, /bin/sh.
+      // On most systems /bin/bash exists, so it returns that.
+      const shell = spawner.getDefaultShell();
+      expect(['/bin/bash', '/bin/zsh', '/bin/sh']).toContain(shell);
     });
 
-    it('falls back to /bin/bash when $SHELL is unset', () => {
-      const original = process.env.SHELL;
-      delete process.env.SHELL;
-      try {
-        expect(spawner.getDefaultShell()).toBe('/bin/bash');
-      } finally {
-        if (original !== undefined) {
-          process.env.SHELL = original;
-        }
-      }
+    it('returns a shell that exists on disk', () => {
+      const shell = spawner.getDefaultShell();
+      expect(fs.existsSync(shell)).toBe(true);
     });
   });
 

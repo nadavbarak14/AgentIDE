@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { createSessionLogger, logger } from '../services/logger.js';
+import { PtySpawner } from './pty-spawner.js';
 
 export interface ShellProcess {
   pid: number;
@@ -38,7 +39,7 @@ export class ShellSpawner extends EventEmitter {
    */
   // WSL2: $SHELL is set by the Linux kernel, /bin/bash fallback is valid
   getDefaultShell(): string {
-    return process.env.SHELL || '/bin/bash';
+    return PtySpawner.resolveShell();
   }
 
   /**
