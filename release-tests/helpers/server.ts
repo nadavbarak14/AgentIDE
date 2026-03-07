@@ -6,6 +6,8 @@ export interface RunningServer {
   port: number;
   baseUrl: string;
   protocol: 'http' | 'https';
+  /** Returns recent server output (stdout+stderr, useful for diagnosing session failures) */
+  getOutput(): string;
   stop(): Promise<number | null>;
 }
 
@@ -76,6 +78,7 @@ export function startServer(opts: StartOptions): Promise<RunningServer> {
           port: resolvedPort,
           baseUrl,
           protocol,
+          getOutput: () => stdout + stderr,
           stop: () => stopServer(proc),
         });
       }
@@ -155,6 +158,55 @@ function stopServer(proc: ChildProcess): Promise<number | null> {
       }
     }, 5000);
   });
+}
+
+/**
+ * Creates a session and polls until it reaches 'active' status.
+ * Throws with detailed diagnostics if the session fails to activate.
+ */
+export async function createActiveSession(
+  server: RunningServer,
+  workingDirectory: string,
+  title = 'test-session',
+  timeoutMs = 30_000,
+): Promise<string> {
+  const createRes = await fetch(`${server.baseUrl}/api/sessions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ workingDirectory, title }),
+  });
+  if (!createRes.ok) {
+    throw new Error(`Failed to create session: ${createRes.status} ${await createRes.text()}`);
+  }
+  const body = await createRes.json();
+  const sessionId = body.id as string;
+
+  const deadline = Date.now() + timeoutMs;
+  let lastStatus = body.status as string;
+  while (Date.now() < deadline) {
+    const listRes = await fetch(`${server.baseUrl}/api/sessions`);
+    const sessions = await listRes.json() as Array<{ id: string; status: string }>;
+    const session = sessions.find(s => s.id === sessionId);
+
+    if (session?.status === 'active') return sessionId;
+    if (session?.status === 'failed' || !session) {
+      lastStatus = session?.status ?? 'deleted';
+      break;
+    }
+    lastStatus = session.status;
+    await new Promise(r => setTimeout(r, 500));
+  }
+
+  // Dump last 3KB of server output for diagnostics
+  const output = server.getOutput();
+  const recentOutput = output.length > 3000 ? output.slice(-3000) : output;
+
+  throw new Error(
+    `Session failed to activate (status: ${lastStatus})\n` +
+    `  Platform: ${process.platform} (${process.arch})\n` +
+    `  Node: ${process.version}\n` +
+    `  Server output (last 3KB):\n${recentOutput || '  (no server output)'}`,
+  );
 }
 
 export async function waitForHealth(

@@ -43,9 +43,16 @@ export function installArtifact(
   env: ReleaseEnvironment,
   tarballPath: string,
 ): InstalledArtifact {
+  // Use real HOME during install so node-gyp can find/cache Node.js headers
+  // for native module compilation (node-pty). Only npm_config_prefix and PATH
+  // need overriding — HOME override is for the server runtime, not installation.
+  const installEnv = {
+    ...env.env,
+    HOME: process.env.HOME || env.env.HOME,
+  };
   execSync(`npm install -g "${tarballPath}"`, {
     cwd: env.dataDir,
-    env: env.env,
+    env: installEnv,
     encoding: 'utf-8',
     stdio: ['pipe', 'pipe', 'pipe'],
   });

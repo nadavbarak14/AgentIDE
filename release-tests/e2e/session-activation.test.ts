@@ -5,14 +5,13 @@ import {
   type ReleaseEnvironment,
 } from '../helpers/environment.js';
 import { packArtifact, installArtifact, type InstalledArtifact } from '../helpers/artifact.js';
-import { startServer, waitForHealth, type RunningServer } from '../helpers/server.js';
+import { startServer, waitForHealth, createActiveSession, type RunningServer } from '../helpers/server.js';
 
 describe('E2E: Session activation (real PTY spawn)', { timeout: 120_000 }, () => {
   let env: ReleaseEnvironment;
   let server: RunningServer;
   let artifact: InstalledArtifact;
   let sessionId: string;
-  let sessionReachedActive = false;
 
   beforeAll(async () => {
     const tarball = packArtifact();
@@ -23,7 +22,6 @@ describe('E2E: Session activation (real PTY spawn)', { timeout: 120_000 }, () =>
   });
 
   afterAll(async () => {
-    // Kill any remaining sessions
     if (sessionId) {
       try {
         await fetch(`${server.baseUrl}/api/sessions/${sessionId}/kill`, { method: 'POST' });
@@ -37,69 +35,12 @@ describe('E2E: Session activation (real PTY spawn)', { timeout: 120_000 }, () =>
   });
 
   it('session reaches active status after creation', async () => {
-    // Create a session
-    const createRes = await fetch(`${server.baseUrl}/api/sessions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        workingDirectory: env.dataDir,
-        title: 'activation-test',
-      }),
-    });
-    expect([200, 201, 202]).toContain(createRes.status);
-    const body = await createRes.json();
-    sessionId = body.id;
+    sessionId = await createActiveSession(server, env.dataDir, 'activation-test');
     expect(sessionId).toBeDefined();
-
-    // Poll for active status (max 30 seconds)
-    const deadline = Date.now() + 30_000;
-    let lastStatus = body.status;
-    while (Date.now() < deadline) {
-      const listRes = await fetch(`${server.baseUrl}/api/sessions`);
-      const sessions = await listRes.json() as Array<{ id: string; status: string }>;
-      const session = sessions.find(s => s.id === sessionId);
-
-      if (session?.status === 'active') {
-        lastStatus = 'active';
-        break;
-      }
-      if (session?.status === 'failed' || !session) {
-        lastStatus = session?.status ?? 'deleted';
-        break; // No point polling further
-      }
-      lastStatus = session?.status ?? 'deleted';
-      await new Promise(r => setTimeout(r, 500));
-    }
-
-    if (lastStatus !== 'active') {
-      const diagMsg = [
-        `[session-activation] Session did not reach active status`,
-        `  Last status: ${lastStatus}`,
-        `  Platform: ${process.platform} (${process.arch})`,
-        `  Node: ${process.version}`,
-      ].join('\n');
-
-      if (process.platform === 'darwin') {
-        // On macOS CI, node-pty native module may fail to spawn processes
-        // (posix_spawnp error). Log diagnostics but don't fail CI — this is
-        // a known platform-specific issue with node-pty on macOS ARM64.
-        console.warn(diagMsg);
-        console.warn('  Skipping strict activation assertion on macOS (known node-pty issue)');
-        return;
-      }
-      console.error(diagMsg);
-    }
-
-    sessionReachedActive = lastStatus === 'active';
-    expect(lastStatus).toBe('active');
   });
 
   it('WebSocket receives terminal output from active session', async () => {
-    if (!sessionReachedActive) {
-      // Session didn't activate (macOS node-pty issue) — skip gracefully
-      console.warn('[session-activation] Skipping WebSocket test — session not active');
-      return;
-    }
+    expect(sessionId).toBeDefined();
 
     const result = await new Promise<{ connected: boolean; messagesReceived: number }>((resolve) => {
       let messagesReceived = 0;
@@ -115,7 +56,6 @@ describe('E2E: Session activation (real PTY spawn)', { timeout: 120_000 }, () =>
 
       ws.on('message', () => {
         messagesReceived++;
-        // After receiving at least 1 message, we can resolve early
         if (messagesReceived >= 1) {
           clearTimeout(timer);
           ws.close();
@@ -129,30 +69,13 @@ describe('E2E: Session activation (real PTY spawn)', { timeout: 120_000 }, () =>
       });
     });
 
-    if (!result.connected) {
-      console.error(`[session-activation] WebSocket failed to connect`);
-      console.error(`  Platform: ${process.platform} (${process.arch})`);
-    }
-
     expect(result.connected).toBe(true);
     expect(result.messagesReceived).toBeGreaterThanOrEqual(1);
   });
 
   it('session is removed after kill', async () => {
-    if (!sessionReachedActive) {
-      // Session didn't activate — verify it was cleaned up gracefully
-      const listRes = await fetch(`${server.baseUrl}/api/sessions`);
-      const sessions = await listRes.json() as Array<{ id: string }>;
-      const stillExists = sessions.some(s => s.id === sessionId);
-      // Failed sessions should auto-delete
-      if (!stillExists) {
-        console.warn('[session-activation] Failed session was auto-cleaned — OK');
-      }
-      sessionId = '';
-      return;
-    }
+    expect(sessionId).toBeDefined();
 
-    // Kill the session
     const killRes = await fetch(`${server.baseUrl}/api/sessions/${sessionId}/kill`, {
       method: 'POST',
     });
@@ -170,6 +93,6 @@ describe('E2E: Session activation (real PTY spawn)', { timeout: 120_000 }, () =>
     }
 
     expect(stillExists).toBe(false);
-    sessionId = ''; // Prevent afterAll from trying to kill again
+    sessionId = '';
   });
 });
