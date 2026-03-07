@@ -6,6 +6,8 @@ export interface RunningServer {
   port: number;
   baseUrl: string;
   protocol: 'http' | 'https';
+  /** Returns recent server stderr output (useful for diagnosing session failures) */
+  getStderr(): string;
   stop(): Promise<number | null>;
 }
 
@@ -76,6 +78,7 @@ export function startServer(opts: StartOptions): Promise<RunningServer> {
           port: resolvedPort,
           baseUrl,
           protocol,
+          getStderr: () => stderr,
           stop: () => stopServer(proc),
         });
       }
@@ -155,6 +158,58 @@ function stopServer(proc: ChildProcess): Promise<number | null> {
       }
     }, 5000);
   });
+}
+
+/**
+ * Creates a session and polls until it reaches 'active' status.
+ * Throws with detailed diagnostics if the session fails to activate.
+ */
+export async function createActiveSession(
+  server: RunningServer,
+  workingDirectory: string,
+  title = 'test-session',
+  timeoutMs = 30_000,
+): Promise<string> {
+  const createRes = await fetch(`${server.baseUrl}/api/sessions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ workingDirectory, title }),
+  });
+  if (!createRes.ok) {
+    throw new Error(`Failed to create session: ${createRes.status} ${await createRes.text()}`);
+  }
+  const body = await createRes.json();
+  const sessionId = body.id as string;
+
+  const deadline = Date.now() + timeoutMs;
+  let lastStatus = body.status as string;
+  while (Date.now() < deadline) {
+    const listRes = await fetch(`${server.baseUrl}/api/sessions`);
+    const sessions = await listRes.json() as Array<{ id: string; status: string }>;
+    const session = sessions.find(s => s.id === sessionId);
+
+    if (session?.status === 'active') return sessionId;
+    if (session?.status === 'failed' || !session) {
+      lastStatus = session?.status ?? 'deleted';
+      break;
+    }
+    lastStatus = session.status;
+    await new Promise(r => setTimeout(r, 500));
+  }
+
+  // Extract relevant error lines from server stderr
+  const stderrLines = server.getStderr().split('\n');
+  const errorLines = stderrLines
+    .filter(l => l.includes('ERROR') || l.includes('failed') || l.includes('posix_spawn'))
+    .slice(-10)
+    .join('\n');
+
+  throw new Error(
+    `Session failed to activate (status: ${lastStatus})\n` +
+    `  Platform: ${process.platform} (${process.arch})\n` +
+    `  Node: ${process.version}\n` +
+    `  Server errors:\n${errorLines || '  (no error lines found in server output)'}`,
+  );
 }
 
 export async function waitForHealth(

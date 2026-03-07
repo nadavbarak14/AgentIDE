@@ -6,7 +6,7 @@ import {
   type ReleaseEnvironment,
 } from '../helpers/environment.js';
 import { packArtifact, installArtifact, type InstalledArtifact } from '../helpers/artifact.js';
-import { startServer, waitForHealth, type RunningServer } from '../helpers/server.js';
+import { startServer, waitForHealth, createActiveSession, type RunningServer } from '../helpers/server.js';
 
 describe('Release Smoke Test', { timeout: 300_000 }, () => {
   let env: ReleaseEnvironment;
@@ -48,60 +48,45 @@ describe('Release Smoke Test', { timeout: 300_000 }, () => {
     expect(Array.isArray(body)).toBe(true);
   });
 
-  it('POST /api/sessions creates a session', async () => {
-    const res = await fetch(`${server.baseUrl}/api/sessions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        workingDirectory: env.dataDir,
-        title: 'smoke-test-session',
-      }),
-    });
-    // Could be 201 (created) or 200/202 (auto-continued)
-    expect([200, 201, 202]).toContain(res.status);
-    const body = await res.json();
-    expect(body.id).toBeDefined();
-    expect(body.status).toBeDefined();
+  it('POST /api/sessions creates an active session', async () => {
+    const sessionId = await createActiveSession(server, env.dataDir, 'smoke-test-session');
+    expect(sessionId).toBeDefined();
+
+    // Verify it's in the session list
+    const listRes = await fetch(`${server.baseUrl}/api/sessions`);
+    const sessions = await listRes.json() as Array<{ id: string; status: string }>;
+    expect(sessions.some(s => s.id === sessionId && s.status === 'active')).toBe(true);
+
+    // Cleanup
+    await fetch(`${server.baseUrl}/api/sessions/${sessionId}/kill`, { method: 'POST' });
   });
 
-  it('WebSocket endpoint is functional', async () => {
-    // Part 1: Verify WebSocket server rejects non-existent sessions cleanly
-    const fakeId = '00000000-0000-0000-0000-000000000000';
-    const fakeResult = await new Promise<'connected' | 'error' | 'timeout'>((resolve) => {
-      const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws/sessions/${fakeId}`);
-      const timer = setTimeout(() => { ws.close(); resolve('timeout'); }, 3000);
-      ws.on('open', () => { clearTimeout(timer); ws.close(); resolve('connected'); });
-      ws.on('error', () => { clearTimeout(timer); resolve('error'); });
-    });
-    expect(fakeResult).toBe('error');
+  it('WebSocket connects to active session and receives data', async () => {
+    const sessionId = await createActiveSession(server, env.dataDir, 'ws-smoke-test');
 
-    // Part 2: Create a real session and attempt immediate WebSocket connection.
-    // Sessions auto-delete on failure; in CI without claude CLI, the spawned
-    // process fails quickly and the session may be cleaned up before the
-    // WebSocket upgrade arrives. Both outcomes are valid server behavior.
-    const createRes = await fetch(`${server.baseUrl}/api/sessions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ workingDirectory: env.dataDir, title: 'ws-test' }),
+    const result = await new Promise<{ connected: boolean; received: boolean }>((resolve) => {
+      const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws/sessions/${sessionId}`);
+      let received = false;
+      const timer = setTimeout(() => { ws.close(); resolve({ connected: true, received }); }, 5000);
+      ws.on('message', () => {
+        received = true;
+        clearTimeout(timer);
+        ws.close();
+        resolve({ connected: true, received: true });
+      });
+      ws.on('error', () => { clearTimeout(timer); resolve({ connected: false, received: false }); });
     });
-    const session = await createRes.json();
-    const connected = await new Promise<boolean>((resolve) => {
-      const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws/sessions/${session.id}`);
-      const timer = setTimeout(() => { ws.close(); resolve(false); }, 5000);
-      ws.on('open', () => { clearTimeout(timer); ws.close(); resolve(true); });
-      ws.on('error', () => { clearTimeout(timer); resolve(false); });
-    });
-    // Connection succeeds if session survives long enough, or is rejected
-    // if session was auto-deleted — both are correct server behavior
-    expect(typeof connected).toBe('boolean');
+
+    expect(result.connected).toBe(true);
+    expect(result.received).toBe(true);
+
+    // Cleanup
+    await fetch(`${server.baseUrl}/api/sessions/${sessionId}/kill`, { method: 'POST' });
   });
 
   it('server shuts down cleanly', async () => {
-    // This test runs last — we stop the server and verify clean exit
     const exitCode = await server.stop();
-    // SIGTERM results in null exit code on some systems, or 143 (128+15)
     expect(exitCode === null || exitCode === 0 || exitCode === 143).toBe(true);
-    // Prevent afterAll from trying to stop again
     server = null as unknown as RunningServer;
   });
 });

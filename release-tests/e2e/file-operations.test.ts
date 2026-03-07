@@ -7,7 +7,7 @@ import {
   type ReleaseEnvironment,
 } from '../helpers/environment.js';
 import { packArtifact, installArtifact, type InstalledArtifact } from '../helpers/artifact.js';
-import { startServer, waitForHealth, type RunningServer } from '../helpers/server.js';
+import { startServer, waitForHealth, createActiveSession, type RunningServer } from '../helpers/server.js';
 
 describe('E2E: File operations', { timeout: 120_000 }, () => {
   let env: ReleaseEnvironment;
@@ -21,8 +21,7 @@ describe('E2E: File operations', { timeout: 120_000 }, () => {
     env = await createReleaseEnvironment();
     artifact = installArtifact(env, tarball);
 
-    // Create a temp project dir with known files (must be inside env.dataDir which is
-    // within the server's home directory — directory validation rejects paths outside HOME)
+    // Create a temp project dir with known files
     projectDir = path.join(env.dataDir, 'test-project');
     fs.mkdirSync(projectDir, { recursive: true });
     fs.writeFileSync(path.join(projectDir, 'test.txt'), 'hello world\n');
@@ -38,20 +37,16 @@ describe('E2E: File operations', { timeout: 120_000 }, () => {
     server = await startServer({ env, binaryPath: artifact.binaryPath });
     await waitForHealth(server.baseUrl);
 
-    // Create session pointing at the project dir
-    const res = await fetch(`${server.baseUrl}/api/sessions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        workingDirectory: projectDir,
-        title: 'file-ops-test',
-      }),
-    });
-    const body = await res.json();
-    sessionId = body.id;
+    // Create an active session pointing at the project dir
+    sessionId = await createActiveSession(server, projectDir, 'file-ops-test');
   });
 
   afterAll(async () => {
+    if (sessionId) {
+      try {
+        await fetch(`${server.baseUrl}/api/sessions/${sessionId}/kill`, { method: 'POST' });
+      } catch { /* ignore */ }
+    }
     try {
       if (server) await server.stop();
     } finally {
@@ -59,34 +54,26 @@ describe('E2E: File operations', { timeout: 120_000 }, () => {
     }
   });
 
-  it('GET /api/sessions/:id/files returns file tree or 404 if session auto-deleted', async () => {
+  it('GET /api/sessions/:id/files returns file tree', async () => {
     const res = await fetch(`${server.baseUrl}/api/sessions/${sessionId}/files`);
-    // Session may have auto-deleted (no claude CLI in CI), returning 404
-    if (res.status === 200) {
-      const body = await res.json();
-      expect(body.entries).toBeDefined();
-      const names = body.entries.map((e: { name: string }) => e.name);
-      expect(names).toContain('test.txt');
-      expect(names).toContain('README.md');
-    } else {
-      expect(res.status).toBe(404);
-    }
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.entries).toBeDefined();
+    const names = body.entries.map((e: { name: string }) => e.name);
+    expect(names).toContain('test.txt');
+    expect(names).toContain('README.md');
   });
 
-  it('GET /api/sessions/:id/files/content returns file content or 404', async () => {
+  it('GET /api/sessions/:id/files/content returns file content', async () => {
     const res = await fetch(
       `${server.baseUrl}/api/sessions/${sessionId}/files/content?path=test.txt`,
     );
-    // Session may have auto-deleted (no claude CLI in CI), returning 404
-    if (res.status === 200) {
-      const body = await res.json();
-      expect(body.content).toContain('hello world');
-    } else {
-      expect(res.status).toBe(404);
-    }
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.content).toContain('hello world');
   });
 
-  it('GET /api/sessions/:id/diff returns git diff or 404', async () => {
+  it('GET /api/sessions/:id/diff returns git diff', async () => {
     // Modify a file and commit
     fs.writeFileSync(path.join(projectDir, 'test.txt'), 'hello modified\n');
     execSync('git add -A && git commit -m "modify test.txt"', {
@@ -96,7 +83,6 @@ describe('E2E: File operations', { timeout: 120_000 }, () => {
     });
 
     const res = await fetch(`${server.baseUrl}/api/sessions/${sessionId}/diff`);
-    // Diff endpoint may return 200 with diff, empty, or 404 if session auto-deleted
-    expect([200, 404]).toContain(res.status);
+    expect(res.status).toBe(200);
   });
 });
