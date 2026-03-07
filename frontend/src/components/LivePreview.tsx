@@ -128,7 +128,7 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
   const currentHost = window.location.hostname;
   const detectedUrl = (localPort || port) > 0 ? `http://${currentHost}:${localPort || port}` : '';
   const [displayUrl, setDisplayUrl] = useState(detectedUrl);
-  const [addressInput, setAddressInput] = useState(detectedUrl || `http://${currentHost}:3000`);
+  const [addressInput, setAddressInput] = useState(detectedUrl || `http://${currentHost}:24880`);
 
   // Compute the iframe URL from displayUrl
   const iframeUrl = displayUrl ? toProxyUrl(sessionId, displayUrl, isLocalDirect) : '';
@@ -285,7 +285,7 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
             onChange={(e) => setAddressInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleNavigate()}
             className="flex-1 bg-transparent text-xs text-gray-300 outline-none min-w-0"
-            placeholder={`http://${currentHost}:3000 or project://index.html`}
+            placeholder={`http://${currentHost}:24880 or project://index.html`}
             spellCheck={false}
           />
         </div>
