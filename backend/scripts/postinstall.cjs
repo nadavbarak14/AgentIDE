@@ -101,6 +101,27 @@ try {
     console.log(`${GREEN}All dependencies satisfied!${RESET}`);
   }
   console.log('');
+
+  // Check node-pty native module health
+  try {
+    require('node-pty');
+    console.log(`  node-pty native module .. ${GREEN}loaded${RESET} (ok)`);
+  } catch (ptyErr) {
+    console.log(`  node-pty native module .. ${RED}FAILED${RESET}`);
+    console.log('');
+    console.log(`${YELLOW}Warning: node-pty native module failed to load: ${ptyErr.message}${RESET}`);
+    console.log('  Terminal session support requires a working native module.');
+    console.log('');
+    if (process.platform === 'darwin') {
+      console.log('  On macOS: Install Xcode command-line tools:');
+      console.log('    xcode-select --install');
+    } else {
+      console.log('  On Linux: Install build tools:');
+      console.log('    sudo apt-get install -y build-essential python3');
+    }
+    console.log('');
+    console.log('  Then reinstall: npm install -g adyx-ide');
+  }
 } catch (err) {
   // Never fail the install
   console.log('Note: Could not check system dependencies. Run `adyx doctor` to verify.');

@@ -262,3 +262,80 @@ describe('PtySpawner — per-session skill injection', () => {
     spawner.destroy();
   });
 });
+
+describe('PtySpawner — resolveShell', () => {
+  let savedShell: string | undefined;
+
+  beforeEach(() => {
+    savedShell = process.env.SHELL;
+  });
+
+  afterEach(() => {
+    if (savedShell === undefined) {
+      delete process.env.SHELL;
+    } else {
+      process.env.SHELL = savedShell;
+    }
+  });
+
+  it('returns /bin/bash when it exists', () => {
+    vi.spyOn(fs, 'existsSync').mockImplementation((p: fs.PathLike) => {
+      return String(p) === '/bin/bash';
+    });
+
+    expect(PtySpawner.resolveShell()).toBe('/bin/bash');
+  });
+
+  it('falls back to $SHELL when /bin/bash is missing', () => {
+    process.env.SHELL = '/usr/local/bin/fish';
+    vi.spyOn(fs, 'existsSync').mockImplementation((p: fs.PathLike) => {
+      return String(p) === '/usr/local/bin/fish';
+    });
+
+    expect(PtySpawner.resolveShell()).toBe('/usr/local/bin/fish');
+  });
+
+  it('falls back to /bin/zsh when earlier shells are missing', () => {
+    delete process.env.SHELL;
+    vi.spyOn(fs, 'existsSync').mockImplementation((p: fs.PathLike) => {
+      return String(p) === '/bin/zsh';
+    });
+
+    expect(PtySpawner.resolveShell()).toBe('/bin/zsh');
+  });
+
+  it('falls back to /bin/sh as last resort', () => {
+    delete process.env.SHELL;
+    vi.spyOn(fs, 'existsSync').mockImplementation((p: fs.PathLike) => {
+      return String(p) === '/bin/sh';
+    });
+
+    expect(PtySpawner.resolveShell()).toBe('/bin/sh');
+  });
+
+  it('throws descriptive error when no shell found', () => {
+    delete process.env.SHELL;
+    vi.spyOn(fs, 'existsSync').mockReturnValue(false);
+
+    expect(() => PtySpawner.resolveShell()).toThrow('No usable shell found');
+  });
+
+  it('skips $SHELL when it equals /bin/bash', () => {
+    process.env.SHELL = '/bin/bash';
+    vi.spyOn(fs, 'existsSync').mockImplementation((p: fs.PathLike) => {
+      return String(p) === '/bin/zsh';
+    });
+
+    // /bin/bash is tried once (not duplicated via $SHELL), fails, then /bin/zsh succeeds
+    expect(PtySpawner.resolveShell()).toBe('/bin/zsh');
+  });
+
+  it('skips $SHELL when env var is empty', () => {
+    process.env.SHELL = '';
+    vi.spyOn(fs, 'existsSync').mockImplementation((p: fs.PathLike) => {
+      return String(p) === '/bin/zsh';
+    });
+
+    expect(PtySpawner.resolveShell()).toBe('/bin/zsh');
+  });
+});

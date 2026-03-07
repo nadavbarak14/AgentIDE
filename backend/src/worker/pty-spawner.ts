@@ -40,6 +40,41 @@ export class PtySpawner extends EventEmitter {
   // Sustained silence threshold: must have no output for this long
   private static IDLE_THRESHOLD_MS = 8000;
 
+  /**
+   * Resolve a usable shell binary path for PTY spawning.
+   * Tries shells in order, validates existence with fs.existsSync().
+   * Returns the first existing shell path.
+   * Throws with descriptive error if no shell is found.
+   */
+  static resolveShell(): string {
+    const candidates: Array<{ path: string; source: string }> = [
+      { path: '/bin/bash', source: 'default' },
+    ];
+
+    const envShell = process.env.SHELL;
+    if (envShell && envShell !== '/bin/bash') {
+      candidates.push({ path: envShell, source: '$SHELL' });
+    }
+
+    candidates.push(
+      { path: '/bin/zsh', source: 'macOS default' },
+      { path: '/bin/sh', source: 'POSIX fallback' },
+    );
+
+    for (const candidate of candidates) {
+      if (fs.existsSync(candidate.path)) {
+        logger.info({ shell: candidate.path, source: candidate.source }, 'resolved shell for PTY');
+        return candidate.path;
+      }
+    }
+
+    const tried = candidates.map(c => `${c.path} (${c.source})`).join(', ');
+    const platform = process.platform === 'darwin'
+      ? '\n  On macOS, ensure Xcode command-line tools are installed: xcode-select --install'
+      : '\n  On Linux, ensure bash or sh is installed: sudo apt-get install bash';
+    throw new Error(`No usable shell found. Tried: ${tried}.${platform}`);
+  }
+
   constructor(options: PtySpawnerOptions = {}) {
     super();
     this.scrollbackDir = options.scrollbackDir || path.join(process.cwd(), 'scrollback');
@@ -199,9 +234,10 @@ export class PtySpawner extends EventEmitter {
 
     log.info({ fullArgs: fullArgs.join(' ') }, 'claude command args');
 
-    // Spawn a bash shell and send tmux command into it.
+    // Spawn a shell and send tmux command into it.
     // tmux keeps the Claude process alive even if the hub crashes.
-    const proc = pty.spawn('/bin/bash', ['--norc', '--noprofile'], {
+    const shell = PtySpawner.resolveShell();
+    const proc = pty.spawn(shell, ['--norc', '--noprofile'], {
       name: 'xterm-256color',
       cols: 120,
       rows: 40,
@@ -300,8 +336,9 @@ export class PtySpawner extends EventEmitter {
 
     log.info({ tmuxSession: tmuxName }, 'reattaching to surviving local tmux session');
 
-    // Spawn new bash shell via node-pty and attach to existing tmux session
-    const proc = pty.spawn('/bin/bash', ['--norc', '--noprofile'], {
+    // Spawn new shell via node-pty and attach to existing tmux session
+    const shell = PtySpawner.resolveShell();
+    const proc = pty.spawn(shell, ['--norc', '--noprofile'], {
       name: 'xterm-256color',
       cols: 120,
       rows: 40,

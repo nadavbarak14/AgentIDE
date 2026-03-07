@@ -23,6 +23,10 @@ export async function createReleaseEnvironment(): Promise<ReleaseEnvironment> {
   fs.mkdirSync(binDir, { recursive: true });
   fs.mkdirSync(dataDir, { recursive: true });
 
+  // Install mock claude binary so sessions stay active during tests
+  const mockClaude = path.join(binDir, 'claude');
+  fs.writeFileSync(mockClaude, '#!/bin/bash\necho "mock-claude-active"\nsleep 60\n', { mode: 0o755 });
+
   const env: Record<string, string> = {
     ...process.env as Record<string, string>,
     HOME: homeDir,
