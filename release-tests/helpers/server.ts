@@ -6,8 +6,8 @@ export interface RunningServer {
   port: number;
   baseUrl: string;
   protocol: 'http' | 'https';
-  /** Returns recent server stderr output (useful for diagnosing session failures) */
-  getStderr(): string;
+  /** Returns recent server output (stdout+stderr, useful for diagnosing session failures) */
+  getOutput(): string;
   stop(): Promise<number | null>;
 }
 
@@ -78,7 +78,7 @@ export function startServer(opts: StartOptions): Promise<RunningServer> {
           port: resolvedPort,
           baseUrl,
           protocol,
-          getStderr: () => stderr,
+          getOutput: () => stdout + stderr,
           stop: () => stopServer(proc),
         });
       }
@@ -197,18 +197,15 @@ export async function createActiveSession(
     await new Promise(r => setTimeout(r, 500));
   }
 
-  // Extract relevant error lines from server stderr
-  const stderrLines = server.getStderr().split('\n');
-  const errorLines = stderrLines
-    .filter(l => l.includes('ERROR') || l.includes('failed') || l.includes('posix_spawn'))
-    .slice(-10)
-    .join('\n');
+  // Dump last 3KB of server output for diagnostics
+  const output = server.getOutput();
+  const recentOutput = output.length > 3000 ? output.slice(-3000) : output;
 
   throw new Error(
     `Session failed to activate (status: ${lastStatus})\n` +
     `  Platform: ${process.platform} (${process.arch})\n` +
     `  Node: ${process.version}\n` +
-    `  Server errors:\n${errorLines || '  (no error lines found in server output)'}`,
+    `  Server output (last 3KB):\n${recentOutput || '  (no server output)'}`,
   );
 }
 
