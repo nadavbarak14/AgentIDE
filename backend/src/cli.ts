@@ -26,8 +26,8 @@ program
 program
   .command('start')
   .description('Start the Adyx hub server')
-  .option('-p, --port <port>', 'Port to listen on', '3000')
-  .option('-H, --host <host>', 'Host to bind to (use 0.0.0.0 for remote access)', '0.0.0.0')
+  .option('-p, --port <port>', 'Port to listen on (default: 24880)', '24880')
+  .option('-H, --host <host>', 'Host to bind to (default: 0.0.0.0, use 127.0.0.1 for local only)', '0.0.0.0')
   .option('--no-open', 'Do not auto-open the browser')
   .action(async (opts) => {
     const { runPreFlightCheck } = await import('./utils/dependency-checker.js');

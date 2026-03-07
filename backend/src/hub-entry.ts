@@ -82,7 +82,7 @@ export interface HubResult {
 }
 
 export async function startHub(options: HubOptions = {}): Promise<HubResult> {
-  const port = options.port || parseInt(process.env.PORT || '3000', 10);
+  const port = options.port || parseInt(process.env.PORT || '24880', 10);
   const host = options.host || process.env.HOST || '0.0.0.0';
 
   const isLocalhost = host === '127.0.0.1' || host === 'localhost' || host === '::1' || host === '0.0.0.0';

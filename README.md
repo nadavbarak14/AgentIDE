@@ -9,7 +9,7 @@ npm install -g adyx-ide
 adyx start
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+Open [http://localhost:24880](http://localhost:24880) in your browser.
 
 ## Remote Server Setup
 
@@ -52,7 +52,7 @@ adyx start --host 0.0.0.0
 **Create a session via API:**
 
 ```bash
-curl -X POST http://localhost:3000/api/sessions \
+curl -X POST http://localhost:24880/api/sessions \
   -H "Content-Type: application/json" \
   -d '{"workingDirectory": "/path/to/project", "title": "My Session"}'
 ```
@@ -67,8 +67,8 @@ nohup adyx start --host 0.0.0.0 --port 8080 > adyx.log 2>&1 &
 
 | Flag | Env Var | Default | Description |
 |------|---------|---------|-------------|
-| `--port`, `-p` | `PORT` | `3000` | Port to listen on |
-| `--host`, `-H` | `HOST` | `127.0.0.1` | Host to bind to (use `0.0.0.0` for remote access) |
+| `--port`, `-p` | `PORT` | `24880` | Port to listen on |
+| `--host`, `-H` | `HOST` | `0.0.0.0` | Host to bind to (use `127.0.0.1` for local only) |
 
 ## Prerequisites
 
@@ -125,10 +125,10 @@ Press `Ctrl+.` to arm the chord, then press a key:
 
 ```bash
 # Find what's using the port
-lsof -i :3000
+lsof -i :24880
 
 # Use a different port
-adyx start --port 3001
+adyx start --port 8080
 ```
 
 **Native module compilation fails:**

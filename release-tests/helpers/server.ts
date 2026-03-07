@@ -32,7 +32,7 @@ export function startServer(opts: StartOptions): Promise<RunningServer> {
     timeout = 30_000,
   } = opts;
 
-  // hub-entry.ts treats port=0 as falsy and defaults to 3000,
+  // hub-entry.ts treats port=0 as falsy and defaults to 24880,
   // so use a random high port when no specific port is requested
   const port = opts.port || randomPort();
 
