@@ -124,6 +124,10 @@ var oSetAttr=Element.prototype.setAttribute;
 Element.prototype.setAttribute=function(a,v){
 if((a==="src"||a==="action"||(a==="href"&&this.tagName!=="A"))&&typeof v==="string")return oSetAttr.call(this,a,rw(v));
 return oSetAttr.call(this,a,v)};
+try{var srcD=Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype,"src");
+if(srcD&&srcD.set){var oSrcSet=srcD.set;Object.defineProperty(HTMLScriptElement.prototype,"src",{set:function(v){return oSrcSet.call(this,typeof v==="string"?rw(v):v)},get:srcD.get,configurable:true,enumerable:true})}}catch(e){}
+try{var linkD=Object.getOwnPropertyDescriptor(HTMLLinkElement.prototype,"href");
+if(linkD&&linkD.set){var oLinkSet=linkD.set;Object.defineProperty(HTMLLinkElement.prototype,"href",{set:function(v){return oLinkSet.call(this,typeof v==="string"?rw(v):v)},get:linkD.get,configurable:true,enumerable:true})}}catch(e){}
 document.addEventListener("click",function(e){if(e.defaultPrevented)return;
 var a=e.target&&e.target.closest?e.target.closest("a[href]"):null;if(!a)return;
 var h=a.getAttribute("href");

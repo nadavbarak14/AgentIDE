@@ -322,11 +322,7 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
     });
   }
 
-  // Clean up stale completed/failed sessions from before this server start
-  const cleanedUp = repo.deleteNonActiveSessions();
-  if (cleanedUp > 0) {
-    logger.info({ count: cleanedUp }, 'cleaned up stale non-active sessions on startup');
-  }
+  // Preserve completed/failed sessions across restarts — users expect session history to persist
 
   // Create Express app
   const app = express();
