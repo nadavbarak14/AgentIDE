@@ -99,20 +99,24 @@ describe('Session Lifecycle — No queue, immediate activation', () => {
 
   // ── Session completion ──────────────────────────────────────────
 
-  it('auto-deletes session on normal exit (completed)', () => {
+  it('preserves session in DB on normal exit (completed)', () => {
     const s1 = sessionManager.createSession({ workingDirectory: '/p1', title: 'S1' });
     fakeSpawner.simulateExit(s1.id, 0, 'claude-1');
 
-    // Session is auto-deleted after completion
-    expect(repo.getSession(s1.id)).toBeNull();
+    // Session persists with completed status
+    const session = repo.getSession(s1.id);
+    expect(session).not.toBeNull();
+    expect(session!.status).toBe('completed');
   });
 
-  it('auto-deletes session on non-zero exit (failed)', () => {
+  it('preserves session in DB on non-zero exit (failed)', () => {
     const s1 = sessionManager.createSession({ workingDirectory: '/p1', title: 'S1' });
     fakeSpawner.simulateExit(s1.id, 1, null);
 
-    // Session is auto-deleted after failure
-    expect(repo.getSession(s1.id)).toBeNull();
+    // Session persists with failed status
+    const session = repo.getSession(s1.id);
+    expect(session).not.toBeNull();
+    expect(session!.status).toBe('failed');
   });
 
   // ── needsInput detection (preserved) ────────────────────────────

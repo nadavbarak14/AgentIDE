@@ -198,8 +198,8 @@ describe('Sessions API', () => {
 
   // ─── Auto-deletion on session completion/failure ───
 
-  describe('Auto-deletion on session completion', () => {
-    it('auto-deletes session after completion via session-manager', async () => {
+  describe('Session persistence on completion', () => {
+    it('preserves session after completion via session-manager', async () => {
       const createRes = await request(app)
         .post('/api/sessions')
         .send({ workingDirectory: path.join(tmpDir, 'p1'), title: 'Auto-delete test' });
@@ -212,21 +212,23 @@ describe('Sessions API', () => {
       // Kill the session (mock spawner emits exit with code 0 → completes)
       sessionManager.killSession(sessionId);
 
-      // Session should be auto-deleted after completion
-      expect(repo.getSession(sessionId)).toBeNull();
+      // Session should persist with completed status
+      const session = repo.getSession(sessionId);
+      expect(session).not.toBeNull();
+      expect(session!.status).toBe('completed');
     });
 
-    it('auto-deletes session after failure via session-manager', async () => {
+    it('preserves session after failure', async () => {
       // Create a session directly via repo to control the flow
       const session = repo.createSession({ workingDirectory: path.join(tmpDir, 'p2'), title: 'Fail test' });
       repo.activateSession(session.id, 99999);
 
-      // Manually fail and delete (simulating what session-manager does)
+      // Fail the session (simulating what session-manager does)
       repo.failSession(session.id);
-      const deleted = repo.deleteSession(session.id);
 
-      expect(deleted).toBe(true);
-      expect(repo.getSession(session.id)).toBeNull();
+      const failed = repo.getSession(session.id);
+      expect(failed).not.toBeNull();
+      expect(failed!.status).toBe('failed');
     });
 
     it('cleans up panel_states when session is auto-deleted', async () => {
