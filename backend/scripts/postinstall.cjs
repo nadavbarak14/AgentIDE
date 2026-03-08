@@ -102,6 +102,30 @@ try {
   }
   console.log('');
 
+  // Fix node-pty spawn-helper permissions (npm doesn't preserve +x on pack/install)
+  try {
+    const nodePtyDir = require.resolve('node-pty').replace(/[/\\]lib[/\\]index\.js$/, '');
+    const spawnHelperPaths = [
+      require('path').join(nodePtyDir, 'prebuilds', `${process.platform}-${process.arch}`, 'spawn-helper'),
+      require('path').join(nodePtyDir, 'build', 'Release', 'spawn-helper'),
+    ];
+    const { chmodSync, existsSync, statSync } = require('fs');
+    for (const p of spawnHelperPaths) {
+      if (existsSync(p)) {
+        const mode = statSync(p).mode;
+        if (!(mode & 0o111)) {
+          chmodSync(p, 0o755);
+          console.log(`  spawn-helper .......... ${GREEN}fixed permissions${RESET} (ok)`);
+        } else {
+          console.log(`  spawn-helper .......... ${GREEN}executable${RESET} (ok)`);
+        }
+        break;
+      }
+    }
+  } catch (chmodErr) {
+    console.log(`  spawn-helper .......... ${YELLOW}could not fix permissions${RESET}`);
+  }
+
   // Check node-pty native module health
   try {
     require('node-pty');

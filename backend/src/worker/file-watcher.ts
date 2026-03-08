@@ -3,16 +3,17 @@ import { EventEmitter } from 'node:events';
 import { logger } from '../services/logger.js';
 import { scanPorts, type DetectedPort } from './port-scanner.js';
 
-/** Directories to ignore when watching for changes */
-const IGNORED_PATTERNS = [
-  '**/node_modules/**',
-  '**/.git/**',
-  '**/dist/**',
-  '**/.next/**',
-  '**/__pycache__/**',
-  '**/.pytest_cache/**',
-  '**/coverage/**',
-];
+/** Directories to ignore when watching for changes.
+ * Uses a function matcher — chokidar 4 glob patterns don't reliably
+ * prevent directory traversal, causing EMFILE on large node_modules. */
+const IGNORED_DIRS = new Set([
+  'node_modules', '.git', 'dist', '.next', '__pycache__', '.pytest_cache', 'coverage',
+]);
+
+function isIgnored(filePath: string): boolean {
+  const parts = filePath.split('/');
+  return parts.some(p => IGNORED_DIRS.has(p));
+}
 
 const DEBOUNCE_MS = 500;
 
@@ -57,7 +58,7 @@ export class FileWatcher extends EventEmitter {
 
     // WSL2: inotify works on native filesystem; /mnt/c/ may have delayed events
     const watcher = watch(directory, {
-      ignored: IGNORED_PATTERNS,
+      ignored: isIgnored,
       persistent: true,
       ignoreInitial: true,
       awaitWriteFinish: {

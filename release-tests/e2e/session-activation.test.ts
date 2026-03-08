@@ -78,15 +78,6 @@ describe('E2E: Session activation (real PTY spawn)', { timeout: 120_000 }, () =>
         `  Platform: ${process.platform} (${process.arch})`,
         `  Node: ${process.version}`,
       ].join('\n');
-
-      if (process.platform === 'darwin') {
-        // On macOS CI, node-pty native module may fail to spawn processes
-        // (posix_spawnp error). Log diagnostics but don't fail CI — this is
-        // a known platform-specific issue with node-pty on macOS ARM64.
-        console.warn(diagMsg);
-        console.warn('  Skipping strict activation assertion on macOS (known node-pty issue)');
-        return;
-      }
       console.error(diagMsg);
     }
 
@@ -96,7 +87,6 @@ describe('E2E: Session activation (real PTY spawn)', { timeout: 120_000 }, () =>
 
   it('WebSocket receives terminal output from active session', async () => {
     if (!sessionReachedActive) {
-      // Session didn't activate (macOS node-pty issue) — skip gracefully
       console.warn('[session-activation] Skipping WebSocket test — session not active');
       return;
     }
