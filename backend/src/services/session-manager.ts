@@ -363,9 +363,6 @@ export class SessionManager extends EventEmitter {
         log.info({ claudeSessionId }, 'session completed');
         this.repo.completeSession(sessionId, claudeSessionId);
         this.emit('session_completed', sessionId, claudeSessionId);
-        // Auto-delete: session no longer needed after completion
-        this.repo.deleteSession(sessionId);
-        this.cleanupScrollback(sessionId, log);
       } else {
         // If this was a --continue session that failed quickly, retry without --continue
         const continueStartTime = this.continueSessions.get(sessionId);
@@ -388,9 +385,6 @@ export class SessionManager extends EventEmitter {
         log.warn({ exitCode }, 'session failed');
         this.repo.failSession(sessionId);
         this.emit('session_failed', sessionId);
-        // Auto-delete: session no longer needed after failure
-        this.repo.deleteSession(sessionId);
-        this.cleanupScrollback(sessionId, log);
       }
     });
 
@@ -474,16 +468,10 @@ export class SessionManager extends EventEmitter {
         log.info({ claudeSessionId }, 'remote session completed');
         this.repo.completeSession(sessionId, claudeSessionId);
         this.emit('session_completed', sessionId, claudeSessionId);
-        // Auto-delete: session no longer needed after completion
-        this.repo.deleteSession(sessionId);
-        this.cleanupScrollback(sessionId, log);
       } else {
         log.warn({ exitCode }, 'remote session failed');
         this.repo.failSession(sessionId);
         this.emit('session_failed', sessionId);
-        // Auto-delete: session no longer needed after failure
-        this.repo.deleteSession(sessionId);
-        this.cleanupScrollback(sessionId, log);
       }
     });
 
