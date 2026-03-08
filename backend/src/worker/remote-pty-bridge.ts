@@ -9,6 +9,7 @@ import { escapeShellArg, getTmuxSessionName } from './tmux-utils.js';
 
 export class RemotePtyBridge extends EventEmitter {
   private channels = new Map<string, ClientChannel>();
+  private channelDimensions = new Map<string, { cols: number; rows: number }>();
   private sessionWorkerIds = new Map<string, string>();
   private outputBuffers = new Map<string, string>();
   private lastOutputTime = new Map<string, number>();
@@ -134,6 +135,7 @@ export class RemotePtyBridge extends EventEmitter {
 
     const stream = await this.tunnelManager.shell(workerId, { cols: 120, rows: 40 });
     this.channels.set(sessionId, stream);
+    this.channelDimensions.set(sessionId, { cols: 120, rows: 40 });
     this.sessionWorkerIds.set(sessionId, workerId);
     this.outputBuffers.set(sessionId, '');
     this.lastOutputTime.set(sessionId, Date.now());
@@ -221,6 +223,7 @@ export class RemotePtyBridge extends EventEmitter {
 
     const stream = await this.tunnelManager.shell(workerId, { cols: 120, rows: 40 });
     this.channels.set(sessionId, stream);
+    this.channelDimensions.set(sessionId, { cols: 120, rows: 40 });
     this.sessionWorkerIds.set(sessionId, workerId);
     this.outputBuffers.set(sessionId, '');
     this.lastOutputTime.set(sessionId, Date.now());
@@ -281,7 +284,12 @@ export class RemotePtyBridge extends EventEmitter {
     const stream = this.channels.get(sessionId);
     if (stream) {
       stream.setWindow(rows, cols, rows * 16, cols * 8);
+      this.channelDimensions.set(sessionId, { cols, rows });
     }
+  }
+
+  getDimensions(sessionId: string): { cols: number; rows: number } | undefined {
+    return this.channelDimensions.get(sessionId);
   }
 
   kill(sessionId: string): void {
@@ -351,6 +359,7 @@ export class RemotePtyBridge extends EventEmitter {
   private cleanup(sessionId: string): void {
     this.flushScrollback(sessionId);
     this.channels.delete(sessionId);
+    this.channelDimensions.delete(sessionId);
     this.sessionWorkerIds.delete(sessionId);
     this.outputBuffers.delete(sessionId);
     this.lastOutputTime.delete(sessionId);

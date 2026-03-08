@@ -27,6 +27,7 @@ export interface PtySpawnerOptions {
 
 export class PtySpawner extends EventEmitter {
   private processes = new Map<string, pty.IPty>();
+  private processDimensions = new Map<string, { cols: number; rows: number }>();
   private outputBuffers = new Map<string, string>();
   private lastOutputTime = new Map<string, number>();
   private scrollbackDir: string;
@@ -246,6 +247,7 @@ export class PtySpawner extends EventEmitter {
     });
 
     this.processes.set(sessionId, proc);
+    this.processDimensions.set(sessionId, { cols: 120, rows: 40 });
     this.outputBuffers.set(sessionId, '');
     this.lastOutputTime.set(sessionId, Date.now());
     this.terminalParsers.set(sessionId, new TerminalParser());
@@ -345,6 +347,7 @@ export class PtySpawner extends EventEmitter {
     });
 
     this.processes.set(sessionId, proc);
+    this.processDimensions.set(sessionId, { cols: 120, rows: 40 });
     this.outputBuffers.set(sessionId, '');
     this.lastOutputTime.set(sessionId, Date.now());
     this.terminalParsers.set(sessionId, new TerminalParser());
@@ -408,7 +411,12 @@ export class PtySpawner extends EventEmitter {
     const proc = this.processes.get(sessionId);
     if (proc) {
       proc.resize(cols, rows);
+      this.processDimensions.set(sessionId, { cols, rows });
     }
+  }
+
+  getDimensions(sessionId: string): { cols: number; rows: number } | undefined {
+    return this.processDimensions.get(sessionId);
   }
 
   kill(sessionId: string): void {
@@ -479,6 +487,7 @@ export class PtySpawner extends EventEmitter {
     this.flushScrollback(sessionId);
 
     this.processes.delete(sessionId);
+    this.processDimensions.delete(sessionId);
     this.outputBuffers.delete(sessionId);
     this.lastOutputTime.delete(sessionId);
     this.idleNotified.delete(sessionId);

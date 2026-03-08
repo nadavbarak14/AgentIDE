@@ -97,14 +97,32 @@ export function setupWebSocket(
       );
     }
 
-    // Trigger PTY resize so Claude Code redraws its TUI for the new client.
-    // We don't replay saved scrollback — the live redraw is always correct.
-    const proc = ptySpawner.getProcess(sessionId);
-    if (proc) {
-      const cols = 120;
-      const rows = 40;
-      ptySpawner.resize(sessionId, cols, rows);
-    }
+    // Force a TUI redraw for the new client by "bouncing" the PTY size.
+    // A simple resize to the current dimensions is a kernel no-op (no SIGWINCH),
+    // so we shrink by 1 col first, then restore — guaranteeing the application redraws.
+    // We delay the bounce to let the client's resize message arrive first,
+    // then read the CURRENT stored dimensions (not stale captured ones).
+    const isRemote = sessionManager.isRemoteSession(sessionId) && remotePtyBridge;
+    const bounceTimer = setTimeout(() => {
+      if (isRemote) {
+        const dims = remotePtyBridge!.getDimensions(sessionId) || { cols: 120, rows: 40 };
+        remotePtyBridge!.resize(sessionId, Math.max(dims.cols - 1, 1), dims.rows);
+        setTimeout(() => {
+          const currentDims = remotePtyBridge!.getDimensions(sessionId) || dims;
+          remotePtyBridge!.resize(sessionId, currentDims.cols, currentDims.rows);
+        }, 50);
+      } else {
+        const proc = ptySpawner.getProcess(sessionId);
+        if (proc) {
+          const dims = ptySpawner.getDimensions(sessionId) || { cols: 120, rows: 40 };
+          ptySpawner.resize(sessionId, Math.max(dims.cols - 1, 1), dims.rows);
+          setTimeout(() => {
+            const currentDims = ptySpawner.getDimensions(sessionId) || dims;
+            ptySpawner.resize(sessionId, currentDims.cols, currentDims.rows);
+          }, 50);
+        }
+      }
+    }, 200);
 
     // Handle incoming messages — route to local PTY or remote bridge
     ws.on('message', (data, isBinary) => {
@@ -140,6 +158,7 @@ export function setupWebSocket(
 
     ws.on('close', () => {
       log.info('websocket client disconnected');
+      clearTimeout(bounceTimer);
       const clients = sessionClients.get(sessionId);
       if (clients) {
         clients.delete(ws);

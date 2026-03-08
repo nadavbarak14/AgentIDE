@@ -74,6 +74,7 @@ export function TerminalView({ sessionId, active, fontSize = 14, onWsMessage }: 
     if (!connected || !terminalRef2.current) return;
 
     // Send current dimensions so PTY matches
+    fit();
     sendResize(terminalRef2.current.cols, terminalRef2.current.rows);
 
     // After scrollback settles, final fit + resize + scroll

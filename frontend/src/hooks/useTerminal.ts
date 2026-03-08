@@ -13,6 +13,8 @@ export function useTerminal(options: UseTerminalOptions = {}) {
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  // Buffer data that arrives before xterm.js is initialized, so nothing is lost
+  const pendingWritesRef = useRef<Array<string | ArrayBuffer | Uint8Array>>([]);
 
   const initTerminal = useCallback((container: HTMLDivElement | null) => {
     if (!container) return;
@@ -66,6 +68,19 @@ export function useTerminal(options: UseTerminalOptions = {}) {
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
 
+    // Flush any data that arrived before the terminal was ready
+    if (pendingWritesRef.current.length > 0) {
+      for (const chunk of pendingWritesRef.current) {
+        if (typeof chunk === 'string') {
+          terminal.write(chunk);
+        } else {
+          terminal.write(new Uint8Array(chunk instanceof ArrayBuffer ? chunk : chunk));
+        }
+      }
+      pendingWritesRef.current = [];
+      terminal.scrollToBottom();
+    }
+
     // Debounced resize handler — re-fit terminal when container size changes.
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
     let lastWidth = container.offsetWidth;
@@ -85,7 +100,15 @@ export function useTerminal(options: UseTerminalOptions = {}) {
     });
     resizeObserver.observe(container);
 
+    // Heartbeat: periodically call fit() to catch glitches that ResizeObserver
+    // misses (CSS reflows, visibility changes, TUI rendering artifacts).
+    // fit() is cheap — it no-ops if dimensions haven't changed.
+    const heartbeat = setInterval(() => {
+      fitAddon.fit();
+    }, 3000);
+
     return () => {
+      clearInterval(heartbeat);
       if (resizeTimer) clearTimeout(resizeTimer);
       resizeObserver.disconnect();
       terminal.dispose();
@@ -96,7 +119,11 @@ export function useTerminal(options: UseTerminalOptions = {}) {
 
   const write = useCallback((data: string | ArrayBuffer | Uint8Array) => {
     const terminal = terminalRef.current;
-    if (!terminal) return;
+    if (!terminal) {
+      // Buffer data until terminal is initialized — prevents silent data loss
+      pendingWritesRef.current.push(data);
+      return;
+    }
     // Use write callback to scroll after data is parsed — xterm.js write() is async
     const scrollCb = () => terminal.scrollToBottom();
     if (typeof data === 'string') {
