@@ -105,12 +105,15 @@ export function usePanel(sessionId: string | null, viewMode: ViewMode = 'grid') 
   // Typed setters that accept PanelContent
   const setLeftPanel = useCallback((val: PanelContent | ((prev: PanelContent) => PanelContent)) => {
     setLeftPanelRaw(val);
+    window.dispatchEvent(new CustomEvent('c3:grid-changed'));
   }, []);
   const setRightPanel = useCallback((val: PanelContent | ((prev: PanelContent) => PanelContent)) => {
     setRightPanelRaw(val);
+    window.dispatchEvent(new CustomEvent('c3:grid-changed'));
   }, []);
   const setBottomPanel = useCallback((val: PanelContent | ((prev: PanelContent) => PanelContent)) => {
     setBottomPanelRaw(val);
+    window.dispatchEvent(new CustomEvent('c3:grid-changed'));
   }, []);
 
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
