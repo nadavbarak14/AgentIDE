@@ -33,6 +33,7 @@ import type {
   PreviewCommentStatus,
   UploadedImage,
   VideoRecording,
+  AuthConfig,
 } from './types.js';
 
 // Helper: convert SQLite row to Session
@@ -412,6 +413,28 @@ export class Repository {
 
   setHubStatus(status: string): void {
     this.db.prepare('UPDATE settings SET hub_status = ? WHERE id = 1').run(status);
+  }
+
+  // ─── Auth Config ───
+
+  getAuthConfig(): AuthConfig | null {
+    const row = this.db
+      .prepare('SELECT * FROM auth_config WHERE id = 1')
+      .get() as Record<string, unknown> | undefined;
+    if (!row) return null;
+    return {
+      keyHash: row.key_hash as string,
+      cookieSecret: row.cookie_secret as string,
+      createdAt: row.created_at as string,
+    };
+  }
+
+  setAuthConfig(keyHash: string, cookieSecret: string): void {
+    this.db
+      .prepare(
+        'INSERT OR REPLACE INTO auth_config (id, key_hash, cookie_secret) VALUES (1, ?, ?)'
+      )
+      .run(keyHash, cookieSecret);
   }
 
   // ─── Workers ───

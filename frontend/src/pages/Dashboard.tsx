@@ -782,17 +782,17 @@ export function Dashboard() {
       {/* Main Area */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top Bar */}
-        <div className="flex items-center justify-between px-4 py-2 border-b border-gray-700 bg-gray-800/50 flex-shrink-0">
-          <div className="flex items-center gap-4">
+        <div className="flex items-center justify-between px-2 sm:px-4 py-2 border-b border-gray-700 bg-gray-800/50 flex-shrink-0 gap-2 overflow-x-auto">
+          <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
             <h1 className="text-lg font-bold">Adyx</h1>
-            <span className="text-sm text-gray-400">
+            <span className="text-sm text-gray-400 hidden sm:inline">
               {activeCount} active
             </span>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
             <button
               onClick={() => setPaletteOpen((prev) => !prev)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-300 hover:text-white bg-gray-700/50 hover:bg-gray-700 border border-gray-600 hover:border-gray-500 rounded-md transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 min-h-[44px] min-w-[44px] text-sm text-gray-300 hover:text-white bg-gray-700/50 hover:bg-gray-700 border border-gray-600 hover:border-gray-500 rounded-md transition-colors"
               title="Help &amp; Commands (Ctrl+. H)"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -816,7 +816,7 @@ export function Dashboard() {
                   return next;
                 });
               }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md transition-colors ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 min-h-[44px] min-w-[44px] text-sm rounded-md transition-colors ${
                 sidebarOpen
                   ? 'text-gray-300 hover:text-white bg-gray-700 hover:bg-gray-600 border border-gray-600'
                   : 'text-gray-300 hover:text-white bg-blue-600/20 hover:bg-blue-600/40 border border-blue-500/30 hover:border-blue-500/50'
@@ -900,8 +900,22 @@ export function Dashboard() {
         extraCommands={BUTTON_ONLY_COMMANDS}
       />
 
-      {/* Sidebar */}
-      <div className={`transition-all duration-200 flex-shrink-0 ${sidebarOpen ? 'w-80' : 'w-0 overflow-hidden'}`}>
+      {/* Sidebar — desktop: inline panel; mobile: overlay */}
+      {/* Mobile overlay backdrop */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
+          onClick={() => {
+            setSidebarOpen(false);
+            localStorage.setItem('c3-sidebar-open', 'false');
+          }}
+        />
+      )}
+      <div className={`transition-all duration-200 flex-shrink-0 ${
+        sidebarOpen
+          ? 'fixed right-0 top-0 bottom-0 z-50 w-80 lg:relative lg:z-auto'
+          : 'w-0 overflow-hidden'
+      }`}>
         <SessionQueue
           activeSessions={activeSessions}
           workers={workersList}

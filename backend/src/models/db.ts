@@ -188,6 +188,13 @@ CREATE TABLE IF NOT EXISTS video_recordings (
 
 CREATE INDEX IF NOT EXISTS idx_video_recordings_session
   ON video_recordings(session_id);
+
+CREATE TABLE IF NOT EXISTS auth_config (
+  id INTEGER PRIMARY KEY CHECK(id = 1),
+  key_hash TEXT NOT NULL,
+  cookie_secret TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 `;
 
 const SEED = `
@@ -347,6 +354,21 @@ function migrate(database: Database.Database): void {
   // Add mobile_device_id column to panel_states
   if (!colNames.has('mobile_device_id')) {
     database.exec('ALTER TABLE panel_states ADD COLUMN mobile_device_id TEXT DEFAULT NULL');
+  }
+
+  // Add auth_config table if it doesn't exist (029-mobile-secure-access)
+  const authTableExists = database.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='auth_config'"
+  ).get();
+  if (!authTableExists) {
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS auth_config (
+        id INTEGER PRIMARY KEY CHECK(id = 1),
+        key_hash TEXT NOT NULL,
+        cookie_secret TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    `);
   }
 
   // Migrate video_recordings table for WebM format

@@ -425,6 +425,13 @@ export interface VideoRecording {
   createdAt: string;
 }
 
+// Auth Config
+export interface AuthConfig {
+  keyHash: string;
+  cookieSecret: string;
+  createdAt: string;
+}
+
 export interface GitHubStatus {
   ghInstalled: boolean;
   ghAuthenticated: boolean;

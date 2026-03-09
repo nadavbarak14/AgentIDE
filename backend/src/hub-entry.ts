@@ -28,6 +28,11 @@ import { requestLogger, errorHandler } from './api/middleware.js';
 import { logger } from './services/logger.js';
 import { checkPrerequisites, detectWSLVersion, requireTmux } from './services/prerequisites.js';
 import { WebSocket as WsClient } from 'ws';
+import cookieParser from 'cookie-parser';
+import { createAuthRouter } from './api/routes/auth.js';
+import { getLoginPageHtml } from './api/login-page.js';
+import { requireAuth } from './api/middleware.js';
+import { generateAccessKey, hashKey, generateCookieSecret } from './services/auth-service.js';
 
 // ── Widget types (dynamic skill UI) ────────────────────────────────────────
 interface Widget {
@@ -79,6 +84,7 @@ export interface HubResult {
   url: string;
   port: number;
   host: string;
+  accessKey?: string;
 }
 
 export async function startHub(options: HubOptions = {}): Promise<HubResult> {
@@ -110,6 +116,21 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
 
   // Require tmux for local session crash resilience
   requireTmux();
+
+  // ── Auth setup ─────────────────────────────────────────────────────────────
+  let generatedAccessKey: string | undefined;
+  const existingAuth = repo.getAuthConfig();
+  if (!existingAuth) {
+    // First startup — generate and store access key
+    const accessKey = generateAccessKey();
+    const keyHash = hashKey(accessKey);
+    const cookieSecret = generateCookieSecret();
+    repo.setAuthConfig(keyHash, cookieSecret);
+    generatedAccessKey = accessKey;
+    logger.info('Generated new access key for remote authentication');
+  } else {
+    logger.info('Authentication configured for remote access');
+  }
 
   // Initialize services
   const ptySpawner = new PtySpawner({ hubPort: port });
@@ -335,6 +356,9 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
     }
   });
 
+  // Parse cookies for auth
+  app.use(cookieParser());
+
   // Security headers (skip X-Frame-Options and CSP for proxy/serve routes used by preview iframe)
   app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -349,8 +373,20 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
 
   app.use(requestLogger);
 
-  // Health check endpoint
+  // Health check endpoint (always open)
   app.use('/api/health', createHealthRouter());
+
+  // Auth routes (before auth middleware — login must be accessible)
+  app.use('/api/auth', createAuthRouter(repo));
+
+  // Login page (before auth middleware)
+  app.get('/login', (_req, res) => {
+    res.setHeader('Content-Type', 'text/html');
+    res.send(getLoginPageHtml());
+  });
+
+  // Auth middleware — gates all subsequent routes for non-localhost
+  app.use(requireAuth(repo));
 
   // Hooks routes (restricted to localhost when server binds to non-localhost)
   app.use('/api/hooks', createHooksRouter(repo, !isLocalhost));
@@ -919,7 +955,7 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
 
   const displayHost = host === '0.0.0.0' ? '127.0.0.1' : host;
   const actualPort = (server.address() as import('node:net').AddressInfo)?.port || port;
-  return { server, url: `http://${displayHost}:${actualPort}`, port: actualPort, host };
+  return { server, url: `http://${displayHost}:${actualPort}`, port: actualPort, host, accessKey: generatedAccessKey };
 }
 
 // Direct execution (when run as hub-entry.ts directly)

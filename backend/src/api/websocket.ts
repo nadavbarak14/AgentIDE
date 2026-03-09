@@ -8,6 +8,7 @@ import type { ShellSpawner } from '../worker/shell-spawner.js';
 import type { FileWatcher } from '../worker/file-watcher.js';
 import type { WsClientMessage, BoardCommand } from '../models/types.js';
 import { createSessionLogger, logger } from '../services/logger.js';
+import { validateCookieValue, isLocalhostIp } from '../services/auth-service.js';
 
 // Map of sessionId → Set of connected WebSocket clients
 const sessionClients = new Map<string, Set<WebSocket>>();
@@ -28,6 +29,27 @@ export function setupWebSocket(
 
   // Handle HTTP upgrade
   server.on('upgrade', async (request, socket, head) => {
+    // Auth check for non-localhost WebSocket connections
+    const remoteAddr = request.socket.remoteAddress;
+    if (!isLocalhostIp(remoteAddr)) {
+      // Parse cookies from upgrade request headers
+      const cookieHeader = request.headers.cookie || '';
+      const cookies: Record<string, string> = {};
+      for (const pair of cookieHeader.split(';')) {
+        const [name, ...rest] = pair.trim().split('=');
+        if (name) cookies[name.trim()] = rest.join('=').trim();
+      }
+
+      const authCookie = cookies['adyx_auth'];
+      const authConfig = repo.getAuthConfig();
+
+      if (authConfig && (!authCookie || !validateCookieValue(authCookie, authConfig.cookieSecret))) {
+        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+        socket.destroy();
+        return;
+      }
+    }
+
     const url = new URL(request.url || '', `http://${request.headers.host}`);
 
     // Match shell WebSocket: /ws/sessions/:id/shell
