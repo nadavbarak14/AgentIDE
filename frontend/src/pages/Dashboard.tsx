@@ -782,17 +782,26 @@ export function Dashboard() {
       {/* Main Area */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top Bar */}
-        <div className="flex items-center justify-between px-4 py-2 border-b border-gray-700 bg-gray-800/50 flex-shrink-0">
-          <div className="flex items-center gap-4">
-            <h1 className="text-lg font-bold">Adyx</h1>
-            <span className="text-sm text-gray-400">
+        <div className="flex items-center justify-between px-2 sm:px-4 py-1 sm:py-2 border-b border-gray-700 bg-gray-800/50 flex-shrink-0">
+          {/* Left side — mobile: current session name; desktop: Adyx + count */}
+          <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+            <h1 className="text-base sm:text-lg font-bold shrink-0">Adyx</h1>
+            {/* Mobile: show current session name */}
+            {currentSessionId && activeSessions.length > 0 && (
+              <span className="sm:hidden text-xs text-gray-300 truncate max-w-[120px]">
+                {activeSessions.find(s => s.id === currentSessionId)?.title || ''}
+              </span>
+            )}
+            <span className="text-sm text-gray-400 hidden sm:inline">
               {activeCount} active
             </span>
           </div>
-          <div className="flex items-center gap-3">
+          {/* Right side — mobile: compact; desktop: full buttons */}
+          <div className="flex items-center gap-1 sm:gap-3 shrink-0">
+            {/* Help — hidden on mobile */}
             <button
               onClick={() => setPaletteOpen((prev) => !prev)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-300 hover:text-white bg-gray-700/50 hover:bg-gray-700 border border-gray-600 hover:border-gray-500 rounded-md transition-colors"
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-300 hover:text-white bg-gray-700/50 hover:bg-gray-700 border border-gray-600 hover:border-gray-500 rounded-md transition-colors"
               title="Help &amp; Commands (Ctrl+. H)"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -808,6 +817,23 @@ export function Dashboard() {
             {workersList.length > 1 && (
               <WorkerHealth workers={workersList} />
             )}
+            {/* Session count badge — mobile only, tap to open sidebar */}
+            {activeCount > 0 && (
+              <button
+                onClick={() => {
+                  setSidebarOpen((prev) => {
+                    const next = !prev;
+                    localStorage.setItem('c3-sidebar-open', String(next));
+                    return next;
+                  });
+                }}
+                className="sm:hidden flex items-center justify-center w-7 h-7 text-xs font-bold rounded-full bg-gray-700 text-gray-300 active:bg-gray-600"
+                title="Sessions"
+              >
+                {activeCount}
+              </button>
+            )}
+            {/* New Session / Close button */}
             <button
               onClick={() => {
                 setSidebarOpen((prev) => {
@@ -816,7 +842,7 @@ export function Dashboard() {
                   return next;
                 });
               }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md transition-colors ${
+              className={`flex items-center gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 text-sm rounded-md transition-colors ${
                 sidebarOpen
                   ? 'text-gray-300 hover:text-white bg-gray-700 hover:bg-gray-600 border border-gray-600'
                   : 'text-gray-300 hover:text-white bg-blue-600/20 hover:bg-blue-600/40 border border-blue-500/30 hover:border-blue-500/50'
@@ -826,13 +852,13 @@ export function Dashboard() {
             >
               {sidebarOpen ? (
                 <>
-                  <span>Close</span>
+                  <span className="hidden sm:inline">Close</span>
                   <span className="text-base leading-none">&times;</span>
                 </>
               ) : (
                 <>
                   <span className="text-base leading-none">+</span>
-                  <span>New Session</span>
+                  <span className="hidden sm:inline">New Session</span>
                 </>
               )}
               {chordState.isArmed && (
