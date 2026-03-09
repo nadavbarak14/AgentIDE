@@ -10,7 +10,6 @@ import { ProjectSearch } from './ProjectSearch';
 import { GitHubIssues } from './GitHubIssues';
 import { ExtensionPanel, type ExtensionPanelHandle } from './ExtensionPanel';
 import { WidgetPanel } from './WidgetPanel';
-import { MobileSessionView } from './MobileSessionView';
 import { usePanel } from '../hooks/usePanel';
 import { useExtensions } from '../hooks/useExtensions';
 import { useWidgets } from '../hooks/useWidgets';
@@ -127,8 +126,8 @@ export function SessionCard({
   // Connection status for remote sessions
   const [connectionLost, setConnectionLost] = useState(false);
 
-  // Mobile session view overlay
-  const [mobileViewOpen, setMobileViewOpen] = useState(false);
+  // Mobile layout state
+  const [mobileTab, setMobileTab] = useState<'terminal' | 'preview' | 'files'>('terminal');
   const [isMobileViewport, setIsMobileViewport] = useState(
     () => typeof window !== 'undefined' && window.innerWidth < 640
   );
@@ -979,6 +978,78 @@ export function SessionCard({
     );
   };
 
+  // ── Mobile Layout ─────────────────────────────────────────────────────
+  // On iPhone-sized screens: full-screen single session with bottom tab bar.
+  // No toolbar, no footer, no split view — one thing at a time.
+  if (isMobileViewport) {
+    const mobileWorker = session.workerId && workers
+      ? workers.find((w) => w.id === session.workerId)
+      : null;
+    const mobileIsLocal = !mobileWorker || mobileWorker.type === 'local';
+
+    return (
+      <div
+        data-session-id={session.id}
+        onKeyDown={handleKeyDown}
+        className="flex flex-col h-full overflow-hidden bg-gray-900"
+      >
+        {/* Full-screen tab content */}
+        <div className="flex-1 min-h-0 overflow-hidden">
+          {mobileTab === 'terminal' && renderTerminalOrStatus()}
+          {mobileTab === 'preview' && (
+            detectedPort ? (
+              <LivePreview
+                sessionId={session.id}
+                port={detectedPort.port}
+                localPort={detectedPort.localPort}
+                onClose={() => setMobileTab('terminal')}
+                bridgeRef={previewBridgeRef}
+                requestedUrl={panel.previewUrl}
+                navCounter={panel.previewNavCounter}
+                onUrlChange={handleUrlChange}
+                isLocalSession={mobileIsLocal}
+              />
+            ) : (
+              <div className="flex-1 flex items-center justify-center text-gray-500 text-sm p-4 text-center">
+                No preview available yet — waiting for a dev server to start
+              </div>
+            )
+          )}
+          {mobileTab === 'files' && (
+            <div className="h-full overflow-hidden">
+              <FileTree sessionId={session.id} onFileSelect={handleFileSelect} refreshKey={fileChangeVersion} />
+            </div>
+          )}
+        </div>
+
+        {/* Bottom tab bar */}
+        <div className="flex border-t border-gray-700 bg-gray-800 shrink-0">
+          {([
+            { id: 'terminal' as const, label: 'Terminal', notify: session.needsInput && mobileTab !== 'terminal' },
+            { id: 'preview' as const, label: 'Preview', notify: false },
+            { id: 'files' as const, label: 'Files', notify: false },
+          ]).map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setMobileTab(tab.id)}
+              className={`flex-1 h-[44px] text-xs font-medium transition-colors relative ${
+                mobileTab === tab.id
+                  ? 'text-blue-400 border-t-2 border-blue-400'
+                  : 'text-gray-500 active:text-gray-300'
+              }`}
+            >
+              {tab.label}
+              {tab.notify && (
+                <span className="absolute top-2 right-1/4 w-2 h-2 bg-amber-400 rounded-full animate-pulse" />
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Desktop Layout ──────────────────────────────────────────────────
   return (
     <div
       data-session-id={session.id}
@@ -997,10 +1068,7 @@ export function SessionCard({
     >
       {/* Header row */}
       <div className="flex items-center px-2 py-1 border-b border-gray-700 bg-gray-800/50 gap-1 flex-shrink-0 relative">
-        <div
-          className={`flex items-center gap-1.5 min-w-0 flex-shrink-0 ${isMobileViewport ? 'cursor-pointer active:opacity-70' : ''}`}
-          onClick={isMobileViewport ? () => setMobileViewOpen(true) : undefined}
-        >
+        <div className="flex items-center gap-1.5 min-w-0 flex-shrink-0">
           {sessionNumber != null && (
             <span className="w-4 h-4 flex-shrink-0 text-[10px] font-bold rounded bg-gray-700 text-gray-400 flex items-center justify-center">
               {sessionNumber}
@@ -1391,16 +1459,6 @@ export function SessionCard({
         {session.pid && <span>PID {session.pid}</span>}
       </div>
 
-      {/* Mobile session view overlay */}
-      {mobileViewOpen && (
-        <MobileSessionView
-          session={session}
-          onClose={() => setMobileViewOpen(false)}
-          previewBridge={previewBridgeRef.current ?? undefined}
-          previewPort={detectedPort?.port}
-          previewLocalPort={detectedPort?.localPort}
-        />
-      )}
     </div>
   );
 }
