@@ -1,5 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import { logger } from '../services/logger.js';
+import type { Repository } from '../models/repository.js';
+import { validateCookieValue, isLocalhostIp } from '../services/auth-service.js';
 
 // Request logging
 export function requestLogger(req: Request, _res: Response, next: NextFunction): void {
@@ -55,4 +57,51 @@ export function sanitizePath(inputPath: string): string | null {
   // Reject null bytes
   if (inputPath.includes('\0')) return null;
   return inputPath;
+}
+
+/**
+ * Auth middleware — validates auth cookie for non-localhost requests.
+ * Bypasses auth for localhost requests.
+ */
+export function requireAuth(repo: Repository) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    // Localhost bypass — always allow
+    const ip = req.ip || req.socket?.remoteAddress;
+    if (isLocalhostIp(ip)) {
+      next();
+      return;
+    }
+
+    // Check auth cookie
+    const authCookie = req.cookies?.adyx_auth;
+    if (!authCookie) {
+      // No cookie — redirect HTML requests to login, return 401 for API
+      if (req.path.startsWith('/api/')) {
+        res.status(401).json({ error: 'Authentication required' });
+      } else {
+        res.redirect('/login');
+      }
+      return;
+    }
+
+    // Validate cookie
+    const authConfig = repo.getAuthConfig();
+    if (!authConfig) {
+      // No auth configured — shouldn't happen but allow through
+      next();
+      return;
+    }
+
+    if (validateCookieValue(authCookie, authConfig.cookieSecret)) {
+      next();
+    } else {
+      // Invalid/expired cookie
+      res.clearCookie('adyx_auth', { path: '/' });
+      if (req.path.startsWith('/api/')) {
+        res.status(401).json({ error: 'Invalid or expired session' });
+      } else {
+        res.redirect('/login');
+      }
+    }
+  };
 }

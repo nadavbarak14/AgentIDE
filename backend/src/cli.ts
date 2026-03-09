@@ -39,6 +39,28 @@ program
       host: opts.host,
     });
 
+    // Display access key info
+    if (result.accessKey) {
+      console.log('');
+      console.log('┌─────────────────────────────────────────────────────────┐');
+      console.log('│                  ACCESS KEY GENERATED                   │');
+      console.log('├─────────────────────────────────────────────────────────┤');
+      console.log('│                                                         │');
+      console.log(`│  ${result.accessKey}            │`);
+      console.log('│                                                         │');
+      console.log('│  Copy this key — it will not be shown again.            │');
+      console.log('│  Paste it in the browser when accessing remotely.       │');
+      console.log('│  Localhost access requires no authentication.           │');
+      console.log('│                                                         │');
+      console.log('└─────────────────────────────────────────────────────────┘');
+      console.log('');
+    } else {
+      console.log('');
+      console.log('  Authentication active for remote access.');
+      console.log('  Localhost connections bypass authentication.');
+      console.log('');
+    }
+
     if (opts.open !== false) {
       try {
         const open = (await import('open')).default;

@@ -10,6 +10,7 @@ import { ProjectSearch } from './ProjectSearch';
 import { GitHubIssues } from './GitHubIssues';
 import { ExtensionPanel, type ExtensionPanelHandle } from './ExtensionPanel';
 import { WidgetPanel } from './WidgetPanel';
+import { MobileSessionView } from './MobileSessionView';
 import { usePanel } from '../hooks/usePanel';
 import { useExtensions } from '../hooks/useExtensions';
 import { useWidgets } from '../hooks/useWidgets';
@@ -125,6 +126,19 @@ export function SessionCard({
   const [detectedPort, setDetectedPort] = useState<{ port: number; localPort: number } | null>(null);
   // Connection status for remote sessions
   const [connectionLost, setConnectionLost] = useState(false);
+
+  // Mobile session view overlay
+  const [mobileViewOpen, setMobileViewOpen] = useState(false);
+  const [isMobileViewport, setIsMobileViewport] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth < 640
+  );
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 639px)');
+    const handler = (e: MediaQueryListEvent) => setIsMobileViewport(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
 
   // Bridge ref for view-* board command relay
   const previewBridgeRef = useRef<UsePreviewBridgeReturn | null>(null);
@@ -983,7 +997,10 @@ export function SessionCard({
     >
       {/* Header row */}
       <div className="flex items-center px-2 py-1 border-b border-gray-700 bg-gray-800/50 gap-1 flex-shrink-0 relative">
-        <div className="flex items-center gap-1.5 min-w-0 flex-shrink-0">
+        <div
+          className={`flex items-center gap-1.5 min-w-0 flex-shrink-0 ${isMobileViewport ? 'cursor-pointer active:opacity-70' : ''}`}
+          onClick={isMobileViewport ? () => setMobileViewOpen(true) : undefined}
+        >
           {sessionNumber != null && (
             <span className="w-4 h-4 flex-shrink-0 text-[10px] font-bold rounded bg-gray-700 text-gray-400 flex items-center justify-center">
               {sessionNumber}
@@ -1003,7 +1020,7 @@ export function SessionCard({
           <span className="text-xs text-gray-500">{session.status}</span>
           <button
             onClick={() => onToggleZoom?.(session.id)}
-            className="px-1 py-0.5 text-xs text-gray-400 hover:bg-blue-500/20 hover:text-blue-400 rounded relative"
+            className="px-1 py-0.5 min-h-[44px] min-w-[44px] text-xs text-gray-400 hover:bg-blue-500/20 hover:text-blue-400 rounded relative flex items-center justify-center"
             title={isZoomed ? 'Unzoom session (Ctrl+. Z)' : 'Zoom session (Ctrl+. Z)'}
             data-testid="zoom-button"
           >
@@ -1012,7 +1029,7 @@ export function SessionCard({
           </button>
           <button
             onClick={() => onToggleLock?.(session.id, !session.lock)}
-            className={`px-1.5 py-0.5 text-xs rounded relative ${
+            className={`px-1.5 py-0.5 min-h-[44px] min-w-[44px] text-xs rounded relative flex items-center justify-center ${
               session.lock ? 'text-yellow-400 hover:bg-yellow-500/20' : 'text-gray-500 hover:bg-gray-600'
             }`}
             title={session.lock ? 'Unpin (Ctrl+. P)' : 'Pin (Ctrl+. P)'}
@@ -1023,7 +1040,7 @@ export function SessionCard({
           {session.status === 'active' && (
             <button
               onClick={() => onKill?.(session.id)}
-              className="px-1.5 py-0.5 text-xs text-gray-400 hover:bg-red-500/20 hover:text-red-400 rounded relative"
+              className="px-1.5 py-0.5 min-h-[44px] min-w-[44px] text-xs text-gray-400 hover:bg-red-500/20 hover:text-red-400 rounded relative flex items-center justify-center"
               title="Kill session (Ctrl+. K)"
               data-testid="close-button"
             >
@@ -1034,7 +1051,7 @@ export function SessionCard({
           {session.status === 'crashed' && (
             <button
               onClick={() => onDelete?.(session.id)}
-              className="px-1.5 py-0.5 text-xs text-amber-400 hover:bg-amber-500/20 hover:text-amber-300 rounded"
+              className="px-1.5 py-0.5 min-h-[44px] min-w-[44px] text-xs text-amber-400 hover:bg-amber-500/20 hover:text-amber-300 rounded flex items-center justify-center"
               title="Dismiss crashed session"
               data-testid="dismiss-button"
             >
@@ -1264,10 +1281,10 @@ export function SessionCard({
           className="flex min-w-0 min-h-0"
           style={{ flex: (showBottomZone || (showToolbar && panel.bottomPanel === 'shell')) ? '1 1 0%' : '1 1 auto' }}
         >
-          {/* Left Panel */}
+          {/* Left Panel — hidden on mobile */}
           {showLeftPanel && (
             <div
-              className="border-r border-gray-700 flex flex-col overflow-hidden min-w-0"
+              className="border-r border-gray-700 hidden md:flex flex-col overflow-hidden min-w-0"
               style={{ width: `${effectiveLeftWidth}%` }}
             >
               {renderPanelHeader(
@@ -1284,7 +1301,7 @@ export function SessionCard({
           {/* Drag Handle — between left panel and terminal (center mode) */}
           {showLeftPanel && terminalInTopZone && (
             <div
-              className="w-1 cursor-col-resize bg-gray-700 hover:bg-blue-500 transition-colors flex-shrink-0"
+              className="w-1 cursor-col-resize bg-gray-700 hover:bg-blue-500 transition-colors flex-shrink-0 hidden md:block"
               onMouseDown={handleLeftMouseDown}
             />
           )}
@@ -1292,7 +1309,7 @@ export function SessionCard({
           {/* Drag Handle — between left and right panels (bottom mode, both open) */}
           {showLeftPanel && showRightPanel && !terminalInTopZone && (
             <div
-              className="w-1 cursor-col-resize bg-gray-700 hover:bg-blue-500 transition-colors flex-shrink-0"
+              className="w-1 cursor-col-resize bg-gray-700 hover:bg-blue-500 transition-colors flex-shrink-0 hidden md:block"
               onMouseDown={handleLeftMouseDown}
             />
           )}
@@ -1310,15 +1327,15 @@ export function SessionCard({
           {/* Drag Handle — between terminal and right panel (center mode) */}
           {showRightPanel && terminalInTopZone && (
             <div
-              className="w-1 cursor-col-resize bg-gray-700 hover:bg-blue-500 transition-colors flex-shrink-0"
+              className={`w-1 cursor-col-resize bg-gray-700 hover:bg-blue-500 transition-colors flex-shrink-0 ${panel.rightPanel !== 'preview' ? 'hidden md:block' : ''}`}
               onMouseDown={handleRightMouseDown}
             />
           )}
 
-          {/* Right Panel */}
+          {/* Right Panel — hidden on mobile unless showing preview */}
           {showRightPanel && (
             <div
-              className="border-l border-gray-700 flex flex-col overflow-hidden min-w-0"
+              className={`border-l border-gray-700 flex flex-col overflow-hidden min-w-0 ${panel.rightPanel !== 'preview' ? 'hidden md:flex' : ''}`}
               style={{ width: `${effectiveRightWidth}%` }}
             >
               {renderPanelHeader(
@@ -1333,28 +1350,28 @@ export function SessionCard({
           )}
         </div>
 
-        {/* Horizontal Drag Handle (between top and bottom zones) */}
+        {/* Horizontal Drag Handle (between top and bottom zones) — hidden on mobile */}
         {showBottomZone && (
           <div
-            className="h-1 cursor-row-resize bg-gray-700 hover:bg-blue-500 transition-colors flex-shrink-0"
+            className="h-1 cursor-row-resize bg-gray-700 hover:bg-blue-500 transition-colors flex-shrink-0 hidden md:block"
             onMouseDown={handleVerticalMouseDown}
           />
         )}
 
-        {/* Bottom Zone — terminal in bottom position (full width) */}
+        {/* Bottom Zone — terminal in bottom position (full width) — hidden on mobile */}
         {showBottomZone && (
           <div
-            className="border-t border-gray-700 min-h-[150px]"
+            className="border-t border-gray-700 min-h-[150px] hidden md:block"
             style={{ flex: `0 0 ${panel.bottomHeightPercent}%` }}
           >
             {renderTerminalOrStatus()}
           </div>
         )}
 
-        {/* Shell Terminal Bottom Zone */}
+        {/* Shell Terminal Bottom Zone — hidden on mobile */}
         {showToolbar && panel.bottomPanel === 'shell' && (
           <div
-            className="border-t border-gray-700 min-h-[150px]"
+            className="border-t border-gray-700 min-h-[150px] hidden md:block"
             style={{ flex: '0 0 35%' }}
           >
             <ShellTerminal
@@ -1373,6 +1390,17 @@ export function SessionCard({
         <span className="truncate">{session.workingDirectory}</span>
         {session.pid && <span>PID {session.pid}</span>}
       </div>
+
+      {/* Mobile session view overlay */}
+      {mobileViewOpen && (
+        <MobileSessionView
+          session={session}
+          onClose={() => setMobileViewOpen(false)}
+          previewBridge={previewBridgeRef.current ?? undefined}
+          previewPort={detectedPort?.port}
+          previewLocalPort={detectedPort?.localPort}
+        />
+      )}
     </div>
   );
 }

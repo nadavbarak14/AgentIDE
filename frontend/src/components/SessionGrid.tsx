@@ -55,9 +55,6 @@ export function SessionGrid({
   // Filter to active and crashed sessions for main grid
   const activeSessions = displayedSessions.filter((s) => s.status === 'active' || s.status === 'crashed');
 
-  // Auto-compute columns: up to 3 columns, then rows wrap
-  const cols = Math.min(activeSessions.length, 3);
-
   if (activeSessions.length === 0 && overflowSessions.length === 0) {
     return (
       <div data-testid="session-grid" className="flex-1 flex items-center justify-center text-gray-500">
@@ -143,11 +140,7 @@ export function SessionGrid({
       {/* Focus Area: Main visible sessions (frozen order) */}
       <div
         data-testid="session-grid"
-        className="flex-1 grid gap-3 p-3 auto-rows-fr overflow-auto"
-        style={{
-          gridTemplateColumns: `repeat(${cols || 1}, 1fr)`,
-          transition: 'grid-template-columns 200ms ease-in-out',
-        }}
+        className="flex-1 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 p-3 auto-rows-fr overflow-auto"
       >
         {activeSessions.map((session) => (
           <SessionCard
