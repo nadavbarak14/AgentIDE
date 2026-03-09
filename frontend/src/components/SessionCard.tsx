@@ -1020,7 +1020,7 @@ export function SessionCard({
           <span className="text-xs text-gray-500">{session.status}</span>
           <button
             onClick={() => onToggleZoom?.(session.id)}
-            className="px-1 py-0.5 min-h-[44px] min-w-[44px] text-xs text-gray-400 hover:bg-blue-500/20 hover:text-blue-400 rounded relative flex items-center justify-center"
+            className="px-1 py-0.5 text-xs text-gray-400 hover:bg-blue-500/20 hover:text-blue-400 rounded relative"
             title={isZoomed ? 'Unzoom session (Ctrl+. Z)' : 'Zoom session (Ctrl+. Z)'}
             data-testid="zoom-button"
           >
@@ -1029,7 +1029,7 @@ export function SessionCard({
           </button>
           <button
             onClick={() => onToggleLock?.(session.id, !session.lock)}
-            className={`px-1.5 py-0.5 min-h-[44px] min-w-[44px] text-xs rounded relative flex items-center justify-center ${
+            className={`px-1.5 py-0.5 text-xs rounded relative ${
               session.lock ? 'text-yellow-400 hover:bg-yellow-500/20' : 'text-gray-500 hover:bg-gray-600'
             }`}
             title={session.lock ? 'Unpin (Ctrl+. P)' : 'Pin (Ctrl+. P)'}
@@ -1040,7 +1040,7 @@ export function SessionCard({
           {session.status === 'active' && (
             <button
               onClick={() => onKill?.(session.id)}
-              className="px-1.5 py-0.5 min-h-[44px] min-w-[44px] text-xs text-gray-400 hover:bg-red-500/20 hover:text-red-400 rounded relative flex items-center justify-center"
+              className="px-1.5 py-0.5 text-xs text-gray-400 hover:bg-red-500/20 hover:text-red-400 rounded relative"
               title="Kill session (Ctrl+. K)"
               data-testid="close-button"
             >
@@ -1051,7 +1051,7 @@ export function SessionCard({
           {session.status === 'crashed' && (
             <button
               onClick={() => onDelete?.(session.id)}
-              className="px-1.5 py-0.5 min-h-[44px] min-w-[44px] text-xs text-amber-400 hover:bg-amber-500/20 hover:text-amber-300 rounded flex items-center justify-center"
+              className="px-1.5 py-0.5 text-xs text-amber-400 hover:bg-amber-500/20 hover:text-amber-300 rounded"
               title="Dismiss crashed session"
               data-testid="dismiss-button"
             >
