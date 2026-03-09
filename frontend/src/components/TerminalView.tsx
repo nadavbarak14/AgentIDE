@@ -17,7 +17,7 @@ export function TerminalView({ sessionId, active, fontSize = 14, onWsMessage }: 
   const sendResizeRef = useRef<(cols: number, rows: number) => void>(() => {});
   const inputDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const { initTerminal, write, fit, setFontSize, terminal: terminalRef2 } = useTerminal({
+  const { initTerminal, write, fit, nudge, setFontSize, terminal: terminalRef2 } = useTerminal({
     onData: (data) => {
       sendInputRef.current(data);
       // Detect Enter key — triggers auto-switch in Dashboard
@@ -77,21 +77,31 @@ export function TerminalView({ sessionId, active, fontSize = 14, onWsMessage }: 
     fit();
     sendResize(terminalRef2.current.cols, terminalRef2.current.rows);
 
-    // After scrollback settles, final fit + resize + scroll
+    // After scrollback settles, final fit + nudge + scroll
     const timer = setTimeout(() => {
       if (!terminalRef2.current) return;
-      fit();
-      sendResize(terminalRef2.current.cols, terminalRef2.current.rows);
+      nudge();
       terminalRef2.current.scrollToBottom();
-    }, 150);
+    }, 300);
     return () => clearTimeout(timer);
-  }, [connected, fit, sendResize]);
+  }, [connected, fit, sendResize, nudge]);
 
   useEffect(() => {
     return () => {
       if (inputDebounceRef.current) clearTimeout(inputDebounceRef.current);
     };
   }, []);
+
+  // Nudge on grid/layout changes (panel resize, session switch, etc.)
+  useEffect(() => {
+    const handler = () => setTimeout(() => nudge(), 200);
+    window.addEventListener('c3:grid-changed', handler);
+    window.addEventListener('c3:panel-resized', handler);
+    return () => {
+      window.removeEventListener('c3:grid-changed', handler);
+      window.removeEventListener('c3:panel-resized', handler);
+    };
+  }, [nudge]);
 
   // Update terminal font size when prop changes
   useEffect(() => {
@@ -100,10 +110,24 @@ export function TerminalView({ sessionId, active, fontSize = 14, onWsMessage }: 
 
 
   return (
-    <div
-      ref={containerRef}
-      className="w-full h-full min-h-[200px]"
-      style={{ backgroundColor: '#1a1b26' }}
-    />
+    <div className="relative w-full h-full min-h-[200px]">
+      <div
+        ref={containerRef}
+        className="w-full h-full"
+        style={{ backgroundColor: '#1a1b26' }}
+      />
+      <button
+        onClick={() => nudge()}
+        title="Refresh terminal view"
+        className="absolute top-1 right-1 z-10 p-1 rounded bg-gray-800/70 hover:bg-gray-700 text-gray-400 hover:text-gray-200 transition-colors"
+      >
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M14 2v4h-4" />
+          <path d="M2 14v-4h4" />
+          <path d="M13.5 6A6 6 0 0 0 3.8 3.8L2 6" />
+          <path d="M2.5 10a6 6 0 0 0 9.7 2.2L14 10" />
+        </svg>
+      </button>
+    </div>
   );
 }

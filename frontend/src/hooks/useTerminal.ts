@@ -100,12 +100,19 @@ export function useTerminal(options: UseTerminalOptions = {}) {
     });
     resizeObserver.observe(container);
 
-    // Heartbeat: periodically call fit() to catch glitches that ResizeObserver
-    // misses (CSS reflows, visibility changes, TUI rendering artifacts).
-    // fit() is cheap — it no-ops if dimensions haven't changed.
+    // Heartbeat: periodically call fit() and nudge the PTY to force a redraw.
+    // fit() alone no-ops when container dimensions haven't changed, but TUI apps
+    // (vim, htop, etc.) can still drift. The nudge shrinks by 1 col then restores,
+    // which triggers SIGWINCH and forces the app to repaint.
+    // Skip when the terminal is focused (user is typing / agent awaiting input).
     const heartbeat = setInterval(() => {
       fitAddon.fit();
-    }, 3000);
+      const t = terminalRef.current;
+      if (t && t.cols > 2 && !container.contains(document.activeElement)) {
+        options.onResize?.(t.cols - 1, t.rows);
+        setTimeout(() => options.onResize?.(t.cols, t.rows), 80);
+      }
+    }, 60000);
 
     return () => {
       clearInterval(heartbeat);
@@ -148,6 +155,15 @@ export function useTerminal(options: UseTerminalOptions = {}) {
     fitAddonRef.current?.fit();
   }, []);
 
+  const nudge = useCallback(() => {
+    const t = terminalRef.current;
+    if (t && t.cols > 2) {
+      fitAddonRef.current?.fit();
+      options.onResize?.(t.cols - 1, t.rows);
+      setTimeout(() => options.onResize?.(t.cols, t.rows), 80);
+    }
+  }, []);
+
   const focus = useCallback(() => {
     terminalRef.current?.focus();
   }, []);
@@ -163,6 +179,7 @@ export function useTerminal(options: UseTerminalOptions = {}) {
     initTerminal,
     write,
     fit,
+    nudge,
     clear,
     reset,
     focus,

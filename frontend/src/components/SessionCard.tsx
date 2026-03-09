@@ -464,6 +464,7 @@ export function SessionCard({
       setResizingSide(null);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
+      window.dispatchEvent(new CustomEvent('c3:panel-resized'));
     };
 
     document.addEventListener('mousemove', handleMouseMove);
@@ -507,6 +508,7 @@ export function SessionCard({
       setResizingVertical(false);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
+      window.dispatchEvent(new CustomEvent('c3:panel-resized'));
     };
 
     document.addEventListener('mousemove', handleMouseMove);
