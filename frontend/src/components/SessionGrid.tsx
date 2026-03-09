@@ -140,7 +140,11 @@ export function SessionGrid({
       {/* Focus Area: Main visible sessions (frozen order) */}
       <div
         data-testid="session-grid"
-        className="flex-1 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 p-3 auto-rows-fr overflow-auto"
+        className="flex-1 grid gap-3 p-3 auto-rows-fr overflow-auto"
+        style={{
+          gridTemplateColumns: `repeat(${Math.min(activeSessions.length, 3) || 1}, 1fr)`,
+          transition: 'grid-template-columns 200ms ease-in-out',
+        }}
       >
         {activeSessions.map((session) => (
           <SessionCard

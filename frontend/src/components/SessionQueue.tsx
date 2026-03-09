@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { Session, Worker } from '../services/api';
 import { ProjectPicker } from './ProjectPicker';
 import { WorkerSelector } from './WorkerSelector';
@@ -27,6 +27,7 @@ interface SessionQueueProps {
   onCreateSession: (workingDirectory: string, title: string, targetWorker?: string | null, worktree?: boolean, continueLatest?: boolean, resume?: boolean, flags?: string) => Promise<unknown>;
   onFocusSession: (id: string) => void;
   onKillSession: (id: string) => void;
+  onClose?: () => void;
 }
 
 export function SessionQueue({
@@ -36,6 +37,7 @@ export function SessionQueue({
   onCreateSession,
   onFocusSession,
   onKillSession,
+  onClose,
 }: SessionQueueProps) {
   const [directory, setDirectory] = useState('');
   const [title, setTitle] = useState('');
@@ -45,6 +47,17 @@ export function SessionQueue({
   const [resume, setResume] = useState(false);
   const [flags, setFlags] = useState('');
   const [creating, setCreating] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth < 640
+  );
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 639px)');
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
 
   const handleProjectSelect = (directoryPath: string, workerId: string | null) => {
     setDirectory(directoryPath);
@@ -77,10 +90,24 @@ export function SessionQueue({
   };
 
   return (
-    <div className="w-80 bg-gray-800 border-l border-gray-700 flex flex-col h-full overflow-hidden">
+    <div className="w-full sm:w-80 bg-gray-800 border-l border-gray-700 flex flex-col h-full overflow-hidden">
       {/* Create Session Form */}
-      <div className="p-3 border-b border-gray-700 flex-shrink-0">
-        <h3 className="text-sm font-semibold text-gray-300 mb-2">New Session</h3>
+      <div className="p-4 sm:p-3 border-b border-gray-700 flex-shrink-0">
+        <div className="flex items-center gap-2 mb-3 sm:mb-2">
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="lg:hidden flex items-center justify-center w-8 h-8 min-h-[44px] min-w-[44px] text-gray-400 hover:text-white rounded-md hover:bg-gray-700 transition-colors"
+              aria-label="Back"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M19 12H5" />
+                <path d="M12 19l-7-7 7-7" />
+              </svg>
+            </button>
+          )}
+          <h3 className="text-base sm:text-sm font-semibold text-gray-300">New Session</h3>
+        </div>
         <form onSubmit={handleCreate} className="space-y-2" data-testid="new-session-form">
           <input
             type="text"
@@ -103,66 +130,79 @@ export function SessionQueue({
             onChange={handleWorkerChange}
             onRequestAddMachine={onRequestAddMachine}
           />
-          <div className="flex flex-wrap gap-1.5">
-            {PREDEFINED_FLAGS.map((pf) => {
-              const isActive = pf.id === 'worktree' ? worktree
-                : pf.id === 'continue-latest' ? continueLatest
-                : pf.id === 'resume' ? resume
-                : flags.includes(pf.flag);
-              const activeClass = pf.warningLevel === 'caution' && isActive
-                ? 'bg-amber-600/30 border-amber-500/50 text-amber-300'
-                : isActive
-                ? 'bg-blue-600/30 border-blue-500/50 text-blue-300'
-                : 'bg-gray-900 border-gray-600 text-gray-400 hover:border-gray-500';
-              return (
-                <button
-                  key={pf.id}
-                  type="button"
-                  title={pf.description}
-                  onClick={() => {
-                    if (pf.id === 'worktree') {
-                      setWorktree(!worktree);
-                    } else if (pf.id === 'continue-latest') {
-                      const next = !continueLatest;
-                      setContinueLatest(next);
-                      if (next) setResume(false);
-                    } else if (pf.id === 'resume') {
-                      const next = !resume;
-                      setResume(next);
-                      if (next) setContinueLatest(false);
-                    } else {
-                      setFlags((prev) => {
-                        const trimmed = prev.trim();
-                        if (trimmed.includes(pf.flag)) {
-                          return trimmed.replace(pf.flag, '').replace(/\s+/g, ' ').trim();
+          {/* Advanced options — collapsible on mobile */}
+          {isMobile && !showAdvanced ? (
+            <button
+              type="button"
+              onClick={() => setShowAdvanced(true)}
+              className="w-full text-left text-xs text-gray-500 hover:text-gray-300 py-1"
+            >
+              Advanced options...
+            </button>
+          ) : (
+            <>
+              <div className="flex flex-wrap gap-1.5">
+                {PREDEFINED_FLAGS.map((pf) => {
+                  const isActive = pf.id === 'worktree' ? worktree
+                    : pf.id === 'continue-latest' ? continueLatest
+                    : pf.id === 'resume' ? resume
+                    : flags.includes(pf.flag);
+                  const activeClass = pf.warningLevel === 'caution' && isActive
+                    ? 'bg-amber-600/30 border-amber-500/50 text-amber-300'
+                    : isActive
+                    ? 'bg-blue-600/30 border-blue-500/50 text-blue-300'
+                    : 'bg-gray-900 border-gray-600 text-gray-400 hover:border-gray-500';
+                  return (
+                    <button
+                      key={pf.id}
+                      type="button"
+                      title={pf.description}
+                      onClick={() => {
+                        if (pf.id === 'worktree') {
+                          setWorktree(!worktree);
+                        } else if (pf.id === 'continue-latest') {
+                          const next = !continueLatest;
+                          setContinueLatest(next);
+                          if (next) setResume(false);
+                        } else if (pf.id === 'resume') {
+                          const next = !resume;
+                          setResume(next);
+                          if (next) setContinueLatest(false);
+                        } else {
+                          setFlags((prev) => {
+                            const trimmed = prev.trim();
+                            if (trimmed.includes(pf.flag)) {
+                              return trimmed.replace(pf.flag, '').replace(/\s+/g, ' ').trim();
+                            }
+                            return trimmed ? `${trimmed} ${pf.flag}` : pf.flag;
+                          });
                         }
-                        return trimmed ? `${trimmed} ${pf.flag}` : pf.flag;
-                      });
-                    }
-                  }}
-                  className={`px-2 py-0.5 text-xs rounded border transition-colors ${activeClass}`}
-                >
-                  {pf.label}
-                </button>
-              );
-            })}
-          </div>
-          <input
-            type="text"
-            placeholder="CLI flags (e.g., --dangerously-skip-permissions)"
-            value={flags}
-            onChange={(e) => setFlags(e.target.value)}
-            className="w-full px-2 py-1.5 text-sm bg-gray-900 border border-gray-600 rounded text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none font-mono"
-          />
-          {(flags.includes('--dangerously-skip-permissions')) && (
-            <div className="text-xs text-amber-400 bg-amber-900/20 rounded px-2 py-1">
-              All tool actions will execute without permission prompts.
-            </div>
+                      }}
+                      className={`px-2 py-0.5 text-xs rounded border transition-colors ${activeClass}`}
+                    >
+                      {pf.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <input
+                type="text"
+                placeholder="CLI flags (e.g., --dangerously-skip-permissions)"
+                value={flags}
+                onChange={(e) => setFlags(e.target.value)}
+                className="w-full px-2 py-1.5 text-sm bg-gray-900 border border-gray-600 rounded text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none font-mono"
+              />
+              {(flags.includes('--dangerously-skip-permissions')) && (
+                <div className="text-xs text-amber-400 bg-amber-900/20 rounded px-2 py-1">
+                  All tool actions will execute without permission prompts.
+                </div>
+              )}
+            </>
           )}
           <button
             type="submit"
             disabled={creating || !directory.trim() || !title.trim()}
-            className="w-full px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full px-3 py-3 sm:py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             data-testid="create-session-btn"
           >
             {creating ? 'Creating...' : 'Create Session'}
@@ -218,7 +258,7 @@ function SessionItem({
 
   return (
     <div
-      className={`flex items-center justify-between py-1.5 px-2 rounded group ${
+      className={`flex items-center justify-between py-3 sm:py-1.5 px-3 sm:px-2 rounded group ${
         isClickable
           ? 'cursor-pointer hover:bg-gray-700/80 active:bg-gray-600/50'
           : 'hover:bg-gray-700/50'
