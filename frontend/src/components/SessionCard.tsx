@@ -1,5 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { TerminalView } from './TerminalView';
+import { TerminalView, type TerminalViewHandle } from './TerminalView';
+import { ClaudeActionBar } from './ClaudeActionBar';
+import { ScrollToBottomButton } from './ScrollToBottomButton';
 import { ScrollbackTerminal } from './ScrollbackTerminal';
 import { ShellTerminal } from './ShellTerminal';
 import { FileTree } from './FileTree';
@@ -18,6 +20,8 @@ import type { WsServerMessage } from '../services/ws';
 import { WorkerBadge } from './WorkerBadge';
 import type { UsePreviewBridgeReturn } from '../hooks/usePreviewBridge';
 import { calculatePanelWidths, calculateVerticalSplit, clampResizePercent } from '../utils/panelLayout';
+import { useVisualViewport } from '../hooks/useVisualViewport';
+import { useClaudeMode } from '../hooks/useClaudeMode';
 
 interface SessionCardProps {
   session: Session;
@@ -126,17 +130,23 @@ export function SessionCard({
   // Connection status for remote sessions
   const [connectionLost, setConnectionLost] = useState(false);
 
-  // Mobile layout state
-  const [mobileTab, setMobileTab] = useState<'terminal' | 'preview' | 'files'>('terminal');
-  const [isMobileViewport, setIsMobileViewport] = useState(
-    () => typeof window !== 'undefined' && window.innerWidth < 640
-  );
+  // Mobile UX: terminal ref, output buffer, Claude mode detection
+  const { isMobile, keyboardOpen, keyboardOffset } = useVisualViewport();
+  const terminalViewRef = useRef<TerminalViewHandle>(null);
+  const outputBufferRef = useRef<string[]>([]);
+  const [outputBufferState, setOutputBufferState] = useState<string[]>([]);
+  const { mode: claudeMode } = useClaudeMode(session.needsInput, session.status, outputBufferState);
 
-  useEffect(() => {
-    const mq = window.matchMedia('(max-width: 639px)');
-    const handler = (e: MediaQueryListEvent) => setIsMobileViewport(e.matches);
-    mq.addEventListener('change', handler);
-    return () => mq.removeEventListener('change', handler);
+  const handleTerminalBinaryData = useCallback((data: ArrayBuffer) => {
+    // Decode and track last 10 lines for Claude mode detection
+    const text = new TextDecoder().decode(data);
+    const lines = text.split('\n').filter(l => l.trim().length > 0);
+    if (lines.length > 0) {
+      const buf = outputBufferRef.current;
+      buf.push(...lines);
+      if (buf.length > 10) buf.splice(0, buf.length - 10);
+      setOutputBufferState([...buf]);
+    }
   }, []);
 
   // Bridge ref for view-* board command relay
@@ -422,7 +432,7 @@ export function SessionCard({
     };
   }, []);
 
-  const showToolbar = session.status === 'active' || session.status === 'completed';
+  const showToolbar = (session.status === 'active' || session.status === 'completed') && !(isMobile && keyboardOpen);
   const showLeftPanel = showToolbar && panel.leftPanel !== 'none';
   const showRightPanel = showToolbar && panel.rightPanel !== 'none';
 
@@ -874,6 +884,7 @@ export function SessionCard({
             navCounter={panel.previewNavCounter}
             onUrlChange={handleUrlChange}
             isLocalSession={isLocalSession}
+            isMobile={isMobile}
           />
         );
       }
@@ -951,7 +962,7 @@ export function SessionCard({
     if (session.status === 'active') {
       return (
         <div className="relative h-full">
-          <TerminalView sessionId={session.id} active={true} fontSize={panel.fontSize} onWsMessage={handleWsMessage} />
+          <TerminalView ref={terminalViewRef} sessionId={session.id} active={true} fontSize={panel.fontSize} onWsMessage={handleWsMessage} onBinaryData={handleTerminalBinaryData} />
           {connectionLost && (
             <div className="absolute inset-0 flex items-center justify-center bg-amber-900/40 z-10">
               <div className="bg-gray-900/90 border border-amber-500 rounded px-4 py-2 text-center">
@@ -978,78 +989,7 @@ export function SessionCard({
     );
   };
 
-  // ── Mobile Layout ─────────────────────────────────────────────────────
-  // On iPhone-sized screens: full-screen single session with bottom tab bar.
-  // No toolbar, no footer, no split view — one thing at a time.
-  if (isMobileViewport) {
-    const mobileWorker = session.workerId && workers
-      ? workers.find((w) => w.id === session.workerId)
-      : null;
-    const mobileIsLocal = !mobileWorker || mobileWorker.type === 'local';
-
-    return (
-      <div
-        data-session-id={session.id}
-        onKeyDown={handleKeyDown}
-        className="flex flex-col h-full overflow-hidden bg-gray-900"
-      >
-        {/* Full-screen tab content */}
-        <div className="flex-1 min-h-0 overflow-hidden">
-          {mobileTab === 'terminal' && renderTerminalOrStatus()}
-          {mobileTab === 'preview' && (
-            detectedPort ? (
-              <LivePreview
-                sessionId={session.id}
-                port={detectedPort.port}
-                localPort={detectedPort.localPort}
-                onClose={() => setMobileTab('terminal')}
-                bridgeRef={previewBridgeRef}
-                requestedUrl={panel.previewUrl}
-                navCounter={panel.previewNavCounter}
-                onUrlChange={handleUrlChange}
-                isLocalSession={mobileIsLocal}
-              />
-            ) : (
-              <div className="flex-1 flex items-center justify-center text-gray-500 text-sm p-4 text-center">
-                No preview available yet — waiting for a dev server to start
-              </div>
-            )
-          )}
-          {mobileTab === 'files' && (
-            <div className="h-full overflow-hidden">
-              <FileTree sessionId={session.id} onFileSelect={handleFileSelect} refreshKey={fileChangeVersion} />
-            </div>
-          )}
-        </div>
-
-        {/* Bottom tab bar */}
-        <div className="flex border-t border-gray-700 bg-gray-800 shrink-0">
-          {([
-            { id: 'terminal' as const, label: 'Terminal', notify: session.needsInput && mobileTab !== 'terminal' },
-            { id: 'preview' as const, label: 'Preview', notify: false },
-            { id: 'files' as const, label: 'Files', notify: false },
-          ]).map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setMobileTab(tab.id)}
-              className={`flex-1 h-[44px] text-xs font-medium transition-colors relative ${
-                mobileTab === tab.id
-                  ? 'text-blue-400 border-t-2 border-blue-400'
-                  : 'text-gray-500 active:text-gray-300'
-              }`}
-            >
-              {tab.label}
-              {tab.notify && (
-                <span className="absolute top-2 right-1/4 w-2 h-2 bg-amber-400 rounded-full animate-pulse" />
-              )}
-            </button>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  // ── Desktop Layout ──────────────────────────────────────────────────
+  // ── Layout ──────────────────────────────────────────────────
   return (
     <div
       data-session-id={session.id}
@@ -1066,8 +1006,8 @@ export function SessionCard({
                 : 'border-gray-700'
       } overflow-hidden flex flex-col`}
     >
-      {/* Header row */}
-      <div className="flex items-center px-2 py-1 border-b border-gray-700 bg-gray-800/50 gap-1 flex-shrink-0 relative">
+      {/* Header row — hidden on mobile when keyboard open */}
+      <div className={`flex items-center px-2 py-1 border-b border-gray-700 bg-gray-800/50 gap-1 flex-shrink-0 relative${isMobile && keyboardOpen ? ' hidden' : ''}`}>
         <div className="flex items-center gap-1.5 min-w-0 flex-shrink-0">
           {sessionNumber != null && (
             <span className="w-4 h-4 flex-shrink-0 text-[10px] font-bold rounded bg-gray-700 text-gray-400 flex items-center justify-center">
@@ -1453,11 +1393,34 @@ export function SessionCard({
         )}
       </div>
 
-      {/* Footer */}
-      <div className="px-3 py-1.5 border-t border-gray-700 text-xs text-gray-500 flex justify-between">
-        <span className="truncate">{session.workingDirectory}</span>
-        {session.pid && <span>PID {session.pid}</span>}
-      </div>
+      {/* Footer — hide on mobile when keyboard open */}
+      {!(isMobile && keyboardOpen) && (
+        <div className="px-3 py-1.5 border-t border-gray-700 text-xs text-gray-500 flex justify-between">
+          <span className="truncate">{session.workingDirectory}</span>
+          {session.pid && <span>PID {session.pid}</span>}
+        </div>
+      )}
+
+      {/* Mobile: Claude Action Bar */}
+      {isMobile && (
+        <ClaudeActionBar
+          mode={claudeMode}
+          onSend={(data) => terminalViewRef.current?.sendInput(data)}
+          keyboardOffset={keyboardOffset}
+          isMobile={true}
+          isScrolledUp={terminalViewRef.current?.isScrolledUp ?? false}
+          onScrollToBottom={() => terminalViewRef.current?.scrollToBottom()}
+        />
+      )}
+
+      {/* Mobile: Scroll to Bottom Button */}
+      {isMobile && (
+        <ScrollToBottomButton
+          visible={terminalViewRef.current?.isScrolledUp ?? false}
+          onScrollToBottom={() => terminalViewRef.current?.scrollToBottom()}
+          bottomOffset={keyboardOffset + 52}
+        />
+      )}
 
     </div>
   );

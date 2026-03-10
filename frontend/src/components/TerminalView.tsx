@@ -1,15 +1,22 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useImperativeHandle, forwardRef } from 'react';
 import { useTerminal } from '../hooks/useTerminal';
 import { useWebSocket } from '../hooks/useWebSocket';
+
+export interface TerminalViewHandle {
+  sendInput: (data: string) => void;
+  isScrolledUp: boolean;
+  scrollToBottom: () => void;
+}
 
 interface TerminalViewProps {
   sessionId: string;
   active: boolean;
   fontSize?: number;
   onWsMessage?: (msg: import('../services/ws').WsServerMessage) => void;
+  onBinaryData?: (data: ArrayBuffer) => void;
 }
 
-export function TerminalView({ sessionId, active, fontSize = 14, onWsMessage }: TerminalViewProps) {
+export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(function TerminalView({ sessionId, active, fontSize = 14, onWsMessage, onBinaryData }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Use refs so the terminal onData callback always calls the latest functions
@@ -17,7 +24,7 @@ export function TerminalView({ sessionId, active, fontSize = 14, onWsMessage }: 
   const sendResizeRef = useRef<(cols: number, rows: number) => void>(() => {});
   const inputDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const { initTerminal, write, fit, nudge, setFontSize, terminal: terminalRef2 } = useTerminal({
+  const { initTerminal, write, fit, nudge, setFontSize, scrollToBottom, isScrolledUp, terminal: terminalRef2 } = useTerminal({
     onData: (data) => {
       sendInputRef.current(data);
       // Detect Enter key — triggers auto-switch in Dashboard
@@ -36,10 +43,16 @@ export function TerminalView({ sessionId, active, fontSize = 14, onWsMessage }: 
   const onWsMessageRef = useRef(onWsMessage);
   onWsMessageRef.current = onWsMessage;
 
+  const onBinaryDataRef = useRef(onBinaryData);
+  onBinaryDataRef.current = onBinaryData;
+
   const { connected, sendInput, sendResize } = useWebSocket({
     sessionId,
     enabled: active,
-    onBinaryData: useCallback((data: ArrayBuffer) => write(data), [write]),
+    onBinaryData: useCallback((data: ArrayBuffer) => {
+      write(data);
+      onBinaryDataRef.current?.(data);
+    }, [write]),
     onMessage: useCallback((msg: import('../services/ws').WsServerMessage) => {
       onWsMessageRef.current?.(msg);
     }, []),
@@ -48,6 +61,13 @@ export function TerminalView({ sessionId, active, fontSize = 14, onWsMessage }: 
   // Keep refs pointing to latest functions
   sendInputRef.current = sendInput;
   sendResizeRef.current = sendResize;
+
+  // Expose handle for parent components (ClaudeActionBar, ScrollToBottomButton)
+  useImperativeHandle(ref, () => ({
+    sendInput,
+    isScrolledUp,
+    scrollToBottom,
+  }), [sendInput, isScrolledUp, scrollToBottom]);
 
   useEffect(() => {
     if (containerRef.current) {
@@ -130,4 +150,4 @@ export function TerminalView({ sessionId, active, fontSize = 14, onWsMessage }: 
       </button>
     </div>
   );
-}
+});

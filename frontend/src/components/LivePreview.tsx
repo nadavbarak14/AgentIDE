@@ -28,6 +28,8 @@ interface LivePreviewProps {
   onUrlChange?: (url: string) => void;
   /** When true, the session runs on a local worker (not remote). */
   isLocalSession?: boolean;
+  /** When true, force desktop viewport mode and hide viewport toggles */
+  isMobile?: boolean;
 }
 
 /** Convert a user-facing URL to a proxy URL that the backend can reach */
@@ -63,7 +65,9 @@ export function toProxyUrl(sessionId: string, displayUrl: string, isLocalDirect:
   return displayUrl;
 }
 
-export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose, refreshKey: _refreshKey = 0, viewportMode = 'desktop', onViewportChange, customViewportWidth, customViewportHeight, onCustomViewport, selectedDeviceId, onDevicePresetSelect, bridgeRef, requestedUrl, onUrlChange, navCounter: _navCounter = 0, isLocalSession = true }: LivePreviewProps) {
+export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose, refreshKey: _refreshKey = 0, viewportMode: viewportModeProp = 'desktop', onViewportChange, customViewportWidth, customViewportHeight, onCustomViewport, selectedDeviceId, onDevicePresetSelect, bridgeRef, requestedUrl, onUrlChange, navCounter: _navCounter = 0, isLocalSession = true, isMobile = false }: LivePreviewProps) {
+  // Force desktop viewport on mobile — the phone IS the target device
+  const viewportMode = isMobile ? 'desktop' as ViewportMode : viewportModeProp;
   // Skip proxy when hub is accessed via localhost and session is local
   const isLocalDirect = isLocalSession &&
     (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
@@ -289,8 +293,8 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
             spellCheck={false}
           />
         </div>
-        {/* Viewport toggle */}
-        <div className="flex rounded border border-gray-700">
+        {/* Viewport toggle — hidden on mobile (phone IS the device) */}
+        {!isMobile && <div className="flex rounded border border-gray-700">
           <button
             onClick={() => { onViewportChange?.('desktop'); setDeviceDropdownOpen(false); }}
             className={`px-1.5 py-0.5 text-xs rounded-l ${
@@ -372,9 +376,9 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
           >
             ⊞
           </button>
-        </div>
+        </div>}
         {/* Custom resolution inputs */}
-        {viewportMode === 'custom' && (
+        {!isMobile && viewportMode === 'custom' && (
           <div className="flex items-center gap-0.5">
             <input
               type="number"
