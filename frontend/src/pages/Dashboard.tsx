@@ -10,6 +10,9 @@ import { useSession } from '../hooks/useSession';
 import { useKeyboardShortcuts, type ShortcutAction } from '../hooks/useKeyboardShortcuts';
 import { settings as settingsApi, workers as workersApi, type Settings, type Session, type Worker } from '../services/api';
 import { WorkerHealth } from '../components/WorkerHealth';
+import { MobileSessionSelector } from '../components/MobileSessionSelector';
+import { WaitingSessionAlert } from '../components/WaitingSessionAlert';
+import { useVisualViewport } from '../hooks/useVisualViewport';
 
 export function Dashboard() {
   const {
@@ -47,7 +50,8 @@ export function Dashboard() {
     }
   }, []);
 
-  const maxVisible = appSettings?.maxVisibleSessions ?? 4;
+  const { isMobile, viewportHeight, keyboardOffset } = useVisualViewport();
+  const maxVisible = isMobile ? 1 : (appSettings?.maxVisibleSessions ?? 4);
 
   const handleSettingsChange = useCallback((updated: Settings) => {
     setAppSettings(updated);
@@ -778,60 +782,53 @@ export function Dashboard() {
   }, [activeSessions]);
 
   return (
-    <div className="flex h-screen bg-gray-900 text-white">
+    <div className="flex bg-gray-900 text-white" style={{ height: isMobile ? `${viewportHeight}px` : '100vh' }}>
       {/* Main Area */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top Bar */}
         <div className="flex items-center justify-between px-2 sm:px-4 py-1 sm:py-2 border-b border-gray-700 bg-gray-800/50 flex-shrink-0">
-          {/* Left side — mobile: current session name; desktop: Adyx + count */}
-          <div className="flex items-center gap-2 sm:gap-4 min-w-0">
-            <h1 className="text-base sm:text-lg font-bold shrink-0">Adyx</h1>
-            {/* Mobile: show current session name */}
-            {currentSessionId && activeSessions.length > 0 && (
-              <span className="sm:hidden text-xs text-gray-300 truncate max-w-[120px]">
-                {activeSessions.find(s => s.id === currentSessionId)?.title || ''}
+          {isMobile ? (
+            <MobileSessionSelector
+              sessions={activeSessions.map(s => ({ id: s.id, title: s.title || 'Untitled', status: s.status, needsInput: s.needsInput }))}
+              currentSessionId={currentSessionId}
+              waitingCount={activeSessions.filter(s => s.needsInput && s.id !== currentSessionId).length}
+              onSelect={handleFocusSession}
+              onNewSession={() => {
+                setSidebarOpen((prev) => {
+                  const next = !prev;
+                  localStorage.setItem('c3-sidebar-open', String(next));
+                  return next;
+                });
+              }}
+            />
+          ) : (
+            <div className="flex items-center gap-4 min-w-0">
+              <h1 className="text-lg font-bold shrink-0">Adyx</h1>
+              <span className="text-sm text-gray-400">
+                {activeCount} active
               </span>
-            )}
-            <span className="text-sm text-gray-400 hidden sm:inline">
-              {activeCount} active
-            </span>
-          </div>
-          {/* Right side — mobile: compact; desktop: full buttons */}
+            </div>
+          )}
           <div className="flex items-center gap-1 sm:gap-3 shrink-0">
-            {/* Help — hidden on mobile */}
-            <button
-              onClick={() => setPaletteOpen((prev) => !prev)}
-              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-300 hover:text-white bg-gray-700/50 hover:bg-gray-700 border border-gray-600 hover:border-gray-500 rounded-md transition-colors"
-              title="Help &amp; Commands (Ctrl+. H)"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10" />
-                <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
-                <line x1="12" y1="17" x2="12.01" y2="17" />
-              </svg>
-              <span>Help</span>
-              {chordState.isArmed && (
-                <span className="ml-0.5 px-1 py-px bg-blue-600 text-white text-[10px] rounded font-mono font-bold animate-pulse">H</span>
-              )}
-            </button>
+            {!isMobile && (
+              <button
+                onClick={() => setPaletteOpen((prev) => !prev)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-300 hover:text-white bg-gray-700/50 hover:bg-gray-700 border border-gray-600 hover:border-gray-500 rounded-md transition-colors"
+                title="Help &amp; Commands (Ctrl+. H)"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+                  <line x1="12" y1="17" x2="12.01" y2="17" />
+                </svg>
+                <span>Help</span>
+                {chordState.isArmed && (
+                  <span className="ml-0.5 px-1 py-px bg-blue-600 text-white text-[10px] rounded font-mono font-bold animate-pulse">H</span>
+                )}
+              </button>
+            )}
             {workersList.length > 1 && (
               <WorkerHealth workers={workersList} />
-            )}
-            {/* Session count badge — mobile only, tap to open sidebar */}
-            {activeCount > 0 && (
-              <button
-                onClick={() => {
-                  setSidebarOpen((prev) => {
-                    const next = !prev;
-                    localStorage.setItem('c3-sidebar-open', String(next));
-                    return next;
-                  });
-                }}
-                className="sm:hidden flex items-center justify-center w-7 h-7 text-xs font-bold rounded-full bg-gray-700 text-gray-300 active:bg-gray-600"
-                title="Sessions"
-              >
-                {activeCount}
-              </button>
             )}
             {/* New Session / Close button */}
             <button
@@ -963,6 +960,17 @@ export function Dashboard() {
           onKillSession={(id) => killSession(id).catch(() => {})}
         />
       </div>
+
+      {/* Mobile: Waiting Session Alert */}
+      {isMobile && (
+        <WaitingSessionAlert
+          waitingSessions={activeSessions
+            .filter(s => s.needsInput && s.id !== currentSessionId)
+            .map(s => ({ id: s.id, title: s.title || 'Untitled' }))}
+          onSwitch={handleFocusSession}
+          bottomOffset={keyboardOffset + 52}
+        />
+      )}
     </div>
   );
 }

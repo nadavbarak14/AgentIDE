@@ -1,4 +1,4 @@
-import { useRef, useCallback } from 'react';
+import { useRef, useCallback, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { ClipboardAddon } from '@xterm/addon-clipboard';
@@ -15,6 +15,7 @@ export function useTerminal(options: UseTerminalOptions = {}) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   // Buffer data that arrives before xterm.js is initialized, so nothing is lost
   const pendingWritesRef = useRef<Array<string | ArrayBuffer | Uint8Array>>([]);
+  const [isScrolledUp, setIsScrolledUp] = useState(false);
 
   const initTerminal = useCallback((container: HTMLDivElement | null) => {
     if (!container) return;
@@ -60,10 +61,18 @@ export function useTerminal(options: UseTerminalOptions = {}) {
     });
 
     terminal.open(container);
+    terminal.options.scrollSensitivity = 3; // smoother touch scrolling
     fitAddon.fit();
 
     terminal.onData((data) => options.onData?.(data));
     terminal.onResize(({ cols, rows }) => options.onResize?.(cols, rows));
+
+    // Track scroll position for scroll-to-bottom button
+    terminal.onScroll(() => {
+      const maxScroll = terminal.buffer.active.length - terminal.rows;
+      const atBottom = terminal.buffer.active.viewportY >= maxScroll - 1;
+      setIsScrolledUp(!atBottom);
+    });
 
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
@@ -132,7 +141,10 @@ export function useTerminal(options: UseTerminalOptions = {}) {
       return;
     }
     // Use write callback to scroll after data is parsed — xterm.js write() is async
-    const scrollCb = () => terminal.scrollToBottom();
+    const scrollCb = () => {
+      terminal.scrollToBottom();
+      setIsScrolledUp(false);
+    };
     if (typeof data === 'string') {
       terminal.write(data, scrollCb);
     } else {
@@ -175,6 +187,11 @@ export function useTerminal(options: UseTerminalOptions = {}) {
     }
   }, []);
 
+  const scrollToBottom = useCallback(() => {
+    terminalRef.current?.scrollToBottom();
+    setIsScrolledUp(false);
+  }, []);
+
   return {
     initTerminal,
     write,
@@ -184,6 +201,8 @@ export function useTerminal(options: UseTerminalOptions = {}) {
     reset,
     focus,
     setFontSize,
+    scrollToBottom,
+    isScrolledUp,
     terminal: terminalRef,
   };
 }

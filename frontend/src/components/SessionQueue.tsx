@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import type { Session, Worker } from '../services/api';
 import { ProjectPicker } from './ProjectPicker';
 import { WorkerSelector } from './WorkerSelector';
@@ -47,17 +47,7 @@ export function SessionQueue({
   const [resume, setResume] = useState(false);
   const [flags, setFlags] = useState('');
   const [creating, setCreating] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [isMobile, setIsMobile] = useState(
-    () => typeof window !== 'undefined' && window.innerWidth < 640
-  );
 
-  useEffect(() => {
-    const mq = window.matchMedia('(max-width: 639px)');
-    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
-    mq.addEventListener('change', handler);
-    return () => mq.removeEventListener('change', handler);
-  }, []);
 
   const handleProjectSelect = (directoryPath: string, workerId: string | null) => {
     setDirectory(directoryPath);
@@ -130,18 +120,7 @@ export function SessionQueue({
             onChange={handleWorkerChange}
             onRequestAddMachine={onRequestAddMachine}
           />
-          {/* Advanced options — collapsible on mobile */}
-          {isMobile && !showAdvanced ? (
-            <button
-              type="button"
-              onClick={() => setShowAdvanced(true)}
-              className="w-full text-left text-xs text-gray-500 hover:text-gray-300 py-1"
-            >
-              Advanced options...
-            </button>
-          ) : (
-            <>
-              <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap gap-1.5">
                 {PREDEFINED_FLAGS.map((pf) => {
                   const isActive = pf.id === 'worktree' ? worktree
                     : pf.id === 'continue-latest' ? continueLatest
@@ -192,12 +171,10 @@ export function SessionQueue({
                 onChange={(e) => setFlags(e.target.value)}
                 className="w-full px-2 py-1.5 text-sm bg-gray-900 border border-gray-600 rounded text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none font-mono"
               />
-              {(flags.includes('--dangerously-skip-permissions')) && (
-                <div className="text-xs text-amber-400 bg-amber-900/20 rounded px-2 py-1">
-                  All tool actions will execute without permission prompts.
-                </div>
-              )}
-            </>
+          {(flags.includes('--dangerously-skip-permissions')) && (
+            <div className="text-xs text-amber-400 bg-amber-900/20 rounded px-2 py-1">
+              All tool actions will execute without permission prompts.
+            </div>
           )}
           <button
             type="submit"
