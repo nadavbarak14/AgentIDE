@@ -77,6 +77,7 @@ function deleteWidget(sessionId: string, name: string): boolean {
 export interface HubOptions {
   port?: number;
   host?: string;
+  password?: string;
 }
 
 export interface HubResult {
@@ -119,17 +120,26 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
 
   // ── Auth setup ─────────────────────────────────────────────────────────────
   let generatedAccessKey: string | undefined;
-  const existingAuth = repo.getAuthConfig();
-  if (!existingAuth) {
-    // First startup — generate and store access key
-    const accessKey = generateAccessKey();
-    const keyHash = hashKey(accessKey);
+  if (options.password) {
+    // User-provided password — reset auth config with it
+    const keyHash = hashKey(options.password);
     const cookieSecret = generateCookieSecret();
     repo.setAuthConfig(keyHash, cookieSecret);
-    generatedAccessKey = accessKey;
-    logger.info('Generated new access key for remote authentication');
+    generatedAccessKey = options.password;
+    logger.info('Access key set from --password flag');
   } else {
-    logger.info('Authentication configured for remote access');
+    const existingAuth = repo.getAuthConfig();
+    if (!existingAuth) {
+      // First startup — generate and store access key
+      const accessKey = generateAccessKey();
+      const keyHash = hashKey(accessKey);
+      const cookieSecret = generateCookieSecret();
+      repo.setAuthConfig(keyHash, cookieSecret);
+      generatedAccessKey = accessKey;
+      logger.info('Generated new access key for remote authentication');
+    } else {
+      logger.info('Authentication configured for remote access');
+    }
   }
 
   // Initialize services
