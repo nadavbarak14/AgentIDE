@@ -28,6 +28,7 @@ program
   .description('Start the Adyx hub server')
   .option('-p, --port <port>', 'Port to listen on (default: 24880)', '24880')
   .option('-H, --host <host>', 'Host to bind to (default: 0.0.0.0, use 127.0.0.1 for local only)', '0.0.0.0')
+  .option('--password <password>', 'Set a custom access password (replaces any existing key)')
   .option('--no-open', 'Do not auto-open the browser')
   .action(async (opts) => {
     const { runPreFlightCheck } = await import('./utils/dependency-checker.js');
@@ -37,6 +38,7 @@ program
     const result = await startHub({
       port: parseInt(opts.port, 10),
       host: opts.host,
+      password: opts.password,
     });
 
     // Display access key info
