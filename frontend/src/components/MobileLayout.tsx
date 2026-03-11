@@ -107,9 +107,9 @@ export function MobileLayout({
 
   return (
     <div
-      className="flex flex-col bg-gray-900 text-white overflow-hidden"
+      className="flex flex-col bg-gray-900 text-white overflow-hidden fixed inset-0"
       style={{
-        height: `${viewportHeight}px`,
+        height: viewportHeight > 0 ? `${viewportHeight}px` : '100dvh',
         paddingLeft: 'env(safe-area-inset-left, 0px)',
         paddingRight: 'env(safe-area-inset-right, 0px)',
       }}
