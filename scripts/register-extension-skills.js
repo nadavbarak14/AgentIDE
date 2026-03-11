@@ -14,7 +14,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const EXTENSIONS_DIR = path.resolve(__dirname, '..', 'extensions');
-const SKILLS_DIR = path.resolve(__dirname, '..', '.claude', 'skills');
+const SKILLS_DIR = path.resolve(__dirname, '..', '.claude-skills', 'skills');
 
 function ensureDir(dir) {
   if (!fs.existsSync(dir)) {

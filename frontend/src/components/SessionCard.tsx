@@ -282,7 +282,8 @@ export function SessionCard({
               if (previewBridgeRef.current?.isReady) return previewBridgeRef.current;
               await new Promise(r => setTimeout(r, 200));
             }
-            return previewBridgeRef.current;
+            // Return null if bridge never became ready — prevents sending commands into the void
+            return previewBridgeRef.current?.isReady ? previewBridgeRef.current : null;
           };
 
           (async () => {

@@ -17,6 +17,7 @@
   var recordingCtx = null;
   var recordingInterval = null;
   var recordingMaxTimer = null;
+  var pendingStopMsgId = null;
 
   // --- Helpers ---
 
@@ -409,13 +410,17 @@
           var blob = new Blob(recordingChunks, { type: mimeType });
           var reader = new FileReader();
           reader.onload = function () {
+            // Use the stop command's msgId if available (from stopRecordingWithResult),
+            // otherwise fall back to the start command's msgId
+            var responseMsgId = pendingStopMsgId || msgId;
+            pendingStopMsgId = null;
             postToParent({
               type: 'c3:bridge:recordingStopped',
               videoDataUrl: reader.result,
               durationMs: Date.now() - recordingStartTime,
               width: w,
               height: h,
-              msgId: msgId || null,
+              msgId: responseMsgId || null,
             });
           };
           reader.readAsDataURL(blob);
@@ -471,7 +476,9 @@
       });
   }
 
-  function stopRecording(_msgId) {
+  function stopRecording(msgId) {
+    // Store the stop msgId so the onstop handler can use it for the response
+    if (msgId) pendingStopMsgId = msgId;
     if (recordingInterval) {
       clearInterval(recordingInterval);
       recordingInterval = null;

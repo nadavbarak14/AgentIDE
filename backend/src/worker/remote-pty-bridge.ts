@@ -61,15 +61,36 @@ export class RemotePtyBridge extends EventEmitter {
    * Copy skills from the local .claude-skills/skills/ directory to the remote
    * session's working directory so Claude can discover them.
    */
-  private async injectSkillsToRemote(workerId: string, workingDirectory: string, sessionId: string): Promise<void> {
+  private async injectSkillsToRemote(workerId: string, workingDirectory: string, sessionId: string, enabledExtensions?: string[]): Promise<void> {
     const log = createSessionLogger(sessionId);
     const bundledSkillsDir = path.resolve(import.meta.dirname, '../../../.claude-skills/skills');
+    const extensionsDir = path.resolve(import.meta.dirname, '../../../extensions');
     if (!fs.existsSync(bundledSkillsDir)) {
       log.warn('no bundled skills directory found, skipping remote skill injection');
       return;
     }
 
     const remoteSkillsDir = `${workingDirectory}/.claude/skills`;
+
+    // Build set of extension skill names to include (same logic as pty-spawner)
+    const extSkillNames = new Set<string>();
+    if (enabledExtensions) {
+      for (const extName of enabledExtensions) {
+        const manifestPath = path.join(extensionsDir, extName, 'manifest.json');
+        if (!fs.existsSync(manifestPath)) continue;
+        try {
+          const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+          if (manifest.panel) {
+            extSkillNames.add(`adyx.${extName}.open`);
+            extSkillNames.add(`adyx.${extName}.comment`);
+            extSkillNames.add(`adyx.${extName}.select-text`);
+          }
+          for (const s of manifest.skills || []) {
+            extSkillNames.add(s.split('/').pop()!);
+          }
+        } catch { /* skip bad manifest */ }
+      }
+    }
 
     // Build a shell script that creates all skill dirs and files on the remote.
     // Use base64 encoding to avoid heredoc issues with special characters.
@@ -79,6 +100,13 @@ export class RemotePtyBridge extends EventEmitter {
     for (const entry of entries) {
       if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
       const skillName = entry.name;
+
+      // Filter by enabled extensions (same logic as local pty-spawner)
+      if (enabledExtensions) {
+        const isExtSkill = this.isExtensionSkill(skillName, extensionsDir);
+        if (isExtSkill && !extSkillNames.has(skillName)) continue;
+      }
+
       const skillSrc = path.join(bundledSkillsDir, skillName);
 
       // Resolve symlinks — skip if target is missing (e.g. CI without registration)
@@ -123,15 +151,41 @@ export class RemotePtyBridge extends EventEmitter {
     }
   }
 
-  async spawn(sessionId: string, workerId: string, workingDirectory: string, args: string[] = []): Promise<PtyProcess> {
+  /** Check if a skill name belongs to an extension (auto-skill or custom symlink) */
+  private isExtensionSkill(skillName: string, extensionsDir: string): boolean {
+    const autoSuffixes = ['.open', '.comment', '.select-text'];
+    for (const suffix of autoSuffixes) {
+      if (skillName.endsWith(suffix)) {
+        // Auto-skills are named adyx.<extName>.<action> — strip prefix and suffix
+        const extName = skillName.replace(/^adyx\./, '').slice(0, -suffix.length);
+        if (fs.existsSync(path.join(extensionsDir, extName, 'manifest.json'))) return true;
+      }
+    }
+    if (fs.existsSync(extensionsDir)) {
+      for (const entry of fs.readdirSync(extensionsDir, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const manifestPath = path.join(extensionsDir, entry.name, 'manifest.json');
+        if (!fs.existsSync(manifestPath)) continue;
+        try {
+          const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+          for (const s of manifest.skills || []) {
+            if (s.split('/').pop() === skillName) return true;
+          }
+        } catch { /* skip */ }
+      }
+    }
+    return false;
+  }
+
+  async spawn(sessionId: string, workerId: string, workingDirectory: string, args: string[] = [], enabledExtensions?: string[]): Promise<PtyProcess> {
     const log = createSessionLogger(sessionId);
-    log.info({ workerId, workingDirectory, args }, 'spawning remote claude process via SSH');
+    log.info({ workerId, workingDirectory, args, enabledExtensions }, 'spawning remote claude process via SSH');
 
     // Create settings file on remote server (without hooks for now)
     await this.ensureRemoteSettings(workerId);
 
     // Inject skills to remote working directory
-    await this.injectSkillsToRemote(workerId, workingDirectory, sessionId);
+    await this.injectSkillsToRemote(workerId, workingDirectory, sessionId, enabledExtensions);
 
     const stream = await this.tunnelManager.shell(workerId, { cols: 120, rows: 40 });
     this.channels.set(sessionId, stream);
