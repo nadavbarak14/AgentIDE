@@ -126,9 +126,9 @@ export const MobileActionBar = React.memo(function MobileActionBar({
   return (
     <div
       className="relative border-t border-gray-700 bg-gray-800"
-      style={{ height: '44px' }}
+      style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
     >
-      <div className="flex items-center gap-1 h-full px-2">
+      <div className="flex items-center gap-1 h-[44px] px-2">
         {isScrolledUp && onScrollToBottom && (
           <ScrollToBottomButton onClick={onScrollToBottom} />
         )}

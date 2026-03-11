@@ -29,6 +29,7 @@ interface MobileLayoutProps {
   terminalScrollToBottom?: () => void;
   isScrolledUp?: boolean;
   isWaiting?: boolean;
+  onKillSession?: (id: string) => void;
   /** Preview port info for the current session */
   previewPort?: number;
   previewLocalPort?: number;
@@ -46,6 +47,7 @@ export function MobileLayout({
   onFocusSession,
   onSetCurrentSession,
   onNewSession,
+  onKillSession,
   children,
   terminalSendInput,
   terminalScrollToTop,
@@ -106,7 +108,11 @@ export function MobileLayout({
   return (
     <div
       className="flex flex-col bg-gray-900 text-white overflow-hidden"
-      style={{ height: `${viewportHeight}px` }}
+      style={{
+        height: `${viewportHeight}px`,
+        paddingLeft: 'env(safe-area-inset-left, 0px)',
+        paddingRight: 'env(safe-area-inset-right, 0px)',
+      }}
     >
       {/* Top Bar */}
       <MobileTopBar
@@ -158,6 +164,7 @@ export function MobileLayout({
           sessions={activeSessions}
           currentSessionId={currentSessionId}
           onSelectSession={handleSessionSelect}
+          onKillSession={onKillSession}
           onNewSession={() => { close(); onNewSession(); }}
           onClose={close}
         />

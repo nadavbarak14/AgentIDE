@@ -1,3 +1,23 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* PWA full-screen mobile support */
+@supports (height: 100dvh) {
+  :root {
+    --app-height: 100dvh;
+  }
+}
+
+/* Prevent pull-to-refresh and overscroll bounce */
+html, body {
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Standalone PWA: extend bg behind status bar / home indicator */
+@media all and (display-mode: standalone) {
+  body {
+    background-color: #111827;
+  }
+}
