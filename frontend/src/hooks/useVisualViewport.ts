@@ -7,7 +7,7 @@ export interface UseVisualViewportReturn {
   viewportHeight: number;
   /** Pixels between bottom of visual viewport and bottom of window (keyboard height) */
   keyboardOffset: number;
-  /** True when viewport width < 640px */
+  /** True when viewport width < 768px */
   isMobile: boolean;
 }
 
@@ -26,7 +26,7 @@ export function useVisualViewport(): UseVisualViewportReturn {
       keyboardOpen: false,
       viewportHeight: height,
       keyboardOffset: 0,
-      isMobile: width < 640,
+      isMobile: width < 768,
     };
   });
 
@@ -39,7 +39,7 @@ export function useVisualViewport(): UseVisualViewportReturn {
       setState(prev => {
         const width = window.innerWidth;
         const height = window.innerHeight;
-        const isMobile = width < 640;
+        const isMobile = width < 768;
         if (prev.viewportHeight === height && prev.isMobile === isMobile && !prev.keyboardOpen) {
           return prev;
         }
@@ -58,7 +58,7 @@ export function useVisualViewport(): UseVisualViewportReturn {
         prev.keyboardOpen === keyboardOpen &&
         Math.abs(prev.viewportHeight - height) < 1 &&
         Math.abs(prev.keyboardOffset - offset) < 1 &&
-        prev.isMobile === (width < 640)
+        prev.isMobile === (width < 768)
       ) {
         return prev;
       }
@@ -66,7 +66,7 @@ export function useVisualViewport(): UseVisualViewportReturn {
         keyboardOpen,
         viewportHeight: height,
         keyboardOffset: Math.max(0, offset),
-        isMobile: width < 640,
+        isMobile: width < 768,
       };
     });
   }, []);

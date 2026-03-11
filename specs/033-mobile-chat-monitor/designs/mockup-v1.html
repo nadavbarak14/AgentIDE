@@ -1,0 +1,331 @@
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; background:#0a0b10; color:#e6edf3; overflow-x:auto; }
+  .container { display:flex; gap:24px; padding:20px; min-width:max-content; align-items:flex-start; }
+  .mockup-wrap { display:flex; flex-direction:column; align-items:center; gap:12px; }
+  .label { font-size:14px; font-weight:700; letter-spacing:0.5px; text-transform:uppercase; }
+  .label.bad { color:#f85149; }
+  .label.good { color:#3fb950; }
+  .sublabel { font-size:11px; color:#7d8590; max-width:200px; text-align:center; line-height:1.4; }
+  .phone { width:195px; height:422px; border-radius:22px; border:2px solid #444; overflow:hidden; display:flex; flex-direction:column; background:#0d1117; position:relative; flex-shrink:0; }
+  .phone .notch { position:absolute;top:0;left:50%;transform:translateX(-50%);width:63px;height:16px;background:#000;border-radius:0 0 10px 10px;z-index:10; }
+  .chrome-row { background:#161b22; padding:2px 6px; font-size:6px; color:#7d8590; display:flex; align-items:center; gap:3px; border-bottom:1px solid #21262d; white-space:nowrap; overflow:hidden; }
+  .chrome-row:first-child { padding-top:20px; }
+  .tab-active { color:#58a6ff; border-bottom:1px solid #58a6ff; }
+  .tab-preview { background:#1f6feb; color:#fff; border-radius:2px; padding:1px 3px; font-size:5px; }
+  .content-area { flex:1; min-height:0; }
+  .terminal-content { padding:6px; font-family:'SF Mono',Monaco,monospace; font-size:6px; line-height:1.5; color:#e6edf3; height:100%; overflow:hidden; }
+  .terminal-content .msg-ai { color:#c9d1d9; }
+  .terminal-content .msg-tool { color:#7ee787; font-size:5.5px; }
+  .terminal-content .msg-code { background:#161b22; border-radius:2px; padding:2px 3px; color:#79c0ff; font-size:5px; display:block; margin:2px 0; }
+  .terminal-content .msg-user { color:#d2a8ff; }
+  .terminal-content .thinking { color:#f0883e; font-style:italic; }
+  .bottom-bar { background:#161b22; padding:4px; display:flex; gap:3px; justify-content:center; border-top:1px solid #21262d; }
+  .bottom-bar .btn { background:#21262d; color:#7d8590; padding:3px 6px; border-radius:3px; font-size:6px; }
+  .bottom-bar .btn-primary { background:#1f6feb; color:#fff; }
+  .home-ind { padding:3px 0; display:flex; justify-content:center; background:#161b22; }
+  .home-ind div { width:60px; height:2px; background:#444; border-radius:1px; }
+  .badge { background:#f0883e; color:#000; font-size:5px; padding:1px 3px; border-radius:5px; font-weight:bold; }
+  .vote-btn { margin-top:8px; padding:8px 24px; border-radius:8px; border:2px solid #333; background:#161b22; color:#e6edf3; font-size:13px; font-weight:600; cursor:pointer; transition:all 0.2s; }
+  .vote-btn:hover { border-color:#1f6feb; background:#1f6feb22; }
+  .vote-btn.selected { border-color:#3fb950; background:#3fb95022; color:#3fb950; }
+  .annotation { position:absolute; font-size:6px; padding:1px 3px; border-radius:2px; z-index:5; pointer-events:none; }
+  .ann-bad { background:rgba(248,81,73,0.15); color:#f85149; border:1px solid rgba(248,81,73,0.3); }
+  .ann-good { background:rgba(63,185,80,0.15); color:#3fb950; border:1px solid rgba(63,185,80,0.3); }
+  .tab-bar-bottom { background:#161b22; padding:4px 8px; display:flex; justify-content:space-around; border-top:1px solid #21262d; }
+  .tab-bar-bottom .tab-item { display:flex; flex-direction:column; align-items:center; gap:1px; font-size:5px; color:#7d8590; }
+  .tab-bar-bottom .tab-item.active { color:#58a6ff; }
+  .tab-bar-bottom .tab-icon { font-size:10px; }
+  .sheet-overlay { position:absolute; bottom:0; left:0; right:0; background:#161b22; border-radius:8px 8px 0 0; border-top:2px solid #21262d; z-index:20; }
+  .input-row { background:#0d1117; margin:3px 6px; border-radius:4px; padding:4px 6px; font-size:6px; color:#484f58; border:1px solid #21262d; }
+  .metric { font-size:10px; font-weight:600; margin-top:4px; }
+  .metric.bad { color:#f85149; }
+  .metric.good { color:#3fb950; }
+</style>
+
+<div class="container">
+
+  <!-- CURRENT (BROKEN) -->
+  <div class="mockup-wrap">
+    <div class="label bad">Current</div>
+    <div class="sublabel">Desktop layout crammed into phone. Split panels, 200px chrome</div>
+    <div class="phone">
+      <div class="notch"></div>
+      <!-- Row 1: Session selector -->
+      <div class="chrome-row" style="padding-top:20px;">
+        <span style="background:#21262d;padding:2px 5px;border-radius:3px;color:#e6edf3;">mobile ux &#9662;</span>
+        <span class="badge">3</span>
+        <span>+</span>
+        <span style="flex:1"></span>
+        <span>+</span>
+        <span>&#9881;</span>
+      </div>
+      <!-- Row 2: More sessions banner -->
+      <div style="background:#1c1507;color:#f0883e;font-size:6px;padding:3px 6px;font-weight:600;">+3 MORE SESSIONS !</div>
+      <!-- Row 3: Session header -->
+      <div class="chrome-row">
+        <span>1</span>
+        <span style="color:#3fb950;">&#9679;</span>
+        <b style="color:#e6edf3;">mobile ux</b>
+        <span style="background:#21262d;padding:0 3px;border-radius:2px;font-size:5px;">Local</span>
+        <span style="color:#f85149;">!</span>
+        <span>active</span>
+        <span>&#10697;</span>
+        <span>Pin</span>
+        <span>&#215;</span>
+      </div>
+      <!-- Row 4: Tab bar -->
+      <div class="chrome-row" style="gap:1px;">
+        <span>Files</span>
+        <span style="color:#f0883e;border-bottom:1px solid #f0883e;">Git</span>
+        <span class="tab-active">Claude</span>
+        <span class="badge" style="font-size:4px;">1</span>
+        <span class="tab-preview">Preview</span>
+        <span>Issues</span>
+        <span style="color:#f0883e;border-bottom:1px solid #f0883e;">Shell</span>
+        <span>Ext&#9662;</span>
+        <span>A-</span>
+      </div>
+      <!-- Row 5: Overflow -->
+      <div class="chrome-row">14 &nbsp; A+</div>
+      <!-- Row 6: Preview label -->
+      <div class="chrome-row" style="justify-content:space-between;">
+        <span style="background:#21262d;padding:1px 4px;border-radius:2px;color:#e6edf3;">Preview</span>
+        <span>&#215;</span>
+      </div>
+      <!-- Row 7: URL bar -->
+      <div class="chrome-row">
+        <span>&#8635;</span>
+        <span style="color:#f0883e;">&#128274;</span>
+        <span style="background:#0d1117;padding:2px 4px;border-radius:2px;flex:1;font-size:5px;">http://localhost:3007/</span>
+        <span>&#8599;</span>
+        <span>&#215;</span>
+      </div>
+
+      <!-- Content: split panels -->
+      <div class="content-area" style="display:flex;">
+        <div style="width:28%;background:#0d1117;border-right:1px solid #21262d;padding:4px;font-size:5px;overflow:hidden;">
+          <div style="color:#3fb950;">&#9679; Running</div>
+          <div style="color:#7d8590;margin-top:3px;line-height:1.3;">Exploring<br>mobile<br>UX...</div>
+        </div>
+        <div style="flex:1;background:#1a1b2e;display:flex;align-items:center;justify-content:center;">
+          <div style="text-align:center;color:#484f58;font-size:6px;">No server<br>detected</div>
+        </div>
+      </div>
+
+      <!-- Sessions waiting pill -->
+      <div style="text-align:center;padding:4px;"><span style="background:#f0883e;color:#fff;padding:2px 8px;border-radius:10px;font-size:6px;font-weight:600;">3 sessions waiting</span></div>
+
+      <div class="bottom-bar">
+        <span class="btn">Tab</span><span class="btn">&#8593;</span><span class="btn">&#8595;</span><span class="btn">Esc</span><span class="btn btn-primary">Send</span>
+      </div>
+      <div class="home-ind"><div></div></div>
+
+      <!-- Annotations -->
+      <div class="annotation ann-bad" style="top:20px;right:4px;font-size:5px;">7 rows of chrome</div>
+      <div class="annotation ann-bad" style="top:52%;left:4px;font-size:5px;">split panels &#8594;</div>
+    </div>
+    <div class="metric bad">~39% content</div>
+    <div class="sublabel">61% of screen is chrome</div>
+  </div>
+
+  <!-- DESIGN A: Chat Monitor -->
+  <div class="mockup-wrap">
+    <div class="label good">A: Chat Monitor</div>
+    <div class="sublabel">Claude terminal full-screen. Panels as overlays. Radical simplification</div>
+    <div class="phone">
+      <div class="notch"></div>
+      <!-- Slim top bar -->
+      <div style="background:#161b22;padding:3px 8px;display:flex;align-items:center;gap:4px;padding-top:20px;border-bottom:1px solid #21262d;">
+        <span style="font-size:10px;color:#7d8590;">&#9776;</span>
+        <span style="color:#3fb950;font-size:5px;">&#9679;</span>
+        <span style="font-size:7px;font-weight:600;color:#e6edf3;">mobile ux</span>
+        <span style="flex:1;"></span>
+        <span class="badge" style="font-size:5px;">3</span>
+      </div>
+
+      <!-- Full terminal content -->
+      <div class="content-area" style="background:#0d1117;overflow:hidden;">
+        <div class="terminal-content">
+          <div class="thinking">&#10039; Thinking...</div>
+          <br>
+          <div class="msg-ai">I'll fix the authentication bug in the login component.</div>
+          <br>
+          <div class="msg-tool">&#9679; <b>Read</b> (src/auth/login.tsx)</div>
+          <div class="msg-code">export function Login() {<br>&nbsp;&nbsp;const [err, setErr] = useState("")<br>&nbsp;&nbsp;// BUG: missing await<br>&nbsp;&nbsp;const res = authenticate(creds)</div>
+          <br>
+          <div class="msg-tool">&#9679; <b>Edit</b> (src/auth/login.tsx)</div>
+          <div class="msg-code">- const res = authenticate(creds)<br>+ const res = await authenticate(creds)</div>
+          <br>
+          <div class="msg-ai">Fixed. The <code style="background:#21262d;padding:0 2px;border-radius:1px;">authenticate</code> call was missing <code style="background:#21262d;padding:0 2px;border-radius:1px;">await</code>, causing the response to be a Promise instead of the actual result.</div>
+          <br>
+          <div class="msg-tool">&#9679; <b>Bash</b> (npm test)</div>
+          <div class="msg-code" style="color:#3fb950;">PASS src/auth/login.test.tsx<br>&#10003; handles login success<br>&#10003; handles login failure<br><br>Tests: 2 passed, 2 total</div>
+          <br>
+          <div style="color:#7d8590;font-size:5px;">&#9654; What would you like to do next?</div>
+        </div>
+      </div>
+
+      <!-- Text input -->
+      <div class="input-row">Type a message...</div>
+
+      <!-- Action bar -->
+      <div class="bottom-bar">
+        <span class="btn">Tab</span><span class="btn">&#8593;</span><span class="btn">&#8595;</span><span class="btn">Esc</span><span class="btn btn-primary">Send</span>
+      </div>
+      <div class="home-ind"><div></div></div>
+
+      <div class="annotation ann-good" style="top:20px;right:4px;font-size:5px;">1 row only</div>
+      <div class="annotation ann-good" style="top:45%;right:4px;font-size:5px;">100% width</div>
+    </div>
+    <div class="metric good">~88% content</div>
+    <div class="sublabel">Preview slides up as full-screen sheet</div>
+    <button class="vote-btn" onclick="vote('A')">Vote A</button>
+  </div>
+
+  <!-- DESIGN B: Responsive Fix -->
+  <div class="mockup-wrap">
+    <div class="label" style="color:#f0883e;">B: Responsive Fix</div>
+    <div class="sublabel">Desktop layout made responsive. Single panel mode, scrollable tabs</div>
+    <div class="phone">
+      <div class="notch"></div>
+      <!-- Compact session bar -->
+      <div style="background:#161b22;padding:3px 8px;display:flex;align-items:center;gap:4px;padding-top:20px;border-bottom:1px solid #21262d;">
+        <span style="color:#3fb950;font-size:5px;">&#9679;</span>
+        <span style="font-size:7px;font-weight:600;">mobile ux</span>
+        <span style="background:#21262d;padding:0 3px;border-radius:2px;font-size:5px;color:#7d8590;">Local</span>
+        <span style="color:#f85149;font-size:5px;">!</span>
+        <span style="font-size:5px;color:#7d8590;">active</span>
+        <span style="flex:1;"></span>
+        <span class="badge" style="font-size:5px;">3</span>
+        <span style="font-size:7px;color:#7d8590;">&#215;</span>
+      </div>
+      <!-- Scrollable tab row -->
+      <div style="background:#161b22;padding:3px 6px;display:flex;gap:4px;font-size:6px;color:#7d8590;border-bottom:1px solid #21262d;overflow-x:auto;">
+        <span style="padding:2px 5px;color:#58a6ff;border-bottom:1px solid #58a6ff;white-space:nowrap;">Claude</span>
+        <span style="padding:2px 5px;white-space:nowrap;">Files</span>
+        <span style="padding:2px 5px;white-space:nowrap;">Git</span>
+        <span style="padding:2px 5px;white-space:nowrap;">Preview</span>
+        <span style="padding:2px 5px;white-space:nowrap;">Shell</span>
+        <span style="padding:2px 5px;white-space:nowrap;color:#484f58;">&#8226;&#8226;&#8226;</span>
+      </div>
+
+      <!-- Single panel (Claude) -->
+      <div class="content-area" style="background:#0d1117;overflow:hidden;">
+        <div class="terminal-content">
+          <div class="thinking">&#10039; Thinking...</div>
+          <br>
+          <div class="msg-ai">I'll fix the authentication bug in the login component.</div>
+          <br>
+          <div class="msg-tool">&#9679; <b>Read</b> (src/auth/login.tsx)</div>
+          <div class="msg-code">export function Login() {<br>&nbsp;&nbsp;const [err, setErr] = useState("")<br>&nbsp;&nbsp;// BUG: missing await<br>&nbsp;&nbsp;const res = authenticate(creds)</div>
+          <br>
+          <div class="msg-tool">&#9679; <b>Edit</b> (src/auth/login.tsx)</div>
+          <div class="msg-code">- const res = authenticate(creds)<br>+ const res = await authenticate(creds)</div>
+          <br>
+          <div class="msg-ai">Fixed. The <code style="background:#21262d;padding:0 2px;border-radius:1px;">authenticate</code> call was missing <code style="background:#21262d;padding:0 2px;border-radius:1px;">await</code>.</div>
+          <br>
+          <div class="msg-tool">&#9679; <b>Bash</b> (npm test)</div>
+          <div class="msg-code" style="color:#3fb950;">PASS src/auth/login.test.tsx<br>&#10003; 2 passed</div>
+        </div>
+      </div>
+
+      <!-- Action bar -->
+      <div class="input-row">Type a message...</div>
+      <div class="bottom-bar">
+        <span class="btn">Tab</span><span class="btn">&#8593;</span><span class="btn">&#8595;</span><span class="btn">Esc</span><span class="btn btn-primary">Send</span>
+      </div>
+      <div class="home-ind"><div></div></div>
+
+      <div class="annotation" style="top:20px;right:4px;font-size:5px;color:#f0883e;background:rgba(240,136,62,0.1);border:1px solid rgba(240,136,62,0.3);border-radius:2px;padding:1px 3px;">still 2 rows</div>
+    </div>
+    <div class="metric" style="color:#f0883e;">~82% content</div>
+    <div class="sublabel">Less work but still feels like shrunken desktop</div>
+    <button class="vote-btn" onclick="vote('B')">Vote B</button>
+  </div>
+
+  <!-- DESIGN C: Bottom Nav -->
+  <div class="mockup-wrap">
+    <div class="label good">C: Bottom Nav</div>
+    <div class="sublabel">iOS-style bottom tabs. Claude first. Full-screen overlays</div>
+    <div class="phone">
+      <div class="notch"></div>
+      <!-- Ultra-slim status bar -->
+      <div style="background:#161b22;padding:2px 8px;display:flex;align-items:center;gap:4px;padding-top:20px;border-bottom:1px solid #21262d;">
+        <span style="color:#3fb950;font-size:5px;">&#9679;</span>
+        <span style="font-size:7px;font-weight:600;color:#e6edf3;">mobile ux</span>
+        <span style="flex:1;"></span>
+        <span class="badge" style="font-size:5px;">3</span>
+      </div>
+
+      <!-- Full terminal content -->
+      <div class="content-area" style="background:#0d1117;overflow:hidden;">
+        <div class="terminal-content">
+          <div class="thinking">&#10039; Thinking...</div>
+          <br>
+          <div class="msg-ai">I'll fix the authentication bug in the login component.</div>
+          <br>
+          <div class="msg-tool">&#9679; <b>Read</b> (src/auth/login.tsx)</div>
+          <div class="msg-code">export function Login() {<br>&nbsp;&nbsp;const [err, setErr] = useState("")<br>&nbsp;&nbsp;// BUG: missing await<br>&nbsp;&nbsp;const res = authenticate(creds)</div>
+          <br>
+          <div class="msg-tool">&#9679; <b>Edit</b> (src/auth/login.tsx)</div>
+          <div class="msg-code">- const res = authenticate(creds)<br>+ const res = await authenticate(creds)</div>
+          <br>
+          <div class="msg-ai">Fixed. The <code style="background:#21262d;padding:0 2px;border-radius:1px;">authenticate</code> call was missing <code style="background:#21262d;padding:0 2px;border-radius:1px;">await</code>, causing the response to be a Promise.</div>
+          <br>
+          <div class="msg-tool">&#9679; <b>Bash</b> (npm test)</div>
+          <div class="msg-code" style="color:#3fb950;">PASS src/auth/login.test.tsx<br>&#10003; handles login success<br>&#10003; handles login failure<br><br>Tests: 2 passed, 2 total</div>
+          <br>
+          <div style="color:#7d8590;font-size:5px;">&#9654; What would you like?</div>
+        </div>
+      </div>
+
+      <!-- Text input -->
+      <div class="input-row">Type a message...</div>
+
+      <!-- iOS-style bottom tab bar -->
+      <div class="tab-bar-bottom">
+        <div class="tab-item active">
+          <span class="tab-icon">&#128172;</span>
+          <span>Claude</span>
+        </div>
+        <div class="tab-item">
+          <span class="tab-icon">&#128193;</span>
+          <span>Files</span>
+        </div>
+        <div class="tab-item">
+          <span class="tab-icon" style="font-size:9px;">&#9095;</span>
+          <span>Git</span>
+        </div>
+        <div class="tab-item">
+          <span class="tab-icon">&#8226;&#8226;&#8226;</span>
+          <span>More</span>
+        </div>
+      </div>
+      <div class="home-ind"><div></div></div>
+
+      <div class="annotation ann-good" style="top:20px;right:4px;font-size:5px;">1 slim row</div>
+      <div class="annotation ann-good" style="bottom:42px;right:4px;font-size:5px;">native feel</div>
+    </div>
+    <div class="metric good">~85% content</div>
+    <div class="sublabel">Familiar iOS pattern. "More" for Preview, Shell, etc.</div>
+    <button class="vote-btn" onclick="vote('C')">Vote C</button>
+  </div>
+
+</div>
+
+<div style="text-align:center;padding:16px 20px 24px;max-width:900px;margin:0 auto;">
+  <div style="font-size:12px;color:#7d8590;margin-bottom:8px;">Pick your favorite or mix elements from multiple designs</div>
+  <div id="result" style="font-size:14px;color:#3fb950;font-weight:600;min-height:20px;"></div>
+  <button class="vote-btn" style="margin-top:12px;border-color:#58a6ff;color:#58a6ff;" onclick="vote('mix')">Mix of A + C (tell me more)</button>
+</div>
+
+<script>
+function vote(choice) {
+  document.querySelectorAll('.vote-btn').forEach(b => b.classList.remove('selected'));
+  event.target.classList.add('selected');
+  const labels = {A:'Chat Monitor',B:'Responsive Fix',C:'Bottom Nav',mix:'Mix of A+C'};
+  document.getElementById('result').textContent = 'Selected: ' + (labels[choice]||choice);
+  C3.sendResult({vote: choice, label: labels[choice]});
+}
+</script>

@@ -12,7 +12,11 @@ import { settings as settingsApi, workers as workersApi, type Settings, type Ses
 import { WorkerHealth } from '../components/WorkerHealth';
 import { MobileSessionSelector } from '../components/MobileSessionSelector';
 import { WaitingSessionAlert } from '../components/WaitingSessionAlert';
+import { MobileLayout } from '../components/MobileLayout';
+import { TerminalView, type TerminalViewHandle } from '../components/TerminalView';
+import { useClaudeMode } from '../hooks/useClaudeMode';
 import { useVisualViewport } from '../hooks/useVisualViewport';
+import type { WsServerMessage } from '../services/ws';
 
 export function Dashboard() {
   const {
@@ -781,6 +785,112 @@ export function Dashboard() {
     return map;
   }, [activeSessions]);
 
+  // ── Mobile Terminal State ──────────────────────────────────────────
+  const mobileTerminalRef = useRef<TerminalViewHandle>(null);
+  const mobileOutputBufferRef = useRef<string[]>([]);
+  const [mobileOutputBuffer, setMobileOutputBuffer] = useState<string[]>([]);
+  const [mobileDetectedPort, setMobileDetectedPort] = useState<{ port: number; localPort: number } | null>(null);
+
+  const currentMobileSession = sessions.find((s) => s.id === currentSessionId);
+  const { mode: mobileClaudeMode } = useClaudeMode(
+    currentMobileSession?.needsInput ?? false,
+    currentMobileSession?.status ?? 'active',
+    mobileOutputBuffer,
+  );
+
+  const handleMobileWsMessage = useCallback((msg: WsServerMessage) => {
+    if (msg.type === 'port_detected') {
+      setMobileDetectedPort({ port: msg.port, localPort: msg.localPort });
+    }
+  }, []);
+
+  const handleMobileBinaryData = useCallback((data: ArrayBuffer) => {
+    const text = new TextDecoder().decode(data);
+    const lines = text.split(/\r?\n/);
+    const buf = mobileOutputBufferRef.current;
+    buf.push(...lines);
+    if (buf.length > 20) buf.splice(0, buf.length - 20);
+    setMobileOutputBuffer([...buf]);
+  }, []);
+
+  const handleMobileNewSession = useCallback(() => {
+    setSidebarOpen((prev) => {
+      const next = !prev;
+      localStorage.setItem('c3-sidebar-open', String(next));
+      return next;
+    });
+  }, []);
+
+  // ── Mobile Layout Branch ──────────────────────────────────────────
+  if (isMobile) {
+    return (
+      <>
+        <MobileLayout
+          viewportHeight={viewportHeight}
+          keyboardOpen={false}
+          keyboardOffset={keyboardOffset}
+          sessions={sessions}
+          activeSessions={activeSessions}
+          currentSessionId={currentSessionId}
+          onFocusSession={handleFocusSession}
+          onSetCurrentSession={handleSetCurrentSession}
+          onNewSession={handleMobileNewSession}
+          terminalSendInput={(data) => mobileTerminalRef.current?.sendInput(data)}
+          terminalScrollToTop={() => {/* scrollToTop handled via terminal ref */}}
+          terminalScrollToBottom={() => mobileTerminalRef.current?.scrollToBottom()}
+          isScrolledUp={mobileTerminalRef.current?.isScrolledUp}
+          isWaiting={mobileClaudeMode === 'permission'}
+          previewPort={mobileDetectedPort?.port}
+          previewLocalPort={mobileDetectedPort?.localPort}
+          isLocalSession={!currentMobileSession?.workerId}
+        >
+          {currentSessionId && (
+            <TerminalView
+              ref={mobileTerminalRef}
+              sessionId={currentSessionId}
+              active={true}
+              onWsMessage={handleMobileWsMessage}
+              onBinaryData={handleMobileBinaryData}
+            />
+          )}
+        </MobileLayout>
+
+        {/* Sidebar overlay for new session (shared with desktop) */}
+        {sidebarOpen && (
+          <>
+            <div
+              className="fixed inset-0 z-40 bg-black/50"
+              onClick={() => {
+                setSidebarOpen(false);
+                localStorage.setItem('c3-sidebar-open', 'false');
+              }}
+            />
+            <div className="fixed right-0 top-0 bottom-0 z-50 w-full sm:w-80">
+              <SessionQueue
+                activeSessions={activeSessions}
+                workers={workersList}
+                onRequestAddMachine={() => setAddMachineTrigger((n) => n + 1)}
+                onClose={() => {
+                  setSidebarOpen(false);
+                  localStorage.setItem('c3-sidebar-open', 'false');
+                }}
+                onCreateSession={async (...args) => {
+                  const result = await createSession(...args);
+                  setSidebarOpen(false);
+                  localStorage.setItem('c3-sidebar-open', 'false');
+                  return result;
+                }}
+                onFocusSession={handleFocusSession}
+                onKillSession={(id) => killSession(id).catch(() => {})}
+              />
+            </div>
+          </>
+        )}
+      </>
+    );
+  }
+
+  // ── Desktop Layout (unchanged) ──────────────────────────────────────
   return (
     <div className="flex bg-gray-900 text-white" style={{ height: isMobile ? `${viewportHeight}px` : '100vh' }}>
       {/* Main Area */}
