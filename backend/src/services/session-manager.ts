@@ -182,8 +182,10 @@ export class SessionManager extends EventEmitter {
     } else {
       args = [...userFlags];
     }
-    log.info({ worktree: session.worktree, workerId, continueLatest, resume, flags: session.flags }, 'spawning remote claude process');
-    return bridge.spawn(session.id, workerId, session.workingDirectory, args);
+    // Get per-session enabled extensions for skill filtering
+    const enabledExtensions = this.repo.getSessionExtensions(session.id);
+    log.info({ worktree: session.worktree, workerId, continueLatest, resume, flags: session.flags, enabledExtensions }, 'spawning remote claude process');
+    return bridge.spawn(session.id, workerId, session.workingDirectory, args, enabledExtensions);
   }
 
   /**

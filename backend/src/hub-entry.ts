@@ -516,8 +516,8 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
     // Always include non-extension skills (built-in skills from adyx-core)
     const builtinSkills = ['adyx.open-file', 'adyx.open-preview', 'adyx.show-diff', 'adyx.show-panel',
       'adyx.view-click', 'adyx.view-navigate', 'adyx.view-read-page', 'adyx.view-record-start',
-      'adyx.view-record-stop', 'adyx.view-screenshot', 'adyx.view-set-resolution', 'adyx.view-type',
-      'adyx.widget-create', 'adyx.widget-dismiss', 'adyx.widget-get-result'];
+      'adyx.view-record-stop', 'adyx.view-screenshot', 'adyx.view-set-resolution', 'adyx.view-set-viewport',
+      'adyx.view-type', 'adyx.widget-create', 'adyx.widget-dismiss', 'adyx.widget-get-result'];
     for (const s of builtinSkills) enabledSkillNames.add(s);
 
     // Get all installed extensions
@@ -972,7 +972,17 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
 const isDirectExecution = process.argv[1]?.endsWith('hub-entry.js') ||
   process.argv[1]?.endsWith('hub-entry.ts');
 if (isDirectExecution) {
-  startHub().catch((err) => {
+  // Parse CLI args: node hub-entry.js [--password <pw>] [password]
+  const args = process.argv.slice(2);
+  const options: HubOptions = {};
+  const pwIndex = args.indexOf('--password');
+  if (pwIndex !== -1 && args[pwIndex + 1]) {
+    options.password = args[pwIndex + 1];
+  } else if (args.length > 0 && !args[0].startsWith('-')) {
+    // Legacy: bare positional argument as password
+    options.password = args[0];
+  }
+  startHub(options).catch((err) => {
     logger.error({ err }, 'failed to start hub');
     process.exit(1);
   });

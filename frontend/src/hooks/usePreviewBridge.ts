@@ -175,6 +175,25 @@ export function usePreviewBridge(
           break;
         }
 
+        case 'c3:bridge:screenshotFailed': {
+          // Reject pending programmatic request so it fails immediately instead of timing out
+          if (data.msgId && pendingRequests.current.has(data.msgId)) {
+            pendingRequests.current.get(data.msgId)!.reject(new Error(data.error || 'Screenshot failed'));
+            pendingRequests.current.delete(data.msgId);
+          }
+          console.warn('[usePreviewBridge] Screenshot failed:', data.error);
+          break;
+        }
+
+        case 'c3:bridge:recordingFailed': {
+          if (data.msgId && pendingRequests.current.has(data.msgId)) {
+            pendingRequests.current.get(data.msgId)!.reject(new Error(data.error || 'Recording failed'));
+            pendingRequests.current.delete(data.msgId);
+          }
+          console.warn('[usePreviewBridge] Recording failed:', data.error);
+          break;
+        }
+
         case 'c3:bridge:recordingStarted':
           setIsRecording(true);
           setVideoDataUrl(null);

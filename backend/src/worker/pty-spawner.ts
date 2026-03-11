@@ -203,9 +203,9 @@ export class PtySpawner extends EventEmitter {
             try {
               const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
               if (manifest.panel) {
-                extSkillNames.add(`${extName}.open`);
-                extSkillNames.add(`${extName}.comment`);
-                extSkillNames.add(`${extName}.select-text`);
+                extSkillNames.add(`adyx.${extName}.open`);
+                extSkillNames.add(`adyx.${extName}.comment`);
+                extSkillNames.add(`adyx.${extName}.select-text`);
               }
               for (const s of manifest.skills || []) {
                 extSkillNames.add(s.split('/').pop()!);
@@ -579,11 +579,12 @@ export class PtySpawner extends EventEmitter {
 
   /** Check if a skill name belongs to an extension (auto-skill or custom symlink) */
   private isExtensionSkill(skillName: string, extensionsDir: string): boolean {
-    // Auto-skills follow the pattern: <extName>.open / .comment / .select-text
+    // Auto-skills follow the pattern: adyx.<extName>.open / .comment / .select-text
     const autoSuffixes = ['.open', '.comment', '.select-text'];
     for (const suffix of autoSuffixes) {
       if (skillName.endsWith(suffix)) {
-        const extName = skillName.slice(0, -suffix.length);
+        // Strip adyx. prefix and action suffix to get extension name
+        const extName = skillName.replace(/^adyx\./, '').slice(0, -suffix.length);
         if (fs.existsSync(path.join(extensionsDir, extName, 'manifest.json'))) return true;
       }
     }
