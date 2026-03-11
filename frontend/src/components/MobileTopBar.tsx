@@ -27,7 +27,7 @@ export const MobileTopBar = React.memo(function MobileTopBar({
     : '';
 
   return (
-    <div className="flex items-center h-10 px-2 border-b border-gray-700 bg-gray-800/90 backdrop-blur-sm flex-shrink-0">
+    <div className="flex items-center h-10 px-2 border-b border-gray-700 bg-gray-800/90 backdrop-blur-sm flex-shrink-0" style={{ paddingTop: 'env(safe-area-inset-top, 0px)', height: 'calc(2.5rem + env(safe-area-inset-top, 0px))' }}>
       {/* Hamburger */}
       <button
         type="button"
