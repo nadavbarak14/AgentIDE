@@ -1,3 +1,4 @@
+import { useCallback, useState, useEffect } from 'react';
 import type { MobilePanelName } from '../hooks/useMobilePanel';
 import { MobileSheetOverlay } from './MobileSheetOverlay';
 
@@ -67,6 +68,37 @@ export function MobileHamburgerMenu({ onSelectPanel, onClose, onNewSession }: Mo
     onSelectPanel(panel);
   };
 
+  const [isFullscreen, setIsFullscreen] = useState(
+    () => !!(document.fullscreenElement || (document as any).webkitFullscreenElement),
+  );
+
+  useEffect(() => {
+    const handler = () => {
+      setIsFullscreen(!!(document.fullscreenElement || (document as any).webkitFullscreenElement));
+    };
+    document.addEventListener('fullscreenchange', handler);
+    document.addEventListener('webkitfullscreenchange', handler);
+    return () => {
+      document.removeEventListener('fullscreenchange', handler);
+      document.removeEventListener('webkitfullscreenchange', handler);
+    };
+  }, []);
+
+  const toggleFullscreen = useCallback(() => {
+    const doc = document as any;
+    if (document.fullscreenElement || doc.webkitFullscreenElement) {
+      if (document.exitFullscreen) document.exitFullscreen();
+      else if (doc.webkitExitFullscreen) doc.webkitExitFullscreen();
+    } else {
+      const el = document.documentElement as any;
+      if (el.requestFullscreen) el.requestFullscreen();
+      else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+    }
+    onClose();
+  }, [onClose]);
+
+  const fullscreenSupported = !!(document.documentElement.requestFullscreen || (document.documentElement as any).webkitRequestFullscreen);
+
   return (
     <MobileSheetOverlay onClose={onClose} title="Menu">
       <div className="flex flex-col p-2 gap-1">
@@ -82,7 +114,35 @@ export function MobileHamburgerMenu({ onSelectPanel, onClose, onNewSession }: Mo
           </button>
         ))}
 
-        {/* New Session — calls onNewSession instead of onSelectPanel */}
+        {/* Fullscreen toggle */}
+        {fullscreenSupported && (
+          <button
+            type="button"
+            onClick={toggleFullscreen}
+            className="flex items-center gap-3 w-full min-h-[52px] px-4 rounded-lg bg-gray-900 hover:bg-gray-800 text-gray-200 transition-colors"
+          >
+            <span className="flex-shrink-0 text-gray-400">
+              {isFullscreen ? (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="4 14 10 14 10 20" />
+                  <polyline points="20 10 14 10 14 4" />
+                  <line x1="14" y1="10" x2="21" y2="3" />
+                  <line x1="3" y1="21" x2="10" y2="14" />
+                </svg>
+              ) : (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="15 3 21 3 21 9" />
+                  <polyline points="9 21 3 21 3 15" />
+                  <line x1="21" y1="3" x2="14" y2="10" />
+                  <line x1="3" y1="21" x2="10" y2="14" />
+                </svg>
+              )}
+            </span>
+            <span className="text-sm font-medium">{isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}</span>
+          </button>
+        )}
+
+        {/* New Session */}
         <button
           type="button"
           onClick={onNewSession}

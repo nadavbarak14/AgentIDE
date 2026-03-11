@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 
 interface MobileTopBarProps {
   sessionName: string;
@@ -9,6 +9,42 @@ interface MobileTopBarProps {
   onHamburgerTap: () => void;
   onSessionTap: () => void;
   onNewSession: () => void;
+}
+
+function useFullscreen() {
+  const [isFullscreen, setIsFullscreen] = useState(
+    () => !!(document.fullscreenElement || (document as any).webkitFullscreenElement),
+  );
+
+  useEffect(() => {
+    const handler = () => {
+      setIsFullscreen(!!(document.fullscreenElement || (document as any).webkitFullscreenElement));
+    };
+    document.addEventListener('fullscreenchange', handler);
+    document.addEventListener('webkitfullscreenchange', handler);
+    return () => {
+      document.removeEventListener('fullscreenchange', handler);
+      document.removeEventListener('webkitfullscreenchange', handler);
+    };
+  }, []);
+
+  const toggle = useCallback(() => {
+    const doc = document as any;
+    if (document.fullscreenElement || doc.webkitFullscreenElement) {
+      if (document.exitFullscreen) document.exitFullscreen();
+      else if (doc.webkitExitFullscreen) doc.webkitExitFullscreen();
+    } else {
+      const el = document.documentElement as any;
+      if (el.requestFullscreen) el.requestFullscreen();
+      else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+    }
+  }, []);
+
+  // Fullscreen API is available on most mobile browsers (Android Chrome, etc.)
+  // Not available on iOS Safari (PWA handles it via standalone mode)
+  const supported = !!(document.documentElement.requestFullscreen || (document.documentElement as any).webkitRequestFullscreen);
+
+  return { isFullscreen, toggle, supported };
 }
 
 export const MobileTopBar = React.memo(function MobileTopBar({
@@ -25,6 +61,7 @@ export const MobileTopBar = React.memo(function MobileTopBar({
   const truncatedPath = projectPath
     ? projectPath.split('/').slice(-2).join('/')
     : '';
+  const { isFullscreen, toggle: toggleFullscreen, supported: fullscreenSupported } = useFullscreen();
 
   return (
     <div className="flex items-center h-10 px-2 border-b border-gray-700 bg-gray-800/90 backdrop-blur-sm flex-shrink-0" style={{ paddingTop: 'env(safe-area-inset-top, 0px)', height: 'calc(2.5rem + env(safe-area-inset-top, 0px))' }}>
@@ -75,6 +112,32 @@ export const MobileTopBar = React.memo(function MobileTopBar({
           <path d="M2 4l3 3 3-3" />
         </svg>
       </button>
+
+      {/* Fullscreen toggle */}
+      {fullscreenSupported && (
+        <button
+          type="button"
+          onClick={toggleFullscreen}
+          className="w-9 h-9 flex items-center justify-center text-gray-400 hover:text-white rounded transition-colors"
+          aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+        >
+          {isFullscreen ? (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="4 14 10 14 10 20" />
+              <polyline points="20 10 14 10 14 4" />
+              <line x1="14" y1="10" x2="21" y2="3" />
+              <line x1="3" y1="21" x2="10" y2="14" />
+            </svg>
+          ) : (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="15 3 21 3 21 9" />
+              <polyline points="9 21 3 21 3 15" />
+              <line x1="21" y1="3" x2="14" y2="10" />
+              <line x1="3" y1="21" x2="10" y2="14" />
+            </svg>
+          )}
+        </button>
+      )}
 
       {/* Right: New Session button */}
       <button
