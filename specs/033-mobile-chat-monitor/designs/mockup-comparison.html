@@ -1,0 +1,592 @@
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#08090d;color:#e6edf3;overflow-x:auto;overflow-y:auto}
+  .header{text-align:center;padding:20px 20px 8px;max-width:1100px;margin:0 auto}
+  .header h1{font-size:18px;font-weight:700;margin-bottom:4px}
+  .header p{font-size:11px;color:#7d8590;line-height:1.4}
+  .section-label{font-size:11px;color:#7d8590;text-transform:uppercase;letter-spacing:1px;padding:16px 20px 6px;max-width:1100px;margin:0 auto}
+  .row{display:flex;gap:20px;padding:8px 20px 16px;max-width:1100px;margin:0 auto;overflow-x:auto}
+  .mockup-wrap{display:flex;flex-direction:column;align-items:center;gap:8px;flex-shrink:0}
+  .title{font-size:12px;font-weight:700;letter-spacing:0.3px}
+  .title.bad{color:#f85149}.title.good{color:#3fb950}.title.mid{color:#f0883e}
+  .desc{font-size:9px;color:#7d8590;max-width:195px;text-align:center;line-height:1.4}
+  .phone{width:195px;height:422px;border-radius:22px;border:2px solid #333;overflow:hidden;display:flex;flex-direction:column;background:#0d1117;position:relative;flex-shrink:0}
+  .notch{position:absolute;top:0;left:50%;transform:translateX(-50%);width:63px;height:16px;background:#000;border-radius:0 0 10px 10px;z-index:10}
+  .cr{background:#161b22;padding:2px 6px;font-size:6px;color:#7d8590;display:flex;align-items:center;gap:3px;border-bottom:1px solid #21262d;white-space:nowrap;overflow:hidden}
+  .content{flex:1;min-height:0;background:#0d1117;overflow:hidden}
+  .term{padding:6px;font-family:'SF Mono',Monaco,Consolas,monospace;font-size:6px;line-height:1.5;color:#c9d1d9}
+  .t-think{color:#f0883e;font-style:italic}
+  .t-ai{color:#c9d1d9}
+  .t-tool{color:#7ee787;font-size:5.5px}
+  .t-code{background:#161b22;border-radius:2px;padding:2px 3px;color:#79c0ff;font-size:5px;display:block;margin:2px 0}
+  .t-user{color:#d2a8ff}
+  .badge{background:#f0883e;color:#000;font-size:5px;padding:1px 4px;border-radius:6px;font-weight:bold}
+  .bbar{background:#161b22;padding:3px 4px;display:flex;gap:3px;justify-content:center;border-top:1px solid #21262d}
+  .bbar .b{background:#21262d;color:#7d8590;padding:3px 5px;border-radius:3px;font-size:6px;text-align:center}
+  .bbar .b-enter{background:#1f6feb;color:#fff}
+  .bbar .b-stop{background:#da3633;color:#fff}
+  .bbar .b-scroll{background:#21262d;color:#58a6ff}
+  .home{padding:3px 0;display:flex;justify-content:center;background:#161b22}
+  .home div{width:60px;height:2px;background:#444;border-radius:1px}
+  .input-r{background:#0d1117;margin:2px 6px;border-radius:4px;padding:3px 6px;font-size:6px;color:#484f58;border:1px solid #21262d}
+  .ann{position:absolute;font-size:5px;padding:1px 3px;border-radius:2px;z-index:5;pointer-events:none}
+  .ann-b{background:rgba(248,81,73,0.12);color:#f85149;border:1px solid rgba(248,81,73,0.25)}
+  .ann-g{background:rgba(63,185,80,0.12);color:#3fb950;border:1px solid rgba(63,185,80,0.25)}
+  .metric{font-size:10px;font-weight:700;margin-top:2px}
+  .metric.bad{color:#f85149}.metric.good{color:#3fb950}
+  .approval-card{background:#1c2128;border:1px solid #f0883e;border-radius:6px;margin:4px 6px;padding:5px 6px}
+  .approval-title{font-size:6px;color:#f0883e;font-weight:700;margin-bottom:3px}
+  .approval-body{font-size:5px;color:#7d8590;margin-bottom:4px}
+  .approval-code{background:#0d1117;border-radius:2px;padding:2px 4px;font-size:5px;color:#79c0ff;font-family:monospace;margin-bottom:4px;display:block}
+  .approval-btns{display:flex;gap:4px}
+  .approval-btns span{flex:1;text-align:center;padding:4px;border-radius:4px;font-size:7px;font-weight:700}
+  .btn-accept{background:#238636;color:#fff}
+  .btn-reject{background:#21262d;color:#f85149;border:1px solid #f8514944}
+  .preview-full{position:absolute;inset:0;background:#fff;z-index:20;display:flex;flex-direction:column;border-radius:20px;overflow:hidden}
+  .preview-topbar{background:#161b22;padding:3px 8px;display:flex;align-items:center;gap:4px;padding-top:20px;font-size:6px;color:#7d8590;border-bottom:1px solid #21262d}
+  .preview-topbar .url{background:#0d1117;padding:2px 6px;border-radius:3px;flex:1;font-size:6px;color:#7d8590}
+  .preview-close{color:#f85149;font-weight:bold;font-size:9px;cursor:pointer;padding:0 2px}
+  .preview-iframe{flex:1;background:#fff;display:flex;align-items:center;justify-content:center}
+  .preview-iframe-content{text-align:center;color:#333;font-size:9px}
+  .vote-btn{margin-top:6px;padding:6px 20px;border-radius:6px;border:2px solid #333;background:#161b22;color:#e6edf3;font-size:11px;font-weight:600;cursor:pointer;transition:all 0.2s}
+  .vote-btn:hover{border-color:#1f6feb;background:#1f6feb22}
+  .vote-btn.selected{border-color:#3fb950;background:#3fb95022;color:#3fb950}
+  .swipe-hint{position:absolute;top:50%;right:0;writing-mode:vertical-rl;font-size:5px;color:#484f58;padding:2px;opacity:0.6}
+  .scroll-indicator{position:absolute;top:28px;right:6px;background:#21262d;border-radius:8px;width:3px;height:30px;z-index:5}
+  .scroll-indicator .thumb{width:3px;height:10px;background:#58a6ff;border-radius:8px;margin-top:16px}
+</style>
+
+<div class="header">
+  <h1>Mobile UX Redesign Options</h1>
+  <p>Scroll right to compare all states. Pick your favorite or mix elements.</p>
+</div>
+
+<!-- ROW 1: Default State (Claude Terminal) -->
+<div class="section-label">Default View — Claude Terminal</div>
+<div class="row">
+
+  <!-- CURRENT -->
+  <div class="mockup-wrap">
+    <div class="title bad">Current</div>
+    <div class="desc">7 chrome rows, split panels, 61% wasted</div>
+    <div class="phone">
+      <div class="notch"></div>
+      <div class="cr" style="padding-top:20px"><span style="background:#21262d;padding:2px 5px;border-radius:3px;color:#e6edf3;">mobile ux &#9662;</span><span class="badge">3</span><span>+</span><span style="flex:1"></span>+&nbsp;&#9881;</div>
+      <div style="background:#1c1507;color:#f0883e;font-size:6px;padding:3px 6px;font-weight:600">+3 MORE SESSIONS !</div>
+      <div class="cr"><span>1</span><span style="color:#3fb950">&#9679;</span><b style="color:#e6edf3">mobile ux</b><span style="background:#21262d;padding:0 3px;border-radius:2px;font-size:5px">Local</span><span style="color:#f85149">!</span><span>active &#10697; Pin &#215;</span></div>
+      <div class="cr" style="gap:1px"><span>Files</span><span style="color:#f0883e;border-bottom:1px solid #f0883e">Git</span><span style="color:#58a6ff;border-bottom:1px solid #58a6ff">Claude</span><span class="badge" style="font-size:4px">1</span><span style="background:#1f6feb;color:#fff;border-radius:2px;padding:1px 3px;font-size:5px">Preview</span><span>Issues</span><span style="color:#f0883e;border-bottom:1px solid #f0883e">Shell</span><span>Ext&#9662; A-</span></div>
+      <div class="cr">14 &nbsp; A+</div>
+      <div class="cr" style="justify-content:space-between"><span style="background:#21262d;padding:1px 4px;border-radius:2px;color:#e6edf3">Preview</span><span>&#215;</span></div>
+      <div class="cr"><span>&#8635;</span><span style="color:#f0883e">&#128274;</span><span style="background:#0d1117;padding:2px 4px;border-radius:2px;flex:1;font-size:5px">http://localhost:3007/</span><span>&#8599; &#215;</span></div>
+      <div class="content" style="display:flex">
+        <div style="width:28%;border-right:1px solid #21262d;padding:4px;font-size:5px;overflow:hidden"><div style="color:#3fb950">&#9679; Running</div><div style="color:#7d8590;margin-top:3px;line-height:1.3">Exploring<br>mobile...</div></div>
+        <div style="flex:1;background:#1a1b2e;display:flex;align-items:center;justify-content:center"><div style="text-align:center;color:#484f58;font-size:6px">No server<br>detected</div></div>
+      </div>
+      <div style="text-align:center;padding:4px"><span style="background:#f0883e;color:#fff;padding:2px 8px;border-radius:10px;font-size:6px;font-weight:600">3 sessions waiting</span></div>
+      <div class="bbar"><span class="b">Tab</span><span class="b">&#8593;</span><span class="b">&#8595;</span><span class="b">Esc</span><span class="b b-enter">Send</span></div>
+      <div class="home"><div></div></div>
+      <div class="ann ann-b" style="top:22px;right:4px">7 rows chrome</div>
+      <div class="ann ann-b" style="bottom:60px;left:4px">split &#8594;</div>
+    </div>
+    <div class="metric bad">~39% content</div>
+  </div>
+
+  <!-- DESIGN A: Chat Monitor -->
+  <div class="mockup-wrap">
+    <div class="title good">A: Chat Monitor</div>
+    <div class="desc">Full-screen terminal. 1 top row. Action keys + Stop at bottom</div>
+    <div class="phone">
+      <div class="notch"></div>
+      <!-- Top bar: hamburger + session + badge -->
+      <div style="background:#161b22;padding:3px 8px;display:flex;align-items:center;gap:5px;padding-top:20px;border-bottom:1px solid #21262d;">
+        <span style="font-size:10px;color:#7d8590">&#9776;</span>
+        <span style="color:#3fb950;font-size:6px">&#9679;</span>
+        <span style="font-size:7px;font-weight:600;color:#e6edf3">mobile ux</span>
+        <span style="font-size:5px;color:#484f58">&#8226; /projects/AgentIDE</span>
+        <span style="flex:1"></span>
+        <span class="badge">3</span>
+        <span style="font-size:6px;color:#484f58">&#8593;</span>
+      </div>
+
+      <!-- Full terminal -->
+      <div class="content">
+        <div class="term">
+          <div class="t-think">&#10039; Thinking...</div><br>
+          <div class="t-ai">I'll fix the authentication bug in the login component.</div><br>
+          <div class="t-tool">&#9679; <b>Read</b> (src/auth/login.tsx)</div>
+          <div class="t-code">export function Login() {<br>&nbsp;&nbsp;const [err, setErr] = useState("")<br>&nbsp;&nbsp;// BUG: missing await<br>&nbsp;&nbsp;const res = authenticate(creds)</div><br>
+          <div class="t-tool">&#9679; <b>Edit</b> (src/auth/login.tsx)</div>
+          <div class="t-code">- const res = authenticate(creds)<br>+ const res = await authenticate(creds)</div><br>
+          <div class="t-ai">Fixed. The <code style="background:#21262d;padding:0 2px;border-radius:1px">authenticate</code> call was missing <code style="background:#21262d;padding:0 2px;border-radius:1px">await</code>, causing the Promise issue.</div><br>
+          <div class="t-tool">&#9679; <b>Bash</b> (npm test)</div>
+          <div class="t-code" style="color:#3fb950">PASS src/auth/login.test.tsx<br>&#10003; handles login success<br>&#10003; handles login failure<br><br>Tests: 2 passed, 2 total</div><br>
+          <div style="color:#7d8590;font-size:5px">&#9654; What would you like to do next?</div>
+        </div>
+      </div>
+
+      <!-- Scroll indicator -->
+      <div class="scroll-indicator"><div class="thumb"></div></div>
+
+      <!-- Input row -->
+      <div class="input-r">Type a message...</div>
+
+      <!-- Action bar: Tab ↑ ↓ Esc Enter Stop Scroll-->
+      <div class="bbar">
+        <span class="b">Tab</span>
+        <span class="b">&#8593;</span>
+        <span class="b">&#8595;</span>
+        <span class="b">Esc</span>
+        <span class="b b-enter">Enter</span>
+        <span class="b b-stop">Stop</span>
+        <span class="b b-scroll">&#8679;&#8679;</span>
+      </div>
+      <div class="home"><div></div></div>
+
+      <div class="ann ann-g" style="top:20px;right:4px">1 row</div>
+      <div class="ann ann-g" style="top:48%;right:4px">100% width</div>
+    </div>
+    <div class="metric good">~88% content</div>
+    <div class="desc">Hamburger opens: Files, Git, Diff, Preview, Shell, Sessions</div>
+  </div>
+
+  <!-- DESIGN B: Compact Tabs -->
+  <div class="mockup-wrap">
+    <div class="title mid">B: Compact Tabs</div>
+    <div class="desc">Scrollable tab row, single panel, session info collapsed</div>
+    <div class="phone">
+      <div class="notch"></div>
+      <div style="background:#161b22;padding:3px 8px;display:flex;align-items:center;gap:4px;padding-top:20px;border-bottom:1px solid #21262d;">
+        <span style="color:#3fb950;font-size:5px">&#9679;</span>
+        <span style="font-size:7px;font-weight:600">mobile ux</span>
+        <span style="font-size:5px;color:#7d8590">Local !</span>
+        <span style="flex:1"></span>
+        <span class="badge">3</span>
+        <span style="font-size:7px;color:#7d8590">&#215;</span>
+      </div>
+      <div style="background:#161b22;padding:2px 6px;display:flex;gap:4px;font-size:6px;color:#7d8590;border-bottom:1px solid #21262d;overflow-x:auto">
+        <span style="padding:2px 5px;color:#58a6ff;border-bottom:1px solid #58a6ff;white-space:nowrap">Claude</span>
+        <span style="padding:2px 5px;white-space:nowrap">Files</span>
+        <span style="padding:2px 5px;white-space:nowrap">Git</span>
+        <span style="padding:2px 5px;white-space:nowrap">Preview</span>
+        <span style="padding:2px 5px;white-space:nowrap">Shell</span>
+        <span style="padding:2px 5px;white-space:nowrap;color:#484f58">&#8226;&#8226;&#8226;</span>
+      </div>
+      <div class="content">
+        <div class="term">
+          <div class="t-think">&#10039; Thinking...</div><br>
+          <div class="t-ai">I'll fix the authentication bug in the login component.</div><br>
+          <div class="t-tool">&#9679; <b>Read</b> (src/auth/login.tsx)</div>
+          <div class="t-code">export function Login() {<br>&nbsp;&nbsp;const [err, setErr] = useState("")<br>&nbsp;&nbsp;const res = authenticate(creds)</div><br>
+          <div class="t-tool">&#9679; <b>Edit</b> (src/auth/login.tsx)</div>
+          <div class="t-code">- const res = authenticate(creds)<br>+ const res = await authenticate(creds)</div><br>
+          <div class="t-ai">Fixed the missing <code style="background:#21262d;padding:0 2px;border-radius:1px">await</code>.</div><br>
+          <div class="t-tool">&#9679; <b>Bash</b> (npm test)</div>
+          <div class="t-code" style="color:#3fb950">PASS &#10003; 2 passed</div>
+        </div>
+      </div>
+      <div class="input-r">Type a message...</div>
+      <div class="bbar">
+        <span class="b">Tab</span><span class="b">&#8593;</span><span class="b">&#8595;</span><span class="b">Esc</span><span class="b b-enter">Enter</span><span class="b b-stop">Stop</span><span class="b b-scroll">&#8679;&#8679;</span>
+      </div>
+      <div class="home"><div></div></div>
+      <div class="ann" style="top:20px;right:4px;font-size:5px;color:#f0883e;background:rgba(240,136,62,0.1);border:1px solid rgba(240,136,62,0.3);border-radius:2px;padding:1px 3px">2 rows</div>
+    </div>
+    <div class="metric mid">~82% content</div>
+    <div class="desc">Less radical change. Tabs still visible</div>
+  </div>
+</div>
+
+<!-- ROW 2: Agent Waiting for Approval -->
+<div class="section-label">Agent Waiting &#8212; Tool Approval Needed</div>
+<div class="row">
+
+  <!-- CURRENT: buried in scroll -->
+  <div class="mockup-wrap">
+    <div class="title bad">Current</div>
+    <div class="desc">Approval prompt buried in terminal output scroll</div>
+    <div class="phone">
+      <div class="notch"></div>
+      <div class="cr" style="padding-top:20px"><span style="background:#21262d;padding:2px 5px;border-radius:3px;color:#e6edf3">mobile ux &#9662;</span><span class="badge">3</span><span>+</span><span style="flex:1"></span>+&nbsp;&#9881;</div>
+      <div style="background:#1c1507;color:#f0883e;font-size:6px;padding:3px 6px;font-weight:600">+3 MORE SESSIONS !</div>
+      <div class="cr"><span>1</span><span style="color:#3fb950">&#9679;</span><b style="color:#e6edf3">mobile ux</b><span style="background:#21262d;padding:0 3px;border-radius:2px;font-size:5px">Local</span><span style="color:#f85149">!</span><span>active &#10697; Pin &#215;</span></div>
+      <div class="cr" style="gap:1px"><span>Files</span><span style="color:#58a6ff;border-bottom:1px solid #58a6ff">Claude</span><span class="badge" style="font-size:4px">1</span><span style="background:#1f6feb;color:#fff;border-radius:2px;padding:1px 3px;font-size:5px">Preview</span><span>Issues Shell Ext&#9662; A-</span></div>
+      <div class="cr">14 &nbsp; A+</div>
+      <div class="content">
+        <div class="term">
+          <div class="t-ai" style="font-size:5px;color:#7d8590">...lots of output above...</div><br>
+          <div class="t-tool">&#9679; <b>Edit</b> (src/db/schema.sql)</div>
+          <div class="t-code">ALTER TABLE users<br>ADD COLUMN role TEXT DEFAULT 'user'</div><br>
+          <div style="font-size:5.5px;color:#f0883e">&#9888; Claude wants to edit src/db/schema.sql</div>
+          <div style="font-size:5px;color:#7d8590;margin-top:2px">Do you want to allow this edit?<br>Type 'y' to accept or 'n' to reject</div>
+          <br><br><br><br>
+          <div style="font-size:5px;color:#484f58">&#9654; Waiting for input...</div>
+        </div>
+      </div>
+      <div class="bbar"><span class="b">Tab</span><span class="b">&#8593;</span><span class="b">&#8595;</span><span class="b">Esc</span><span class="b b-enter">Send</span></div>
+      <div class="home"><div></div></div>
+      <div class="ann ann-b" style="bottom:50px;right:4px">type y/n?</div>
+    </div>
+    <div class="metric bad">Hard to notice</div>
+  </div>
+
+  <!-- DESIGN A: Approval Card -->
+  <div class="mockup-wrap">
+    <div class="title good">A: Approval Card</div>
+    <div class="desc">Big tap-friendly Accept/Reject card slides up. Unmissable</div>
+    <div class="phone">
+      <div class="notch"></div>
+      <div style="background:#161b22;padding:3px 8px;display:flex;align-items:center;gap:5px;padding-top:20px;border-bottom:1px solid #21262d;">
+        <span style="font-size:10px;color:#7d8590">&#9776;</span>
+        <span style="color:#f0883e;font-size:6px;animation:pulse 1.5s infinite">&#9679;</span>
+        <span style="font-size:7px;font-weight:600;color:#f0883e">mobile ux</span>
+        <span style="flex:1"></span>
+        <span class="badge">3</span>
+      </div>
+
+      <div class="content">
+        <div class="term">
+          <div class="t-tool">&#9679; <b>Read</b> (src/db/schema.sql)</div>
+          <div class="t-code">CREATE TABLE users (<br>&nbsp;&nbsp;id INTEGER PRIMARY KEY,<br>&nbsp;&nbsp;name TEXT NOT NULL<br>);</div><br>
+          <div class="t-ai">I need to add a role column to the users table.</div><br>
+          <div class="t-tool">&#9679; <b>Edit</b> (src/db/schema.sql)</div>
+          <div class="t-code">ALTER TABLE users<br>ADD COLUMN role TEXT DEFAULT 'user'</div>
+        </div>
+      </div>
+
+      <!-- Approval overlay card -->
+      <div class="approval-card">
+        <div class="approval-title">&#9888; Approve Edit?</div>
+        <div class="approval-body">Claude wants to edit <b style="color:#e6edf3">src/db/schema.sql</b></div>
+        <div class="approval-code">+ ADD COLUMN role TEXT DEFAULT 'user'</div>
+        <div class="approval-btns">
+          <span class="btn-reject">Reject</span>
+          <span class="btn-accept">&#10003; Accept</span>
+        </div>
+      </div>
+
+      <div class="bbar">
+        <span class="b">Tab</span><span class="b">&#8593;</span><span class="b">&#8595;</span><span class="b">Esc</span><span class="b b-enter">Enter</span><span class="b b-stop">Stop</span><span class="b b-scroll">&#8679;&#8679;</span>
+      </div>
+      <div class="home"><div></div></div>
+      <div class="ann ann-g" style="bottom:55px;right:4px">big targets</div>
+    </div>
+    <div class="metric good">Obvious + 1 tap</div>
+  </div>
+
+  <!-- DESIGN B: Inline but highlighted -->
+  <div class="mockup-wrap">
+    <div class="title mid">B: Inline Highlight</div>
+    <div class="desc">Same inline prompt but with highlighted Accept/Reject buttons</div>
+    <div class="phone">
+      <div class="notch"></div>
+      <div style="background:#161b22;padding:3px 8px;display:flex;align-items:center;gap:4px;padding-top:20px;border-bottom:1px solid #21262d;">
+        <span style="color:#f0883e;font-size:5px">&#9679;</span>
+        <span style="font-size:7px;font-weight:600;color:#f0883e">mobile ux</span>
+        <span style="font-size:5px;color:#7d8590">Local !</span>
+        <span style="flex:1"></span>
+        <span class="badge">3</span>
+        <span style="font-size:7px;color:#7d8590">&#215;</span>
+      </div>
+      <div style="background:#161b22;padding:2px 6px;display:flex;gap:4px;font-size:6px;color:#7d8590;border-bottom:1px solid #21262d">
+        <span style="padding:2px 5px;color:#58a6ff;border-bottom:1px solid #58a6ff">Claude</span>
+        <span style="padding:2px 5px">Files</span>
+        <span style="padding:2px 5px">Git</span>
+        <span style="padding:2px 5px">Preview</span>
+        <span style="padding:2px 5px">Shell</span>
+      </div>
+      <div class="content">
+        <div class="term">
+          <div class="t-tool">&#9679; <b>Edit</b> (src/db/schema.sql)</div>
+          <div class="t-code">ALTER TABLE users<br>ADD COLUMN role TEXT DEFAULT 'user'</div><br>
+          <div style="background:#f0883e22;border:1px solid #f0883e44;border-radius:4px;padding:4px;margin:2px 0;">
+            <div style="font-size:6px;color:#f0883e;font-weight:700">&#9888; Approve this edit?</div>
+            <div style="display:flex;gap:4px;margin-top:4px">
+              <span style="flex:1;text-align:center;padding:3px;border-radius:3px;font-size:6px;font-weight:700;background:#21262d;color:#f85149;border:1px solid #f8514944">Reject</span>
+              <span style="flex:1;text-align:center;padding:3px;border-radius:3px;font-size:6px;font-weight:700;background:#238636;color:#fff">Accept</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="input-r">Type a message...</div>
+      <div class="bbar"><span class="b">Tab</span><span class="b">&#8593;</span><span class="b">&#8595;</span><span class="b">Esc</span><span class="b b-enter">Enter</span><span class="b b-stop">Stop</span><span class="b b-scroll">&#8679;&#8679;</span></div>
+      <div class="home"><div></div></div>
+    </div>
+    <div class="metric mid">Better, still scrollable</div>
+  </div>
+</div>
+
+<!-- ROW 3: Preview State -->
+<div class="section-label">Preview &#8212; Checking App Output</div>
+<div class="row">
+
+  <!-- CURRENT: never full screen -->
+  <div class="mockup-wrap">
+    <div class="title bad">Current</div>
+    <div class="desc">Preview crammed in a split panel with all chrome visible</div>
+    <div class="phone">
+      <div class="notch"></div>
+      <div class="cr" style="padding-top:20px"><span style="background:#21262d;padding:2px 5px;border-radius:3px;color:#e6edf3">mobile ux &#9662;</span><span class="badge">3</span><span style="flex:1"></span>&#9881;</div>
+      <div class="cr"><span>1</span><span style="color:#3fb950">&#9679;</span><b style="color:#e6edf3">mobile ux</b><span style="background:#21262d;padding:0 3px;border-radius:2px;font-size:5px">Local</span></div>
+      <div class="cr" style="gap:1px"><span>Files</span><span style="color:#58a6ff">Claude</span><span style="background:#1f6feb;color:#fff;border-radius:2px;padding:1px 3px;font-size:5px">Preview</span><span>Issues Shell</span></div>
+      <div class="cr">14 A+</div>
+      <div class="cr" style="justify-content:space-between"><span style="background:#21262d;padding:1px 4px;border-radius:2px;color:#e6edf3">Preview</span><span>&#215;</span></div>
+      <div class="cr"><span>&#8635; &#128274;</span><span style="background:#0d1117;padding:2px 4px;border-radius:2px;flex:1;font-size:5px">http://localhost:3007/</span><span>&#8599; &#215;</span></div>
+      <!-- Tiny preview area -->
+      <div class="content" style="background:#fff;display:flex;align-items:center;justify-content:center;position:relative;">
+        <div style="color:#333;font-size:8px;text-align:center;padding:10px">
+          <div style="font-size:12px;margin-bottom:4px">&#127760;</div>
+          <b>My App</b><br>
+          <span style="font-size:6px;color:#666">Welcome to the dashboard</span><br>
+          <div style="margin-top:6px;background:#1f6feb;color:#fff;padding:3px 8px;border-radius:3px;font-size:6px;display:inline-block">Login</div>
+        </div>
+        <div class="ann ann-b" style="bottom:4px;right:4px">~39% visible</div>
+      </div>
+      <div style="text-align:center;padding:4px"><span style="background:#f0883e;color:#fff;padding:2px 8px;border-radius:10px;font-size:6px;font-weight:600">3 sessions waiting</span></div>
+      <div class="bbar"><span class="b">Tab</span><span class="b">&#8593;</span><span class="b">&#8595;</span><span class="b">Esc</span><span class="b b-enter">Send</span></div>
+      <div class="home"><div></div></div>
+    </div>
+    <div class="metric bad">~39% preview</div>
+  </div>
+
+  <!-- DESIGN A: Full-screen overlay -->
+  <div class="mockup-wrap">
+    <div class="title good">A: Full-Screen Sheet</div>
+    <div class="desc">Preview fills entire screen. Just URL bar + close. 95% content</div>
+    <div class="phone">
+      <div class="notch"></div>
+      <div class="preview-full">
+        <div class="preview-topbar">
+          <span class="preview-close">&#215;</span>
+          <span style="color:#f0883e;font-size:6px">&#128274;</span>
+          <span class="url">localhost:3007</span>
+          <span style="font-size:7px">&#8599;</span>
+        </div>
+        <div class="preview-iframe">
+          <div class="preview-iframe-content">
+            <div style="font-size:20px;margin-bottom:6px">&#127760;</div>
+            <div style="font-size:11px;font-weight:700;margin-bottom:3px">My App Dashboard</div>
+            <div style="font-size:8px;color:#666;margin-bottom:10px">Welcome back! Here's your overview.</div>
+            <div style="display:flex;gap:6px;justify-content:center;margin-bottom:10px">
+              <div style="background:#f0f0f0;padding:8px 10px;border-radius:6px;text-align:center"><div style="font-size:14px;font-weight:700;color:#1f6feb">24</div><div style="font-size:6px;color:#666">Tasks</div></div>
+              <div style="background:#f0f0f0;padding:8px 10px;border-radius:6px;text-align:center"><div style="font-size:14px;font-weight:700;color:#3fb950">12</div><div style="font-size:6px;color:#666">Done</div></div>
+              <div style="background:#f0f0f0;padding:8px 10px;border-radius:6px;text-align:center"><div style="font-size:14px;font-weight:700;color:#f85149">3</div><div style="font-size:6px;color:#666">Bugs</div></div>
+            </div>
+            <div style="background:#1f6feb;color:#fff;padding:6px 16px;border-radius:4px;font-size:8px;display:inline-block">Get Started</div>
+          </div>
+        </div>
+      </div>
+      <div class="ann ann-g" style="top:35px;right:8px;z-index:25">~95% preview!</div>
+    </div>
+    <div class="metric good">~95% preview</div>
+    <div class="desc">Tap &#215; or swipe down to return to Claude</div>
+  </div>
+
+  <!-- DESIGN B: Still has chrome -->
+  <div class="mockup-wrap">
+    <div class="title mid">B: Tab Switch</div>
+    <div class="desc">Preview as tab. Better than current but still has overhead</div>
+    <div class="phone">
+      <div class="notch"></div>
+      <div style="background:#161b22;padding:3px 8px;display:flex;align-items:center;gap:4px;padding-top:20px;border-bottom:1px solid #21262d;">
+        <span style="color:#3fb950;font-size:5px">&#9679;</span>
+        <span style="font-size:7px;font-weight:600">mobile ux</span>
+        <span style="flex:1"></span>
+        <span class="badge">3</span>
+      </div>
+      <div style="background:#161b22;padding:2px 6px;display:flex;gap:4px;font-size:6px;color:#7d8590;border-bottom:1px solid #21262d">
+        <span style="padding:2px 5px">Claude</span>
+        <span style="padding:2px 5px">Files</span>
+        <span style="padding:2px 5px">Git</span>
+        <span style="padding:2px 5px;color:#58a6ff;border-bottom:1px solid #58a6ff">Preview</span>
+        <span style="padding:2px 5px">Shell</span>
+      </div>
+      <div class="cr"><span>&#8635; &#128274;</span><span style="background:#0d1117;padding:2px 4px;border-radius:2px;flex:1;font-size:5px">http://localhost:3007/</span><span>&#8599; &#215;</span></div>
+      <div class="content" style="background:#fff;display:flex;align-items:center;justify-content:center">
+        <div style="text-align:center;color:#333;font-size:8px;padding:10px">
+          <div style="font-size:16px;margin-bottom:4px">&#127760;</div>
+          <b>My App Dashboard</b><br>
+          <span style="font-size:6px;color:#666">Welcome back!</span><br>
+          <div style="display:flex;gap:4px;justify-content:center;margin:8px 0">
+            <div style="background:#f0f0f0;padding:6px 8px;border-radius:4px;text-align:center"><div style="font-size:10px;font-weight:700;color:#1f6feb">24</div><div style="font-size:5px;color:#666">Tasks</div></div>
+            <div style="background:#f0f0f0;padding:6px 8px;border-radius:4px;text-align:center"><div style="font-size:10px;font-weight:700;color:#3fb950">12</div><div style="font-size:5px;color:#666">Done</div></div>
+          </div>
+          <div style="background:#1f6feb;color:#fff;padding:4px 12px;border-radius:3px;font-size:7px;display:inline-block">Get Started</div>
+        </div>
+      </div>
+      <div class="bbar"><span class="b">Tab</span><span class="b">&#8593;</span><span class="b">&#8595;</span><span class="b">Esc</span><span class="b b-enter">Enter</span><span class="b b-stop">Stop</span><span class="b b-scroll">&#8679;&#8679;</span></div>
+      <div class="home"><div></div></div>
+    </div>
+    <div class="metric mid">~78% preview</div>
+  </div>
+</div>
+
+<!-- ROW 4: Session Switching -->
+<div class="section-label">Session Switching &#8212; Multiple Active Sessions</div>
+<div class="row">
+
+  <!-- CURRENT -->
+  <div class="mockup-wrap">
+    <div class="title bad">Current</div>
+    <div class="desc">Expanded list eats 40% of screen, doesn't auto-close</div>
+    <div class="phone">
+      <div class="notch"></div>
+      <div class="cr" style="padding-top:20px"><span style="background:#21262d;padding:2px 5px;border-radius:3px;color:#e6edf3">mobile ux &#9662;</span><span class="badge">3</span><span style="flex:1"></span>&#9881;</div>
+      <div style="background:#21262d;padding:3px 8px;font-size:6px;color:#7d8590;border-bottom:1px solid #333">MORE SESSIONS (3) &#9650;</div>
+      <div style="background:#161b22;border:1px solid #f0883e44;margin:3px 6px;padding:5px 8px;border-radius:4px">
+        <div style="font-size:6px"><span style="color:#3fb950">&#9679;</span> <b style="color:#e6edf3">1</b> mobile ux <span style="color:#f85149">!</span></div>
+        <div style="font-size:5px;color:#7d8590">/home/ubuntu/projects/AgentIDE</div>
+      </div>
+      <div style="background:#161b22;border:1px solid #21262d;margin:3px 6px;padding:5px 8px;border-radius:4px">
+        <div style="font-size:6px"><span style="color:#3fb950">&#9679;</span> <b style="color:#e6edf3">3</b> test session 2 <span style="color:#f85149">!</span></div>
+        <div style="font-size:5px;color:#7d8590">/tmp/test1</div>
+      </div>
+      <div style="background:#161b22;border:1px solid #21262d;margin:3px 6px;padding:5px 8px;border-radius:4px">
+        <div style="font-size:6px"><span style="color:#3fb950">&#9679;</span> <b style="color:#e6edf3">4</b> test session 2 <span style="color:#f85149">!</span></div>
+        <div style="font-size:5px;color:#7d8590">/tmp/test1</div>
+      </div>
+      <!-- Session content (tiny) -->
+      <div style="background:#0d1117;border:1px solid #21262d;margin:2px 6px;border-radius:4px;flex:1;padding:4px;">
+        <div class="cr" style="background:transparent;border:none;padding:0;margin-bottom:2px"><span style="color:#3fb950">&#9679;</span><b style="color:#e6edf3;font-size:6px">test session 2</b><span style="font-size:5px">Local ! active</span></div>
+        <div style="font-size:5px;color:#484f58">Claude output here...</div>
+      </div>
+      <div style="text-align:center;padding:4px"><span style="background:#f0883e;color:#fff;padding:2px 8px;border-radius:10px;font-size:6px;font-weight:600">3 sessions waiting</span></div>
+      <div class="bbar"><span class="b">Tab</span><span class="b">&#8593;</span><span class="b">&#8595;</span><span class="b">Esc</span><span class="b b-enter">Send</span></div>
+      <div class="home"><div></div></div>
+      <div class="ann ann-b" style="top:45%;right:4px">40% wasted</div>
+    </div>
+    <div class="metric bad">Stays open</div>
+  </div>
+
+  <!-- DESIGN A: Full-screen session list -->
+  <div class="mockup-wrap">
+    <div class="title good">A: Full-Screen List</div>
+    <div class="desc">Hamburger opens full-screen session list. Tap to switch. Auto-closes</div>
+    <div class="phone">
+      <div class="notch"></div>
+      <!-- Full screen overlay -->
+      <div style="position:absolute;inset:0;background:#0d1117;z-index:20;display:flex;flex-direction:column;border-radius:20px;overflow:hidden;">
+        <div style="background:#161b22;padding:6px 10px;display:flex;align-items:center;padding-top:22px;border-bottom:1px solid #21262d;">
+          <span style="font-size:9px;color:#f85149;cursor:pointer">&#215;</span>
+          <span style="flex:1;text-align:center;font-size:8px;font-weight:700">Sessions</span>
+          <span style="font-size:7px;color:#58a6ff">+ New</span>
+        </div>
+        <div style="flex:1;overflow:auto;padding:6px;">
+          <!-- Session 1 -->
+          <div style="background:#161b22;border:1px solid #3fb95044;border-left:3px solid #3fb950;margin-bottom:6px;padding:8px;border-radius:6px">
+            <div style="display:flex;align-items:center;gap:4px;margin-bottom:3px">
+              <span style="color:#3fb950;font-size:7px">&#9679;</span>
+              <span style="font-size:8px;font-weight:700;color:#e6edf3">mobile ux</span>
+              <span style="flex:1"></span>
+              <span style="background:#f0883e;color:#000;font-size:5px;padding:1px 5px;border-radius:8px;font-weight:bold">waiting</span>
+            </div>
+            <div style="font-size:6px;color:#7d8590">~/projects/AgentIDE</div>
+            <div style="font-size:5.5px;color:#58a6ff;margin-top:3px">Fixing auth bug in login.tsx...</div>
+          </div>
+          <!-- Session 2 -->
+          <div style="background:#161b22;border:1px solid #21262d;margin-bottom:6px;padding:8px;border-radius:6px">
+            <div style="display:flex;align-items:center;gap:4px;margin-bottom:3px">
+              <span style="color:#3fb950;font-size:7px">&#9679;</span>
+              <span style="font-size:8px;font-weight:700;color:#e6edf3">test session 2</span>
+              <span style="flex:1"></span>
+              <span style="background:#f0883e;color:#000;font-size:5px;padding:1px 5px;border-radius:8px;font-weight:bold">waiting</span>
+            </div>
+            <div style="font-size:6px;color:#7d8590">/tmp/test1</div>
+            <div style="font-size:5.5px;color:#f0883e;margin-top:3px">&#9888; Approve edit to schema.sql?</div>
+          </div>
+          <!-- Session 3 -->
+          <div style="background:#161b22;border:1px solid #21262d;margin-bottom:6px;padding:8px;border-radius:6px">
+            <div style="display:flex;align-items:center;gap:4px;margin-bottom:3px">
+              <span style="color:#3fb950;font-size:7px">&#9679;</span>
+              <span style="font-size:8px;font-weight:700;color:#e6edf3">test session 2</span>
+              <span style="flex:1"></span>
+              <span style="background:#23863644;color:#3fb950;font-size:5px;padding:1px 5px;border-radius:8px;font-weight:bold">running</span>
+            </div>
+            <div style="font-size:6px;color:#7d8590">/tmp/test1</div>
+            <div style="font-size:5.5px;color:#7d8590;margin-top:3px">Installing dependencies...</div>
+          </div>
+          <!-- Session 4 -->
+          <div style="background:#161b22;border:1px solid #21262d;padding:8px;border-radius:6px">
+            <div style="display:flex;align-items:center;gap:4px;margin-bottom:3px">
+              <span style="color:#7d8590;font-size:7px">&#9679;</span>
+              <span style="font-size:8px;font-weight:700;color:#e6edf3">api refactor</span>
+              <span style="flex:1"></span>
+              <span style="background:#21262d;color:#7d8590;font-size:5px;padding:1px 5px;border-radius:8px">idle</span>
+            </div>
+            <div style="font-size:6px;color:#7d8590">~/projects/Bstat</div>
+            <div style="font-size:5.5px;color:#484f58;margin-top:3px">Completed 2 min ago</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="metric good">Full context per session</div>
+    <div class="desc">Shows status, last activity, waiting/running state</div>
+  </div>
+
+  <!-- DESIGN B -->
+  <div class="mockup-wrap">
+    <div class="title mid">B: Dropdown Fixed</div>
+    <div class="desc">Same dropdown but auto-collapses, richer cards</div>
+    <div class="phone">
+      <div class="notch"></div>
+      <div style="background:#161b22;padding:3px 8px;display:flex;align-items:center;gap:4px;padding-top:20px;border-bottom:1px solid #21262d;">
+        <span style="color:#3fb950;font-size:5px">&#9679;</span>
+        <span style="font-size:7px;font-weight:600">mobile ux</span>
+        <span style="flex:1"></span>
+        <span class="badge">3</span>
+      </div>
+      <div style="background:#161b22;padding:2px 6px;display:flex;gap:4px;font-size:6px;color:#7d8590;border-bottom:1px solid #21262d">
+        <span style="padding:2px 5px;color:#58a6ff;border-bottom:1px solid #58a6ff">Claude</span>
+        <span style="padding:2px 5px">Files</span>
+        <span style="padding:2px 5px">Git</span>
+        <span style="padding:2px 5px">Preview</span>
+      </div>
+      <!-- Compact session pills at top -->
+      <div style="background:#0d1117;padding:4px 6px;display:flex;gap:4px;overflow-x:auto;border-bottom:1px solid #21262d">
+        <div style="background:#161b22;border:1px solid #3fb95044;padding:3px 6px;border-radius:12px;font-size:5px;white-space:nowrap;display:flex;align-items:center;gap:3px">
+          <span style="color:#3fb950">&#9679;</span>mobile ux<span style="color:#f0883e">!</span>
+        </div>
+        <div style="background:#161b22;border:1px solid #21262d;padding:3px 6px;border-radius:12px;font-size:5px;white-space:nowrap;display:flex;align-items:center;gap:3px">
+          <span style="color:#3fb950">&#9679;</span>test 2<span style="color:#f0883e">!</span>
+        </div>
+        <div style="background:#161b22;border:1px solid #21262d;padding:3px 6px;border-radius:12px;font-size:5px;white-space:nowrap;display:flex;align-items:center;gap:3px">
+          <span style="color:#3fb950">&#9679;</span>test 2
+        </div>
+      </div>
+      <div class="content">
+        <div class="term">
+          <div class="t-ai">I'll fix the authentication bug.</div><br>
+          <div class="t-tool">&#9679; <b>Read</b> (src/auth/login.tsx)</div>
+          <div class="t-code">export function Login()...</div><br>
+          <div class="t-tool">&#9679; <b>Edit</b> (src/auth/login.tsx)</div>
+          <div class="t-code">- const res = authenticate(creds)<br>+ const res = await authenticate(creds)</div>
+        </div>
+      </div>
+      <div class="input-r">Type a message...</div>
+      <div class="bbar"><span class="b">Tab</span><span class="b">&#8593;</span><span class="b">&#8595;</span><span class="b">Esc</span><span class="b b-enter">Enter</span><span class="b b-stop">Stop</span><span class="b b-scroll">&#8679;&#8679;</span></div>
+      <div class="home"><div></div></div>
+    </div>
+    <div class="metric mid">3 rows chrome</div>
+  </div>
+</div>
+
+<!-- Vote section -->
+<div style="text-align:center;padding:16px 20px 30px;max-width:600px;margin:0 auto;">
+  <div style="font-size:13px;font-weight:600;margin-bottom:6px">Pick your approach</div>
+  <div style="font-size:10px;color:#7d8590;margin-bottom:12px">Or mix elements from A + B</div>
+  <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+    <button class="vote-btn" style="border-color:#3fb950;color:#3fb950" onclick="vote('A')">Design A &#8212; Chat Monitor</button>
+    <button class="vote-btn" style="border-color:#f0883e;color:#f0883e" onclick="vote('B')">Design B &#8212; Compact Tabs</button>
+    <button class="vote-btn" style="border-color:#58a6ff;color:#58a6ff" onclick="vote('mix')">Mix A+B (tell me)</button>
+  </div>
+  <div id="result" style="font-size:13px;color:#3fb950;font-weight:600;min-height:24px;margin-top:10px"></div>
+</div>
+
+<script>
+function vote(c){
+  document.querySelectorAll('.vote-btn').forEach(b=>b.classList.remove('selected'));
+  event.target.classList.add('selected');
+  var l={A:'Chat Monitor (full simplification)',B:'Compact Tabs (responsive fix)',mix:'Mix of A+B'};
+  document.getElementById('result').textContent='Selected: '+l[c];
+  C3.sendResult({vote:c,label:l[c]});
+}
+</script>
