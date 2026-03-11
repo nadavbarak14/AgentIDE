@@ -148,10 +148,10 @@ describe('useVisualViewport', () => {
       expect(result.current.isMobile).toBe(true);
     });
 
-    it('returns isMobile=false at exactly 640px', () => {
-      setWindowSize(640, 800);
+    it('returns isMobile=false at exactly 768px', () => {
+      setWindowSize(768, 800);
       mockVV.height = 800;
-      mockVV.width = 640;
+      mockVV.width = 768;
       setVisualViewport(mockVV);
 
       const { result } = renderHook(() => useVisualViewport());

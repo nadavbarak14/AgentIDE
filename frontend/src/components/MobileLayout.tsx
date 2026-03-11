@@ -45,7 +45,7 @@ export function MobileLayout({
   activeSessions,
   currentSessionId,
   onFocusSession,
-  onSetCurrentSession,
+  onSetCurrentSession: _onSetCurrentSession,
   onNewSession,
   onKillSession,
   children,
