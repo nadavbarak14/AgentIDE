@@ -241,6 +241,10 @@ export function SessionCard({
             ensurePanelOpen('preview');
           }
         } else if (msg.command === 'view-set-desktop') {
+          const desktopId = String(msg.params?.desktopId || msg.params?.deviceId || '');
+          if (desktopId) {
+            panel.setDesktopDeviceId(desktopId);
+          }
           panel.setPreviewViewport('desktop');
           ensurePanelOpen('preview');
         } else if (msg.command && String(msg.command).startsWith('view-')) {
@@ -880,6 +884,8 @@ export function SessionCard({
             onCustomViewport={(w, h) => panel.setCustomViewport(w, h)}
             selectedDeviceId={panel.mobileDeviceId}
             onDevicePresetSelect={(id) => panel.setMobileDeviceId(id)}
+            selectedDesktopId={panel.desktopDeviceId}
+            onDesktopPresetSelect={(id) => panel.setDesktopDeviceId(id)}
             bridgeRef={previewBridgeRef}
             requestedUrl={panel.previewUrl}
             navCounter={panel.previewNavCounter}

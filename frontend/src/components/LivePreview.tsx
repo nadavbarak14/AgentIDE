@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { usePreviewBridge, type UsePreviewBridgeReturn } from '../hooks/usePreviewBridge';
 import { PreviewOverlay } from './PreviewOverlay';
-import { BRANDS, getPresetsByBrand, getPresetById, type DevicePreset } from '../constants/devicePresets';
+import { BRANDS, getPresetsByBrand, getPresetById, DESKTOP_PRESETS, type DevicePreset } from '../constants/devicePresets';
 
 type ViewportMode = 'desktop' | 'mobile' | 'custom';
 
@@ -19,6 +19,8 @@ interface LivePreviewProps {
   onCustomViewport?: (width: number, height: number) => void;
   selectedDeviceId?: string | null;
   onDevicePresetSelect?: (id: string) => void;
+  selectedDesktopId?: string | null;
+  onDesktopPresetSelect?: (id: string) => void;
   bridgeRef?: React.MutableRefObject<UsePreviewBridgeReturn | null>;
   /** URL requested externally (e.g. open-preview skill). Takes priority over detected port. */
   requestedUrl?: string;
@@ -65,7 +67,7 @@ export function toProxyUrl(sessionId: string, displayUrl: string, isLocalDirect:
   return displayUrl;
 }
 
-export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose, refreshKey: _refreshKey = 0, viewportMode: viewportModeProp = 'desktop', onViewportChange, customViewportWidth, customViewportHeight, onCustomViewport, selectedDeviceId, onDevicePresetSelect, bridgeRef, requestedUrl, onUrlChange, navCounter: _navCounter = 0, isLocalSession = true, isMobile = false }: LivePreviewProps) {
+export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose, refreshKey: _refreshKey = 0, viewportMode: viewportModeProp = 'desktop', onViewportChange, customViewportWidth, customViewportHeight, onCustomViewport, selectedDeviceId, onDevicePresetSelect, selectedDesktopId, onDesktopPresetSelect, bridgeRef, requestedUrl, onUrlChange, navCounter: _navCounter = 0, isLocalSession = true, isMobile = false }: LivePreviewProps) {
   // Force desktop viewport on mobile — the phone IS the target device
   const viewportMode = isMobile ? 'desktop' as ViewportMode : viewportModeProp;
   // Skip proxy when hub is accessed via localhost and session is local
@@ -81,19 +83,24 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
   const contentRef = useRef<HTMLDivElement>(null);
   const [contentSize, setContentSize] = useState({ width: 0, height: 0 });
   const [deviceDropdownOpen, setDeviceDropdownOpen] = useState(false);
+  const [desktopDropdownOpen, setDesktopDropdownOpen] = useState(false);
   const deviceDropdownRef = useRef<HTMLDivElement>(null);
+  const desktopDropdownRef = useRef<HTMLDivElement>(null);
   const [rotated, setRotated] = useState(false);
 
   // Click-outside and Escape handler for device dropdown
   useEffect(() => {
-    if (!deviceDropdownOpen) return;
+    if (!deviceDropdownOpen && !desktopDropdownOpen) return;
     const handleMouseDown = (e: MouseEvent) => {
-      if (deviceDropdownRef.current && !deviceDropdownRef.current.contains(e.target as Node)) {
+      if (deviceDropdownOpen && deviceDropdownRef.current && !deviceDropdownRef.current.contains(e.target as Node)) {
         setDeviceDropdownOpen(false);
+      }
+      if (desktopDropdownOpen && desktopDropdownRef.current && !desktopDropdownRef.current.contains(e.target as Node)) {
+        setDesktopDropdownOpen(false);
       }
     };
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setDeviceDropdownOpen(false);
+      if (e.key === 'Escape') { setDeviceDropdownOpen(false); setDesktopDropdownOpen(false); }
     };
     document.addEventListener('mousedown', handleMouseDown);
     document.addEventListener('keydown', handleKeyDown);
@@ -101,11 +108,14 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
       document.removeEventListener('mousedown', handleMouseDown);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [deviceDropdownOpen]);
+  }, [deviceDropdownOpen, desktopDropdownOpen]);
 
   // Resolve the active device preset
   const brandGroups = getPresetsByBrand();
   const activeDevice: DevicePreset = (selectedDeviceId ? getPresetById(selectedDeviceId) : null) || brandGroups[BRANDS[0]][0];
+
+  // Resolve the active desktop preset
+  const activeDesktop: DevicePreset = (selectedDesktopId ? getPresetById(selectedDesktopId) : null) || DESKTOP_PRESETS[3]; // default 1080p
 
   // Preview bridge for inspect mode, screenshots, and recordings
   const bridge = usePreviewBridge(iframeRef);
@@ -295,20 +305,55 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
         </div>
         {/* Viewport toggle — hidden on mobile (phone IS the device) */}
         {!isMobile && <div className="flex rounded border border-gray-700">
-          <button
-            onClick={() => { onViewportChange?.('desktop'); setDeviceDropdownOpen(false); }}
-            className={`px-1.5 py-0.5 text-xs rounded-l ${
-              viewportMode === 'desktop'
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-            }`}
-            title="Desktop viewport"
-          >
-            🖥
-          </button>
+          <div className="relative" ref={desktopDropdownRef}>
+            <button
+              onClick={() => { setDesktopDropdownOpen((prev) => !prev); setDeviceDropdownOpen(false); }}
+              className={`px-1.5 py-0.5 text-xs rounded-l ${
+                viewportMode === 'desktop'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+              }`}
+              title={viewportMode === 'desktop' ? `Desktop: ${activeDesktop.name}` : 'Desktop viewport'}
+            >
+              🖥
+            </button>
+            {desktopDropdownOpen && (
+              <div className="absolute left-0 top-full mt-1 z-50 w-52 bg-gray-800 border border-gray-600 rounded shadow-lg py-1 max-h-80 overflow-y-auto">
+                {/* Group by brand: Laptop, Monitor */}
+                {['Laptop', 'Monitor'].map((brand, bi) => {
+                  const presets = DESKTOP_PRESETS.filter((p) => p.brand === brand);
+                  if (presets.length === 0) return null;
+                  return (
+                    <div key={brand}>
+                      {bi > 0 && <div className="border-t border-gray-700 my-0.5" />}
+                      <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-gray-500 font-semibold">{brand}</div>
+                      {presets.map((preset) => (
+                        <button
+                          key={preset.id}
+                          onClick={() => {
+                            onDesktopPresetSelect?.(preset.id);
+                            onViewportChange?.('desktop');
+                            setDesktopDropdownOpen(false);
+                          }}
+                          className={`w-full px-3 py-1.5 text-xs text-left flex justify-between items-center ${
+                            viewportMode === 'desktop' && activeDesktop.id === preset.id
+                              ? 'bg-blue-600/20 text-blue-300'
+                              : 'text-gray-300 hover:bg-gray-700'
+                          }`}
+                        >
+                          <span>{preset.name}</span>
+                          <span className="text-gray-500 text-[10px]">{preset.width}x{preset.height}{preset.inches ? ` ${preset.inches}"` : ''}</span>
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
           <div className="relative" ref={deviceDropdownRef}>
             <button
-              onClick={() => setDeviceDropdownOpen((prev) => !prev)}
+              onClick={() => { setDeviceDropdownOpen((prev) => !prev); setDesktopDropdownOpen(false); }}
               className={`px-1.5 py-0.5 text-xs ${
                 viewportMode === 'mobile'
                   ? 'bg-blue-600 text-white'
@@ -616,6 +661,36 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
                   <div className="text-center text-xs text-gray-500 mt-1">
                     {customViewportWidth} x {customViewportHeight}
                   </div>
+                </div>
+              </div>
+            ) : viewportMode === 'desktop' ? (
+              <div className="flex justify-center items-start h-full bg-gray-950 p-2 overflow-auto">
+                {(() => {
+                  const deskW = activeDesktop.width;
+                  const deskH = activeDesktop.height;
+                  const scaleX = contentSize.width > 0 ? (contentSize.width - 16) / deskW : 1;
+                  const scaleY = contentSize.height > 0 ? (contentSize.height - 32) / deskH : 1;
+                  const scale = Math.min(scaleX, scaleY, 1);
+                  return (
+                    <div className="relative flex-shrink-0" style={{
+                      width: deskW,
+                      height: deskH,
+                      transform: scale < 1 ? `scale(${scale})` : undefined,
+                      transformOrigin: 'top center',
+                    }}>
+                      <iframe
+                        ref={iframeRef}
+                        src={iframeUrl}
+                        className="border border-gray-600 bg-white rounded"
+                        style={{ width: deskW, height: deskH }}
+                        onLoad={handleIframeLoad}
+                        onError={() => { setError(true); setLoading(false); }}
+                      />
+                    </div>
+                  );
+                })()}
+                <div className="absolute bottom-2 left-1/2 -translate-x-1/2 text-[10px] text-gray-600">
+                  {activeDesktop.name} ({activeDesktop.width}x{activeDesktop.height}{activeDesktop.inches ? ` / ${activeDesktop.inches}"` : ''})
                 </div>
               </div>
             ) : (

@@ -1,4 +1,4 @@
-export type DeviceCategory = 'phone' | 'tablet';
+export type DeviceCategory = 'phone' | 'tablet' | 'desktop';
 
 export interface DevicePreset {
   id: string;
@@ -7,6 +7,8 @@ export interface DevicePreset {
   category: DeviceCategory;
   width: number;
   height: number;
+  /** Physical screen size in inches (diagonal), if applicable */
+  inches?: number;
 }
 
 export const DEVICE_PRESETS: DevicePreset[] = [
@@ -32,6 +34,15 @@ export const DEVICE_PRESETS: DevicePreset[] = [
   { id: 'ipad-air-13', name: 'iPad Air 13"', brand: 'iPad', category: 'tablet', width: 1024, height: 1366 },
   { id: 'ipad-air-11', name: 'iPad Air 11"', brand: 'iPad', category: 'tablet', width: 820, height: 1180 },
   { id: 'ipad-mini', name: 'iPad Mini', brand: 'iPad', category: 'tablet', width: 744, height: 1133 },
+  // Desktop / Laptop
+  { id: 'macbook-air-13', name: 'MacBook Air 13"', brand: 'Laptop', category: 'desktop', width: 1470, height: 956, inches: 13.6 },
+  { id: 'macbook-pro-14', name: 'MacBook Pro 14"', brand: 'Laptop', category: 'desktop', width: 1512, height: 982, inches: 14.2 },
+  { id: 'macbook-pro-16', name: 'MacBook Pro 16"', brand: 'Laptop', category: 'desktop', width: 1728, height: 1117, inches: 16.2 },
+  { id: 'desktop-1080p', name: '1080p (Full HD)', brand: 'Monitor', category: 'desktop', width: 1920, height: 1080, inches: 24 },
+  { id: 'desktop-1440p', name: '1440p (QHD)', brand: 'Monitor', category: 'desktop', width: 2560, height: 1440, inches: 27 },
+  { id: 'desktop-4k', name: '4K (UHD)', brand: 'Monitor', category: 'desktop', width: 3840, height: 2160, inches: 32 },
+  { id: 'desktop-1366', name: 'Laptop 1366x768', brand: 'Monitor', category: 'desktop', width: 1366, height: 768, inches: 15.6 },
+  { id: 'desktop-1280', name: '1280x720 (HD)', brand: 'Monitor', category: 'desktop', width: 1280, height: 720, inches: 13 },
 ];
 
 export function getPresetById(id: string): DevicePreset | null {
@@ -40,6 +51,7 @@ export function getPresetById(id: string): DevicePreset | null {
 
 export const PHONE_PRESETS = DEVICE_PRESETS.filter((p) => p.category === 'phone');
 export const TABLET_PRESETS = DEVICE_PRESETS.filter((p) => p.category === 'tablet');
+export const DESKTOP_PRESETS = DEVICE_PRESETS.filter((p) => p.category === 'desktop');
 
 /** Get unique brand names in order */
 export const BRANDS = [...new Set(DEVICE_PRESETS.map((p) => p.brand))];
