@@ -96,6 +96,17 @@ CREATE TABLE IF NOT EXISTS panel_states (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS panel_layout_snapshots (
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  view_mode TEXT NOT NULL DEFAULT '',
+  combination_key TEXT NOT NULL,
+  left_width_percent INTEGER NOT NULL DEFAULT 25,
+  right_width_percent INTEGER NOT NULL DEFAULT 35,
+  bottom_height_percent INTEGER NOT NULL DEFAULT 40,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (session_id, view_mode, combination_key)
+);
+
 CREATE TABLE IF NOT EXISTS comments (
   id TEXT PRIMARY KEY,
   session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -387,6 +398,25 @@ function migrate(database: Database.Database): void {
     `);
     // Copy existing events_path values to video_path for backwards compatibility
     database.exec(`UPDATE video_recordings SET video_path = events_path WHERE video_path IS NULL`);
+  }
+
+  // Add panel_layout_snapshots table (035-save-panel-position)
+  const layoutSnapshotTableExists = database.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='panel_layout_snapshots'"
+  ).get();
+  if (!layoutSnapshotTableExists) {
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS panel_layout_snapshots (
+        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        view_mode TEXT NOT NULL DEFAULT '',
+        combination_key TEXT NOT NULL,
+        left_width_percent INTEGER NOT NULL DEFAULT 25,
+        right_width_percent INTEGER NOT NULL DEFAULT 35,
+        bottom_height_percent INTEGER NOT NULL DEFAULT 40,
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (session_id, view_mode, combination_key)
+      );
+    `);
   }
 }
 

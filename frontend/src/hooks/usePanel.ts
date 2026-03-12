@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { panelState as panelStateApi } from '../services/api';
+import { panelState as panelStateApi, layoutSnapshot as layoutSnapshotApi } from '../services/api';
 
 export type ActivePanel = 'none' | 'files' | 'git' | 'preview';
 export type LeftPanel = 'none' | 'files';
@@ -81,6 +81,12 @@ function deriveActivePanel(left: string, right: string): string {
   return 'none';
 }
 
+/** Generate a sorted, +-joined key from open panel names for layout snapshot lookups */
+export function getCombinationKey(left: string, right: string): string {
+  const panels = [left, right].filter((p) => p !== 'none').sort();
+  return panels.join('+');
+}
+
 export type ViewMode = 'grid' | 'zoomed';
 
 export function usePanel(sessionId: string | null, viewMode: ViewMode = 'grid') {
@@ -120,10 +126,13 @@ export function usePanel(sessionId: string | null, viewMode: ViewMode = 'grid') 
   }, []);
 
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const snapshotSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentSessionRef = useRef<string | null>(null);
+  const combinationKeyRef = useRef<string>('');
 
   // Dual layout: compute storage key from sessionId + viewMode
   const storageKey = sessionId ? (viewMode === 'zoomed' ? `${sessionId}:zoomed` : sessionId) : null;
+  const viewModeKey = viewMode === 'zoomed' ? 'zoomed' : '';
   const storageKeyRef = useRef<string | null>(null);
 
   const getState = useCallback((): PanelStateValues => ({
@@ -190,6 +199,11 @@ export function usePanel(sessionId: string | null, viewMode: ViewMode = 'grid') 
     setGitScrollPosition(state.gitScrollPosition);
     console.log(`[RestoreState] Setting previewUrl to: "${state.previewUrl}"`);
     setPreviewUrl(state.previewUrl);
+    // Initialize combination key ref so snapshot tracking starts from correct state
+    combinationKeyRef.current = getCombinationKey(
+      state.leftPanel !== undefined ? (state.leftPanel === 'search' ? 'files' : state.leftPanel) : 'none',
+      state.rightPanel !== undefined ? (state.rightPanel === 'search' ? 'files' : state.rightPanel) : 'none',
+    );
   }, []);
 
   const resetToDefaults = useCallback(() => {
@@ -207,6 +221,23 @@ export function usePanel(sessionId: string | null, viewMode: ViewMode = 'grid') 
         console.error(`[Panel Save Error] Failed to save panel state:`, err);
       });
     }, 100);
+  }, []);
+
+  // Debounced snapshot save for current combination (035-save-panel-position)
+  const scheduleSnapshotSave = useCallback((sid: string, combKey: string, vm: string) => {
+    if (!combKey) return; // No panels open — nothing to snapshot
+    if (snapshotSaveTimerRef.current) {
+      clearTimeout(snapshotSaveTimerRef.current);
+    }
+    snapshotSaveTimerRef.current = setTimeout(() => {
+      const s = stateRef.current;
+      layoutSnapshotApi.save(sid, {
+        combinationKey: combKey,
+        leftWidthPercent: s.leftWidthPercent,
+        rightWidthPercent: s.rightWidthPercent,
+        bottomHeightPercent: s.bottomHeightPercent,
+      }, vm || undefined).catch(() => {});
+    }, 200);
   }, []);
 
   // Load state on session/viewMode change (dual layout persistence)
@@ -251,6 +282,10 @@ export function usePanel(sessionId: string | null, viewMode: ViewMode = 'grid') 
       if (saveTimerRef.current) {
         clearTimeout(saveTimerRef.current);
         saveTimerRef.current = null;
+      }
+      if (snapshotSaveTimerRef.current) {
+        clearTimeout(snapshotSaveTimerRef.current);
+        snapshotSaveTimerRef.current = null;
       }
       // Flush save on unmount/key-change so panel state isn't lost
       if (storageKeyRef.current) {
@@ -310,7 +345,6 @@ export function usePanel(sessionId: string | null, viewMode: ViewMode = 'grid') 
   // Uses a "ready" flag to skip save-back during load/restore.
   const saveReadyRef = useRef(false);
 
-
   useEffect(() => {
     if (!saveReadyRef.current) return;
     if (!storageKeyRef.current) return;
@@ -338,7 +372,48 @@ export function usePanel(sessionId: string | null, viewMode: ViewMode = 'grid') 
       panelWidthPercent: rightWidthPercent,
     };
     scheduleSave(storageKeyRef.current, state);
-  }, [leftPanel, rightPanel, leftWidthPercent, rightWidthPercent, bottomPanel, bottomHeightPercent, terminalPosition, terminalVisible, previewViewport, customViewportWidth, customViewportHeight, mobileDeviceId, desktopDeviceId, fontSize, fileTabs, activeTabIndex, tabScrollPositions, gitScrollPosition, previewUrl, scheduleSave]);
+
+    // Also save layout snapshot for current combination (T014)
+    if (sessionId) {
+      scheduleSnapshotSave(sessionId, combinationKeyRef.current, viewModeKey);
+    }
+  }, [leftPanel, rightPanel, leftWidthPercent, rightWidthPercent, bottomPanel, bottomHeightPercent, terminalPosition, terminalVisible, previewViewport, customViewportWidth, customViewportHeight, mobileDeviceId, desktopDeviceId, fontSize, fileTabs, activeTabIndex, tabScrollPositions, gitScrollPosition, previewUrl, scheduleSave, scheduleSnapshotSave, sessionId, viewModeKey]);
+
+  // Track panel combination changes and restore saved snapshots (T012/T013)
+  useEffect(() => {
+    if (!saveReadyRef.current) return;
+    if (!sessionId) return;
+    const newKey = getCombinationKey(leftPanel, rightPanel);
+    const oldKey = combinationKeyRef.current;
+    if (newKey === oldKey) return;
+
+    // Save snapshot for old combination before switching
+    if (oldKey && sessionId) {
+      const s = stateRef.current;
+      layoutSnapshotApi.save(sessionId, {
+        combinationKey: oldKey,
+        leftWidthPercent: s.leftWidthPercent,
+        rightWidthPercent: s.rightWidthPercent,
+        bottomHeightPercent: s.bottomHeightPercent,
+      }, viewModeKey || undefined).catch(() => {});
+    }
+
+    combinationKeyRef.current = newKey;
+
+    // Restore snapshot for new combination
+    if (newKey && sessionId) {
+      layoutSnapshotApi.get(sessionId, newKey, viewModeKey || undefined).then((snapshot) => {
+        // Only apply if combination hasn't changed again
+        if (combinationKeyRef.current === newKey) {
+          setLeftWidthPercent(snapshot.leftWidthPercent);
+          setRightWidthPercent(snapshot.rightWidthPercent);
+          setBottomHeightPercent(snapshot.bottomHeightPercent);
+        }
+      }).catch(() => {
+        // No saved snapshot — keep defaults
+      });
+    }
+  }, [leftPanel, rightPanel, sessionId, viewModeKey]); // eslint-disable-line -- intentionally track panel changes
 
   // Disable auto-save when storageKey changes (will re-enable after load completes)
   useEffect(() => {

@@ -34,6 +34,7 @@ import type {
   UploadedImage,
   VideoRecording,
   AuthConfig,
+  LayoutSnapshot,
 } from './types.js';
 
 // Helper: convert SQLite row to Session
@@ -669,6 +670,54 @@ export class Repository {
 
   deletePanelState(sessionId: string): void {
     this.db.prepare('DELETE FROM panel_states WHERE session_id = ?').run(sessionId);
+  }
+
+  // ─── Layout Snapshots ───
+
+  getLayoutSnapshot(sessionId: string, viewMode: string, combinationKey: string): LayoutSnapshot | null {
+    const row = this.db
+      .prepare('SELECT * FROM panel_layout_snapshots WHERE session_id = ? AND view_mode = ? AND combination_key = ?')
+      .get(sessionId, viewMode, combinationKey) as Record<string, unknown> | undefined;
+    if (!row) return null;
+    return {
+      sessionId: row.session_id as string,
+      viewMode: row.view_mode as string,
+      combinationKey: row.combination_key as string,
+      leftWidthPercent: row.left_width_percent as number,
+      rightWidthPercent: row.right_width_percent as number,
+      bottomHeightPercent: row.bottom_height_percent as number,
+      updatedAt: row.updated_at as string,
+    };
+  }
+
+  saveLayoutSnapshot(
+    sessionId: string,
+    viewMode: string,
+    combinationKey: string,
+    widths: { leftWidthPercent: number; rightWidthPercent: number; bottomHeightPercent: number },
+  ): void {
+    this.db
+      .prepare(
+        `INSERT OR REPLACE INTO panel_layout_snapshots
+         (session_id, view_mode, combination_key, left_width_percent, right_width_percent, bottom_height_percent, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`,
+      )
+      .run(
+        sessionId,
+        viewMode,
+        combinationKey,
+        widths.leftWidthPercent,
+        widths.rightWidthPercent,
+        widths.bottomHeightPercent,
+      );
+  }
+
+  deleteLayoutSnapshots(sessionId: string, viewMode?: string): void {
+    if (viewMode !== undefined) {
+      this.db.prepare('DELETE FROM panel_layout_snapshots WHERE session_id = ? AND view_mode = ?').run(sessionId, viewMode);
+    } else {
+      this.db.prepare('DELETE FROM panel_layout_snapshots WHERE session_id = ?').run(sessionId);
+    }
   }
 
   // ─── Session Extensions ───

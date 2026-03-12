@@ -347,6 +347,67 @@ export function createSessionsRouter(repo: Repository, sessionManager: SessionMa
     res.json({ success: true });
   });
 
+  // ─── Layout Snapshots ───
+
+  // GET /api/sessions/:id/layout-snapshot — retrieve a saved layout snapshot
+  router.get('/:id/layout-snapshot', validateUuid('id'), (req, res) => {
+    const id = String(req.params.id);
+    const session = repo.getSession(id);
+    if (!session) {
+      res.status(404).json({ error: 'Session not found' });
+      return;
+    }
+    const combination = req.query.combination as string | undefined;
+    if (!combination || typeof combination !== 'string') {
+      res.status(400).json({ error: 'combination query parameter is required' });
+      return;
+    }
+    const viewMode = (req.query.viewMode as string) || '';
+    const snapshot = repo.getLayoutSnapshot(id, viewMode, combination);
+    if (!snapshot) {
+      res.status(404).json({ error: 'No layout snapshot found' });
+      return;
+    }
+    res.json(snapshot);
+  });
+
+  // PUT /api/sessions/:id/layout-snapshot — save/update a layout snapshot
+  router.put('/:id/layout-snapshot', validateUuid('id'), (req, res) => {
+    const id = String(req.params.id);
+    const session = repo.getSession(id);
+    if (!session) {
+      res.status(404).json({ error: 'Session not found' });
+      return;
+    }
+    const viewMode = (req.query.viewMode as string) || '';
+    const { combinationKey, leftWidthPercent, rightWidthPercent, bottomHeightPercent } = req.body;
+
+    if (!combinationKey || typeof combinationKey !== 'string') {
+      res.status(400).json({ error: 'combinationKey must be a non-empty string' });
+      return;
+    }
+    if (typeof leftWidthPercent !== 'number' || leftWidthPercent < 0 || leftWidthPercent > 100) {
+      res.status(400).json({ error: 'leftWidthPercent must be an integer between 0 and 100' });
+      return;
+    }
+    if (typeof rightWidthPercent !== 'number' || rightWidthPercent < 0 || rightWidthPercent > 100) {
+      res.status(400).json({ error: 'rightWidthPercent must be an integer between 0 and 100' });
+      return;
+    }
+    if (typeof bottomHeightPercent !== 'number' || bottomHeightPercent < 0 || bottomHeightPercent > 100) {
+      res.status(400).json({ error: 'bottomHeightPercent must be an integer between 0 and 100' });
+      return;
+    }
+
+    repo.saveLayoutSnapshot(id, viewMode, combinationKey, {
+      leftWidthPercent,
+      rightWidthPercent,
+      bottomHeightPercent,
+    });
+
+    res.json({ success: true });
+  });
+
   // ─── Shell Terminal ───
 
   // POST /api/sessions/:id/shell — open (spawn) a shell terminal
