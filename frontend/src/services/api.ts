@@ -250,6 +250,32 @@ export const panelState = {
   },
 };
 
+// ─── Layout Snapshots ───
+
+export interface LayoutSnapshotData {
+  sessionId: string;
+  combinationKey: string;
+  leftWidthPercent: number;
+  rightWidthPercent: number;
+  bottomHeightPercent: number;
+}
+
+export const layoutSnapshot = {
+  get: (sessionId: string, combination: string, viewMode?: string) => {
+    const qs = new URLSearchParams({ combination });
+    if (viewMode) qs.set('viewMode', viewMode);
+    return request<LayoutSnapshotData>(`/sessions/${sessionId}/layout-snapshot?${qs.toString()}`);
+  },
+
+  save: (sessionId: string, data: { combinationKey: string; leftWidthPercent: number; rightWidthPercent: number; bottomHeightPercent: number }, viewMode?: string) => {
+    const qs = viewMode ? `?viewMode=${viewMode}` : '';
+    return request<{ success: boolean }>(`/sessions/${sessionId}/layout-snapshot${qs}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+};
+
 // ─── Comments ───
 
 export interface CommentData {

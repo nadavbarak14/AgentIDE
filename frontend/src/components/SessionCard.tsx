@@ -549,15 +549,14 @@ export function SessionCard({
     };
   }, [resizingVertical, panel]);
 
-  // Auto-position terminal: bottom when panels open, center when all close (T020)
+  // Auto-position terminal: stay in center (top zone) when panels open,
+  // return to center when all panels close (035-save-panel-position)
   useEffect(() => {
     if (!showToolbar) return;
     if (userOverrideRef.current) return;
 
     const anyPanelOpen = showLeftPanel || showRightPanel;
-    if (anyPanelOpen && panel.terminalPosition === 'center') {
-      panel.setTerminalPosition('bottom');
-    } else if (!anyPanelOpen && panel.terminalPosition === 'bottom') {
+    if (!anyPanelOpen && panel.terminalPosition === 'bottom') {
       panel.setTerminalPosition('center');
     }
   }, [showLeftPanel, showRightPanel, panel.terminalPosition, showToolbar, panel]);

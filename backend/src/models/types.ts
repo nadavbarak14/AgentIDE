@@ -171,6 +171,16 @@ export interface PanelState {
   updatedAt: string;
 }
 
+export interface LayoutSnapshot {
+  sessionId: string;
+  viewMode: string;
+  combinationKey: string;
+  leftWidthPercent: number;
+  rightWidthPercent: number;
+  bottomHeightPercent: number;
+  updatedAt: string;
+}
+
 // Comment
 export type CommentStatus = 'pending' | 'sent';
 
