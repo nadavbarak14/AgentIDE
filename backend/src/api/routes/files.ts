@@ -721,6 +721,7 @@ export function createFilesRouter(repo: Repository, agentTunnelManager?: AgentTu
       // Check if hostname is already an IP
       if (net.isIP(hostname)) {
         if (isPrivateIp(hostname)) {
+          logger.warn({ targetUrl: targetUrl.href, hostname, reason: 'direct IP is private' }, 'SSRF blocked proxy-url request');
           res.status(403).json({ error: 'Proxying to private/internal addresses is not allowed' });
           return;
         }
@@ -730,6 +731,7 @@ export function createFilesRouter(repo: Repository, agentTunnelManager?: AgentTu
         const addresses6 = await dns.resolve6(hostname).catch(() => [] as string[]);
         const allAddresses = [...addresses, ...addresses6];
         if (allAddresses.some(isPrivateIp)) {
+          logger.warn({ targetUrl: targetUrl.href, hostname, resolvedIPs: allAddresses, reason: 'DNS resolves to private IP' }, 'SSRF blocked proxy-url request');
           res.status(403).json({ error: 'Proxying to private/internal addresses is not allowed' });
           return;
         }

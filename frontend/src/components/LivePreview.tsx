@@ -43,8 +43,8 @@ export function toProxyUrl(sessionId: string, displayUrl: string, isLocalDirect:
     return `/api/sessions/${sessionId}/serve/${servePath}`;
   }
 
-  // localhost URLs
-  const localhostMatch = displayUrl.match(/^https?:\/\/(?:localhost|127\.0\.0\.1):(\d+)(\/.*)?$/);
+  // localhost URLs (case-insensitive — mobile browsers may capitalize "Localhost")
+  const localhostMatch = displayUrl.match(/^https?:\/\/(?:localhost|127\.0\.0\.1):(\d+)(\/.*)?$/i);
   if (localhostMatch) {
     const port = localhostMatch[1];
     const pathPart = localhostMatch[2] || '/';
