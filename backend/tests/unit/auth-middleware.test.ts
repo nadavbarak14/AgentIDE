@@ -345,14 +345,56 @@ describe('requireAuth middleware', () => {
   // ---------------------------------------------------------------------------
   // No auth config in DB
   // ---------------------------------------------------------------------------
-  describe('no auth config', () => {
-    it('allows through when no auth config is stored', () => {
+  describe('no auth config (fail-closed)', () => {
+    it('returns 401 for API routes when no auth config is stored', () => {
       // Create a fresh repo with no auth config
       const db2 = createTestDb();
       const repo2 = new Repository(db2);
       // Don't set auth config — repo2.getAuthConfig() will return null
 
       const req = createMockReq({
+        path: '/api/sessions',
+        cookies: { adyx_auth: 'any-cookie-value' },
+      });
+      const res = createMockRes();
+      let nextCalled = false;
+      const next: NextFunction = () => {
+        nextCalled = true;
+      };
+
+      requireAuth(repo2)(req, res, next);
+
+      expect(nextCalled).toBe(false);
+      expect(res._status).toBe(401);
+      expect(res._json).toEqual({ error: 'Authentication required' });
+    });
+
+    it('redirects to /login for non-API routes when no auth config is stored', () => {
+      const db2 = createTestDb();
+      const repo2 = new Repository(db2);
+
+      const req = createMockReq({
+        path: '/dashboard',
+        cookies: { adyx_auth: 'any-cookie-value' },
+      });
+      const res = createMockRes();
+      let nextCalled = false;
+      const next: NextFunction = () => {
+        nextCalled = true;
+      };
+
+      requireAuth(repo2)(req, res, next);
+
+      expect(nextCalled).toBe(false);
+      expect(res._redirect).toBe('/login');
+    });
+
+    it('still allows localhost through when no auth config', () => {
+      const db2 = createTestDb();
+      const repo2 = new Repository(db2);
+
+      const req = createMockReq({
+        ip: '127.0.0.1',
         cookies: { adyx_auth: 'any-cookie-value' },
       });
       const res = createMockRes();

@@ -414,7 +414,7 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
   app.use('/api/sessions', createPreviewRouter(repo, previewService, agentTunnelManager));
   app.use('/api/sessions', createUploadsRouter(repo, previewService));
 
-  // Serve inspect bridge script for preview iframe injection
+  // Serve inspect bridge script for preview iframe injection (after requireAuth)
   app.get('/api/inspect-bridge.js', (_req, res) => {
     const bridgePath = path.join(import.meta.dirname, 'api/inspect-bridge.js');
     res.setHeader('Content-Type', 'application/javascript');
@@ -422,7 +422,7 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
     res.sendFile(bridgePath);
   });
 
-  // Serve widget bridge SDK for dynamic skill UI widgets
+  // Serve widget bridge SDK for dynamic skill UI widgets (after requireAuth)
   app.get('/api/widget-bridge.js', (_req, res) => {
     const bridgePath = path.join(import.meta.dirname, 'api/widget-bridge.js');
     res.setHeader('Content-Type', 'application/javascript');
@@ -430,7 +430,7 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
     res.sendFile(bridgePath);
   });
 
-  // Dynamic extensions index — scans extensions/ directory at runtime (no rebuild needed)
+  // Dynamic extensions index — scans extensions/ directory at runtime (after requireAuth)
   app.get('/api/extensions', (_req, res) => {
     const extensionsDir = path.join(import.meta.dirname, '../../extensions');
     if (!fs.existsSync(extensionsDir)) {
@@ -453,7 +453,7 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
     }
   });
 
-  // Serve extension files dynamically from extensions/ directory (not build)
+  // Serve extension files dynamically from extensions/ directory (after requireAuth)
   app.use('/extensions', (req, res, next) => {
     const extensionsDir = path.join(import.meta.dirname, '../../extensions');
     if (!req.url) return next();

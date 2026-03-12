@@ -444,6 +444,17 @@ export interface AuthConfig {
   createdAt: string;
 }
 
+// Auth Audit Log
+export type AuthEventType = 'login_success' | 'login_failure' | 'rate_limited' | 'logout';
+
+export interface AuthAuditEntry {
+  id: number;
+  eventType: AuthEventType;
+  sourceIp: string;
+  details: string | null;
+  createdAt: string;
+}
+
 export interface GitHubStatus {
   ghInstalled: boolean;
   ghAuthenticated: boolean;

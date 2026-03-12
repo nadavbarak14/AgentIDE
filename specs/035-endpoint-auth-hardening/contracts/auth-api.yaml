@@ -1,0 +1,168 @@
+openapi: 3.0.3
+info:
+  title: Auth Hardening API
+  version: 035
+  description: Existing auth endpoints with hardened behavior (rate limiting, audit logging)
+
+paths:
+  /api/auth/login:
+    post:
+      summary: Authenticate with access key
+      description: |
+        Validates the access key and issues a session cookie.
+        Rate-limited to 5 failed attempts per IP per 15-minute window.
+        Successful attempts do not count toward the rate limit.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [accessKey]
+              properties:
+                accessKey:
+                  type: string
+                  description: The access key to authenticate with
+      responses:
+        '200':
+          description: Login successful, session cookie set
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+                example: adyx_auth=payload.hmac; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+        '401':
+          description: Invalid access key
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: Invalid access key
+        '429':
+          description: Rate limit exceeded
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+                example: 900
+            RateLimit-Limit:
+              schema:
+                type: integer
+                example: 5
+            RateLimit-Remaining:
+              schema:
+                type: integer
+                example: 0
+            RateLimit-Reset:
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: Too many failed attempts. Try again in 15 minutes.
+                  retryAfter:
+                    type: integer
+                    example: 900
+
+  /api/auth/status:
+    get:
+      summary: Check authentication status
+      description: Returns whether the current request is authenticated.
+      responses:
+        '200':
+          description: Auth status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  authenticated:
+                    type: boolean
+                  requiresAuth:
+                    type: boolean
+
+  /api/auth/logout:
+    post:
+      summary: Clear session cookie
+      description: Logs the user out by clearing the auth cookie. Records logout in audit log.
+      responses:
+        '200':
+          description: Logout successful
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+                example: adyx_auth=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+
+  /api/auth/audit-log:
+    get:
+      summary: Get authentication audit log
+      description: Returns recent auth events (login success/failure, rate limits). Requires authentication.
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 500
+          description: Maximum number of entries to return
+      responses:
+        '200':
+          description: Audit log entries
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entries:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        eventType:
+                          type: string
+                          enum: [login_success, login_failure, rate_limited, logout]
+                        sourceIp:
+                          type: string
+                        details:
+                          type: string
+                          nullable: true
+                        createdAt:
+                          type: string
+                          format: date-time
+        '401':
+          description: Not authenticated
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: adyx_auth

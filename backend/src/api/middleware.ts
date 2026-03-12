@@ -87,8 +87,12 @@ export function requireAuth(repo: Repository) {
     // Validate cookie
     const authConfig = repo.getAuthConfig();
     if (!authConfig) {
-      // No auth configured — shouldn't happen but allow through
-      next();
+      // No auth configured — fail closed for non-localhost
+      if (req.path.startsWith('/api/')) {
+        res.status(401).json({ error: 'Authentication required' });
+      } else {
+        res.redirect('/login');
+      }
       return;
     }
 
