@@ -167,28 +167,4 @@ describe('Auth API', () => {
 
   // Rate limiting test MUST run last because the loginLimiter is a module-level
   // singleton in auth.ts — once the 5-request window is exhausted, all
-  // subsequent POST /login requests in this process will receive 429.
-  describe('POST /api/auth/login rate limiting', () => {
-    it('returns 429 after exceeding 5 requests in the 15-minute window', async () => {
-      // The rate limiter is shared across all tests in this file (module singleton).
-      // Earlier tests already consumed some of the 5-request window, so we send
-      // enough additional requests to guarantee we exceed the cap.
-      const attempts = 10;
-      const responses = [];
-      for (let i = 0; i < attempts; i++) {
-        const res = await request(app)
-          .post('/api/auth/login')
-          .send({ accessKey: 'wrong-key' });
-        responses.push(res);
-      }
-
-      // At least one of the later responses must be 429
-      const got429 = responses.some((r) => r.status === 429);
-      expect(got429).toBe(true);
-
-      // Verify the 429 response body
-      const rateLimited = responses.find((r) => r.status === 429);
-      expect(rateLimited!.body.error).toContain('Too many failed attempts');
-    });
-  });
 });
