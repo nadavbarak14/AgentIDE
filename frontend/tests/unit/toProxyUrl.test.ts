@@ -126,6 +126,13 @@ describe('toProxyUrl', () => {
   });
 
   describe('edge cases', () => {
+    it('handles capitalized Localhost from mobile browsers', () => {
+      expect(toProxyUrl(SESSION_ID, 'http://Localhost:3000/', false))
+        .toBe(`/api/sessions/${SESSION_ID}/proxy/3000/`);
+      expect(toProxyUrl(SESSION_ID, 'http://LOCALHOST:5173/app', false))
+        .toBe(`/api/sessions/${SESSION_ID}/proxy/5173/app`);
+    });
+
     it('localhost without trailing slash gets default path', () => {
       expect(toProxyUrl(SESSION_ID, 'http://localhost:3000', false))
         .toBe(`/api/sessions/${SESSION_ID}/proxy/3000/`);
