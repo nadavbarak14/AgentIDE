@@ -10,7 +10,7 @@ Exports the current slide deck to a PowerPoint (.pptx) file. Each slide's HTML i
 ## Usage
 
 ```bash
-./scripts/slides-export-pptx.sh <output-path>
+./scripts/adyx.slides-export-pptx.sh <output-path>
 ```
 
 ## Parameters

@@ -238,11 +238,9 @@ export function createWorkersRouter(repo: Repository, workerManager: WorkerManag
 
       const entries = lines
         .filter((name) => {
-          // Exclude hidden dirs (except .config) and node_modules
           if (name === './' || name === '../') return false;
           const clean = name.replace(/\/$/, '');
           if (clean === 'node_modules') return false;
-          if (clean.startsWith('.') && clean !== '.config') return false;
           return true;
         })
         .map((name) => {

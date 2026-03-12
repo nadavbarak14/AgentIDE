@@ -107,18 +107,18 @@ export function SessionQueue({
             className="w-full px-2 py-1.5 text-sm bg-gray-900 border border-gray-600 rounded text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
             data-testid="session-title-input"
           />
+          <WorkerSelector
+            workers={workersList}
+            selectedWorkerId={targetWorker}
+            onChange={handleWorkerChange}
+            onRequestAddMachine={onRequestAddMachine}
+          />
           <ProjectPicker
             selectedDirectory={directory}
             onDirectoryChange={setDirectory}
             onSelect={handleProjectSelect}
             workerId={targetWorker || undefined}
             isRemote={targetWorker ? workersList.find((w) => w.id === targetWorker)?.type === 'remote' : false}
-          />
-          <WorkerSelector
-            workers={workersList}
-            selectedWorkerId={targetWorker}
-            onChange={handleWorkerChange}
-            onRequestAddMachine={onRequestAddMachine}
           />
           <div className="flex flex-wrap gap-1.5">
                 {PREDEFINED_FLAGS.map((pf) => {

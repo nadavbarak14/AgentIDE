@@ -10,7 +10,7 @@ Opens the specified file in the C3 dashboard file viewer panel.
 ## Usage
 
 ```bash
-./scripts/open-file.sh <file-path> [line-number]
+./scripts/adyx.open-file.sh <file-path> [line-number]
 ```
 
 ## Parameters
@@ -22,8 +22,8 @@ Opens the specified file in the C3 dashboard file viewer panel.
 
 ```bash
 # Open a file
-./scripts/open-file.sh src/index.ts
+./scripts/adyx.open-file.sh src/index.ts
 
 # Open a file at a specific line
-./scripts/open-file.sh src/components/App.tsx 42
+./scripts/adyx.open-file.sh src/components/App.tsx 42
 ```

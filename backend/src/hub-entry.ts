@@ -573,6 +573,15 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
       if (fs.existsSync(hubSource)) {
         try {
           fs.cpSync(hubSource, dest, { recursive: true });
+          // Ensure shell scripts are executable after copy
+          const scriptsDir = path.join(dest, 'scripts');
+          if (fs.existsSync(scriptsDir)) {
+            for (const f of fs.readdirSync(scriptsDir)) {
+              if (f.endsWith('.sh')) {
+                fs.chmodSync(path.join(scriptsDir, f), 0o755);
+              }
+            }
+          }
           added++;
         } catch { /* ignore */ }
       }

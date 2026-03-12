@@ -24,7 +24,7 @@ export function MobileSheetOverlay({ children, onClose, title }: MobileSheetOver
     <div className="fixed inset-0 z-50 flex flex-col bg-gray-900">
       {/* Sheet container with slide-up animation */}
       <div
-        className="flex flex-col flex-1 transition-transform duration-300 ease-out"
+        className="flex flex-col flex-1 min-h-0 transition-transform duration-300 ease-out"
         style={{ transform: visible ? 'translateY(0)' : 'translateY(100%)' }}
       >
         {/* Header bar */}
@@ -49,7 +49,7 @@ export function MobileSheetOverlay({ children, onClose, title }: MobileSheetOver
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-auto">
+        <div className="flex-1 min-h-0 overflow-auto">
           {children}
         </div>
       </div>

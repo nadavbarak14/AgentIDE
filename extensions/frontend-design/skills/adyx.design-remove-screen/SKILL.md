@@ -10,7 +10,7 @@ Removes a screen from the Frontend Design extension by name. The tab is removed 
 ## Usage
 
 ```bash
-./scripts/design-remove-screen.sh <screen-name>
+./scripts/adyx.design-remove-screen.sh <screen-name>
 ```
 
 ## Parameters

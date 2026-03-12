@@ -14,7 +14,7 @@ Use this only if you showed the canvas separately and need to check for results 
 ## Usage
 
 ```bash
-./scripts/widget-get-result.sh
+./scripts/adyx.widget-get-result.sh
 ```
 
 ## Behavior
@@ -30,10 +30,10 @@ Use this only if you showed the canvas separately and need to check for results 
 ./scripts/widget-create.sh '<button onclick="C3.sendResult({ok:true})">Confirm</button>'
 
 # Then wait for the result separately
-RESULT=$(./scripts/widget-get-result.sh)
+RESULT=$(./scripts/adyx.widget-get-result.sh)
 echo "$RESULT"  # e.g. {"ok":true}
 ```
 
 ## Tip
 
-Prefer `widget-create.sh --wait` for the common show-then-wait pattern. Use `widget-get-result.sh` only when you need to do something between showing the UI and collecting the result.
+Prefer `widget-create.sh --wait` for the common show-then-wait pattern. Use `adyx.widget-get-result.sh` only when you need to do something between showing the UI and collecting the result.

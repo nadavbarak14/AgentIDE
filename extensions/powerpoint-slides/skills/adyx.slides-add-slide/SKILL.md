@@ -10,7 +10,7 @@ Adds a new slide to the Slide Deck extension panel. The slide content is provide
 ## Usage
 
 ```bash
-./scripts/slides-add-slide.sh <slide-name> <html-content> [speaker-notes]
+./scripts/adyx.slides-add-slide.sh <slide-name> <html-content> [speaker-notes]
 ```
 
 ## Parameters
@@ -22,5 +22,5 @@ Adds a new slide to the Slide Deck extension panel. The slide content is provide
 ## Example
 
 ```bash
-./scripts/slides-add-slide.sh "title" '<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#1a1a2e;color:white;font-family:sans-serif"><h1 style="font-size:48px">My Presentation</h1></div>' "Welcome everyone to the presentation"
+./scripts/adyx.slides-add-slide.sh "title" '<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#1a1a2e;color:white;font-family:sans-serif"><h1 style="font-size:48px">My Presentation</h1></div>' "Welcome everyone to the presentation"
 ```
