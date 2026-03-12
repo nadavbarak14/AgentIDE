@@ -224,7 +224,7 @@ export interface PanelStateData {
   tabScrollPositions: Record<string, { line: number; column: number }>;
   gitScrollPosition: number;
   previewUrl: string;
-  previewViewport: string;
+  previewViewport: string | null;
   customViewportWidth: number | null;
   customViewportHeight: number | null;
   mobileDeviceId: string | null;

@@ -29,6 +29,14 @@ export function AnnotationCanvas({ imageDataUrl, onSave, onCancel }: AnnotationC
   // Text input state
   const [textInput, setTextInput] = useState<{ x: number; y: number; value: string } | null>(null);
 
+  // Mobile detection for responsive toolbar layout
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 640);
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 640);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   // Load image onto canvas on mount
   useEffect(() => {
     const img = new Image();
@@ -47,11 +55,12 @@ export function AnnotationCanvas({ imageDataUrl, onSave, onCancel }: AnnotationC
     img.src = imageDataUrl;
   }, [imageDataUrl]);
 
-  const getCanvasPos = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+  // Generic position helper that works with both mouse and touch coordinates
+  const getCanvasPos = useCallback((clientX: number, clientY: number) => {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
     const r = canvas.getBoundingClientRect();
-    return { x: (e.clientX - r.left) * (canvas.width / r.width), y: (e.clientY - r.top) * (canvas.height / r.height) };
+    return { x: (clientX - r.left) * (canvas.width / r.width), y: (clientY - r.top) * (canvas.height / r.height) };
   }, []);
 
   const pushHistory = useCallback(() => {
@@ -78,9 +87,10 @@ export function AnnotationCanvas({ imageDataUrl, onSave, onCancel }: AnnotationC
     ctx.fill();
   }, []);
 
-  const handleMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+  // Shared drawing logic — called by both mouse and touch handlers
+  const handleDrawStart = useCallback((clientX: number, clientY: number) => {
     if (tool === 'text') {
-      const pos = getCanvasPos(e);
+      const pos = getCanvasPos(clientX, clientY);
       setTextInput({ x: pos.x, y: pos.y, value: '' });
       return;
     }
@@ -89,7 +99,7 @@ export function AnnotationCanvas({ imageDataUrl, onSave, onCancel }: AnnotationC
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const pos = getCanvasPos(e);
+    const pos = getCanvasPos(clientX, clientY);
     startPos.current = pos;
     setIsDrawing(true);
     snapshotBeforeDraw.current = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -104,13 +114,13 @@ export function AnnotationCanvas({ imageDataUrl, onSave, onCancel }: AnnotationC
     }
   }, [tool, color, getCanvasPos]);
 
-  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+  const handleDrawMove = useCallback((clientX: number, clientY: number) => {
     if (!isDrawing) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    const pos = getCanvasPos(e);
+    const pos = getCanvasPos(clientX, clientY);
 
     if (tool === 'freehand') {
       ctx.lineTo(pos.x, pos.y);
@@ -134,13 +144,44 @@ export function AnnotationCanvas({ imageDataUrl, onSave, onCancel }: AnnotationC
     }
   }, [isDrawing, tool, color, getCanvasPos, drawArrow]);
 
-  const handleMouseUp = useCallback(() => {
+  const handleDrawEnd = useCallback(() => {
     if (!isDrawing) return;
     setIsDrawing(false);
     startPos.current = null;
     snapshotBeforeDraw.current = null;
     pushHistory();
   }, [isDrawing, pushHistory]);
+
+  // Mouse event handlers
+  const handleMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    handleDrawStart(e.clientX, e.clientY);
+  }, [handleDrawStart]);
+
+  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    handleDrawMove(e.clientX, e.clientY);
+  }, [handleDrawMove]);
+
+  const handleMouseUp = useCallback(() => {
+    handleDrawEnd();
+  }, [handleDrawEnd]);
+
+  // Touch event handlers for mobile annotation drawing
+  const handleTouchStart = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
+    if (e.touches.length === 0) return;
+    handleDrawStart(e.touches[0].clientX, e.touches[0].clientY);
+  }, [handleDrawStart]);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
+    if (e.touches.length === 0) return;
+    handleDrawMove(e.touches[0].clientX, e.touches[0].clientY);
+  }, [handleDrawMove]);
+
+  const handleTouchEnd = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
+    handleDrawEnd();
+  }, [handleDrawEnd]);
 
   const handleTextSubmit = useCallback(() => {
     if (!textInput || !textInput.value.trim()) {
@@ -188,80 +229,143 @@ export function AnnotationCanvas({ imageDataUrl, onSave, onCancel }: AnnotationC
     { id: 'freehand', label: 'Draw' }, { id: 'text', label: 'Text' },
   ];
 
+  // Canvas max-height: accounts for toolbar height (mobile 2-row ~76px, desktop 1-row ~44px)
+  const canvasMaxH = isMobile ? 'max-h-[calc(90vh-80px)]' : 'max-h-[calc(90vh-48px)]';
+
   return (
     <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center pointer-events-auto">
-      <div className="flex flex-col max-w-[90vw] max-h-[90vh]">
-        {/* Toolbar */}
-        <div className="bg-gray-800 border-b border-gray-700 px-3 py-2 flex items-center gap-3 rounded-t-lg">
-          {/* Tools */}
-          {tools.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => { setTool(t.id); setTextInput(null); }}
-              className={`text-xs rounded px-2 py-1 ${
-                tool === t.id
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
-
-          <div className="w-px h-5 bg-gray-600" />
-
-          {/* Colors */}
-          <div className="flex items-center gap-1.5">
-            {COLORS.map((c) => (
+      <div className="flex flex-col max-w-[95vw] max-h-[90vh] sm:max-w-[90vw]">
+        {/* Toolbar — mobile: 2-row compact layout; desktop: single row */}
+        {isMobile ? (
+          <div className="bg-gray-800 border-b border-gray-700 px-2 py-1.5 rounded-t-lg space-y-1.5">
+            {/* Row 1: Tools + Cancel + Save */}
+            <div className="flex items-center gap-1.5">
+              {tools.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => { setTool(t.id); setTextInput(null); }}
+                  className={`text-xs rounded px-2 py-1 ${
+                    tool === t.id
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
+              <div className="flex-1" />
               <button
-                key={c.value}
-                onClick={() => setColor(c.value)}
-                title={c.name}
-                className={`w-5 h-5 rounded-full border-2 transition-transform ${
-                  color === c.value ? 'border-white scale-125' : 'border-gray-500 hover:border-gray-300'
-                }`}
-                style={{ backgroundColor: c.value }}
-              />
-            ))}
+                onClick={onCancel}
+                className="text-xs bg-gray-700 text-gray-300 hover:bg-gray-600 rounded px-2 py-1"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSave}
+                className="text-xs bg-blue-600 text-white hover:bg-blue-500 rounded px-2 py-1"
+              >
+                Save
+              </button>
+            </div>
+            {/* Row 2: Colors + Undo */}
+            <div className="flex items-center gap-1.5">
+              {COLORS.map((c) => (
+                <button
+                  key={c.value}
+                  onClick={() => setColor(c.value)}
+                  title={c.name}
+                  className={`w-5 h-5 rounded-full border-2 transition-transform ${
+                    color === c.value ? 'border-white scale-125' : 'border-gray-500 hover:border-gray-300'
+                  }`}
+                  style={{ backgroundColor: c.value }}
+                />
+              ))}
+              <div className="flex-1" />
+              <button
+                onClick={handleUndo}
+                disabled={history.length <= 1}
+                className="text-xs bg-gray-700 text-gray-300 hover:bg-gray-600 rounded px-2 py-1 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Undo
+              </button>
+            </div>
           </div>
+        ) : (
+          <div className="bg-gray-800 border-b border-gray-700 px-3 py-2 flex items-center gap-3 rounded-t-lg">
+            {/* Tools */}
+            {tools.map((t) => (
+              <button
+                key={t.id}
+                onClick={() => { setTool(t.id); setTextInput(null); }}
+                className={`text-xs rounded px-2 py-1 ${
+                  tool === t.id
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
 
-          <div className="w-px h-5 bg-gray-600" />
+            <div className="w-px h-5 bg-gray-600" />
 
-          {/* Undo */}
-          <button
-            onClick={handleUndo}
-            disabled={history.length <= 1}
-            className="text-xs bg-gray-700 text-gray-300 hover:bg-gray-600 rounded px-2 py-1 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            Undo
-          </button>
+            {/* Colors */}
+            <div className="flex items-center gap-1.5">
+              {COLORS.map((c) => (
+                <button
+                  key={c.value}
+                  onClick={() => setColor(c.value)}
+                  title={c.name}
+                  className={`w-5 h-5 rounded-full border-2 transition-transform ${
+                    color === c.value ? 'border-white scale-125' : 'border-gray-500 hover:border-gray-300'
+                  }`}
+                  style={{ backgroundColor: c.value }}
+                />
+              ))}
+            </div>
 
-          <div className="flex-1" />
+            <div className="w-px h-5 bg-gray-600" />
 
-          {/* Save / Cancel */}
-          <button
-            onClick={onCancel}
-            className="text-xs bg-gray-700 text-gray-300 hover:bg-gray-600 rounded px-2 py-1"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            className="text-xs bg-blue-600 text-white hover:bg-blue-500 rounded px-2 py-1"
-          >
-            Save
-          </button>
-        </div>
+            {/* Undo */}
+            <button
+              onClick={handleUndo}
+              disabled={history.length <= 1}
+              className="text-xs bg-gray-700 text-gray-300 hover:bg-gray-600 rounded px-2 py-1 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Undo
+            </button>
+
+            <div className="flex-1" />
+
+            {/* Save / Cancel */}
+            <button
+              onClick={onCancel}
+              className="text-xs bg-gray-700 text-gray-300 hover:bg-gray-600 rounded px-2 py-1"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              className="text-xs bg-blue-600 text-white hover:bg-blue-500 rounded px-2 py-1"
+            >
+              Save
+            </button>
+          </div>
+        )}
 
         {/* Canvas area */}
         <div className="relative bg-gray-900 rounded-b-lg overflow-auto">
           <canvas
             ref={canvasRef}
-            className="block max-w-full max-h-[calc(90vh-48px)] cursor-crosshair"
+            className={`block max-w-full ${canvasMaxH} cursor-crosshair`}
+            style={{ touchAction: 'none' }}
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
             onMouseLeave={handleMouseUp}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
           />
         </div>
       </div>

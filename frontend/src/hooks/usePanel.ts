@@ -6,7 +6,7 @@ export type LeftPanel = 'none' | 'files';
 export type RightPanel = 'none' | 'git' | 'preview';
 export type PanelContent = 'none' | 'files' | 'git' | 'preview' | 'claude' | 'search' | 'issues' | 'shell' | 'widgets' | `ext:${string}`;
 export type TerminalPosition = 'center' | 'bottom';
-export type ViewportMode = 'desktop' | 'mobile' | 'custom';
+export type ViewportMode = 'desktop' | 'mobile' | 'custom' | null;
 
 interface ScrollPosition {
   line: number;
@@ -187,7 +187,7 @@ export function usePanel(sessionId: string | null, viewMode: ViewMode = 'grid') 
     setBottomHeightPercent(state.bottomHeightPercent ?? 40);
     setTerminalPosition(state.terminalPosition ?? 'center');
     setTerminalVisible(state.terminalVisible ?? true);
-    setPreviewViewport(state.previewViewport ?? 'desktop');
+    setPreviewViewport((state.previewViewport as ViewportMode) ?? 'desktop');
     setCustomViewportWidth(state.customViewportWidth ?? null);
     setCustomViewportHeight(state.customViewportHeight ?? null);
     setMobileDeviceId(state.mobileDeviceId ?? null);
