@@ -67,6 +67,64 @@ describe('toProxyUrl', () => {
     });
   });
 
+  describe('same-host URLs (mobile accessing via non-localhost address)', () => {
+    it('proxies same-host URL through port-based proxy instead of proxy-url (private IP)', () => {
+      const origHostname = window.location.hostname;
+      Object.defineProperty(window, 'location', {
+        value: { ...window.location, hostname: '192.168.1.100', port: '3000' },
+        writable: true,
+      });
+      try {
+        expect(toProxyUrl(SESSION_ID, 'http://192.168.1.100:5173/', false))
+          .toBe(`/api/sessions/${SESSION_ID}/proxy/5173/`);
+        expect(toProxyUrl(SESSION_ID, 'http://192.168.1.100:5173/dashboard', false))
+          .toBe(`/api/sessions/${SESSION_ID}/proxy/5173/dashboard`);
+      } finally {
+        Object.defineProperty(window, 'location', {
+          value: { ...window.location, hostname: origHostname },
+          writable: true,
+        });
+      }
+    });
+
+    it('proxies same-host URL through port-based proxy (public IP)', () => {
+      const origHostname = window.location.hostname;
+      Object.defineProperty(window, 'location', {
+        value: { ...window.location, hostname: '132.145.50.20', port: '3000' },
+        writable: true,
+      });
+      try {
+        expect(toProxyUrl(SESSION_ID, 'http://132.145.50.20:5173/', false))
+          .toBe(`/api/sessions/${SESSION_ID}/proxy/5173/`);
+        expect(toProxyUrl(SESSION_ID, 'http://132.145.50.20:5173/api/data', false))
+          .toBe(`/api/sessions/${SESSION_ID}/proxy/5173/api/data`);
+      } finally {
+        Object.defineProperty(window, 'location', {
+          value: { ...window.location, hostname: origHostname },
+          writable: true,
+        });
+      }
+    });
+
+    it('does not match different host as same-host', () => {
+      const origHostname = window.location.hostname;
+      Object.defineProperty(window, 'location', {
+        value: { ...window.location, hostname: '192.168.1.100', port: '3000' },
+        writable: true,
+      });
+      try {
+        // Different IP should go through proxy-url
+        expect(toProxyUrl(SESSION_ID, 'http://192.168.1.200:5173/', false))
+          .toBe(`/api/sessions/${SESSION_ID}/proxy-url/${encodeURIComponent('http://192.168.1.200:5173/')}`);
+      } finally {
+        Object.defineProperty(window, 'location', {
+          value: { ...window.location, hostname: origHostname },
+          writable: true,
+        });
+      }
+    });
+  });
+
   describe('edge cases', () => {
     it('localhost without trailing slash gets default path', () => {
       expect(toProxyUrl(SESSION_ID, 'http://localhost:3000', false))

@@ -59,6 +59,22 @@ export function toProxyUrl(sessionId: string, displayUrl: string, isLocalDirect:
     return `/api/sessions/${sessionId}/proxy/${port}${pathPart}`;
   }
 
+  // Same-host URLs: when the dashboard is accessed via a non-localhost address (public IP,
+  // LAN IP, domain name), the preview URL is constructed as http://<that-host>:<port>.
+  // This must use the port-based proxy (which connects to localhost on the server), NOT the
+  // proxy-url route (which would try to connect to the external address and may fail due to
+  // SSRF protection blocking private IPs, or the dev server not being reachable on that address).
+  const currentHost = window.location.hostname;
+  if (currentHost !== 'localhost' && currentHost !== '127.0.0.1') {
+    const hostEscaped = currentHost.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const sameHostMatch = displayUrl.match(new RegExp(`^https?:\\/\\/${hostEscaped}:(\\d+)(\\/.*)?$`));
+    if (sameHostMatch) {
+      const port = sameHostMatch[1];
+      const pathPart = sameHostMatch[2] || '/';
+      return `/api/sessions/${sessionId}/proxy/${port}${pathPart}`;
+    }
+  }
+
   // External URLs — proxy to strip X-Frame-Options/CSP so they can embed in iframe
   if (displayUrl.startsWith('http://') || displayUrl.startsWith('https://')) {
     return `/api/sessions/${sessionId}/proxy-url/${encodeURIComponent(displayUrl)}`;
