@@ -3,7 +3,7 @@ export type WsServerMessage =
   | { type: 'file_changed'; paths: string[]; timestamp: string }
   | { type: 'port_detected'; port: number; localPort: number; protocol: string }
   | { type: 'port_closed'; port: number }
-  | { type: 'needs_input'; sessionId: string; needsInput: boolean; detectedPattern: string; idleSeconds: number }
+  | { type: 'needs_input'; sessionId: string; needsInput: boolean; waitReason: string | null; detectedPattern: string; idleSeconds: number }
   | { type: 'artifact'; artifactId: string; artifactType: string; path: string; previewUrl: string }
   | { type: 'board_command'; sessionId: string; command: string; params: Record<string, string>; requestId?: string }
   | { type: 'shell_status'; sessionId: string; status: 'running' | 'stopped' | 'killed'; pid?: number; exitCode?: number; shell?: string }

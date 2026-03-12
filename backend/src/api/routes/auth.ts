@@ -2,21 +2,11 @@ import { Router } from 'express';
 import type { Repository } from '../../models/repository.js';
 import { verifyKey, createCookieValue, validateCookieValue, isLocalhostIp } from '../../services/auth-service.js';
 import { logger } from '../../services/logger.js';
-import rateLimit from 'express-rate-limit';
-
-const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many failed attempts. Try again in 15 minutes.', retryAfter: 900 },
-});
-
 export function createAuthRouter(repo: Repository): Router {
   const router = Router();
 
   // POST /api/auth/login
-  router.post('/login', loginLimiter, (req, res) => {
+  router.post('/login', (req, res) => {
     const { accessKey } = req.body as { accessKey?: string };
     if (!accessKey) {
       res.status(400).json({ error: 'Missing accessKey' });

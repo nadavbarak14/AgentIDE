@@ -134,8 +134,9 @@ export function SessionCard({
   const { isMobile, keyboardOpen, keyboardOffset } = useVisualViewport();
   const terminalViewRef = useRef<TerminalViewHandle>(null);
   const outputBufferRef = useRef<string[]>([]);
-  const [outputBufferState, setOutputBufferState] = useState<string[]>([]);
-  const { mode: claudeMode } = useClaudeMode(session.needsInput, session.status, outputBufferState);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [_outputBufferState, setOutputBufferState] = useState<string[]>([]);
+  const { mode: claudeMode } = useClaudeMode(session.needsInput, session.status, session.waitReason);
 
   const handleTerminalBinaryData = useCallback((data: ArrayBuffer) => {
     // Decode and track last 10 lines for Claude mode detection
@@ -1025,7 +1026,13 @@ export function SessionCard({
           <span className="text-sm font-medium truncate max-w-[180px]">{session.title || 'Untitled'}</span>
           {workers && <WorkerBadge workerId={session.workerId} workers={workers} />}
           {session.needsInput && (
-            <span className="text-sm text-amber-400 animate-pulse font-bold" title="Needs input">!</span>
+            <span className="text-sm text-amber-400 animate-pulse font-bold" title={
+              session.waitReason === 'permission' ? 'Needs permission'
+                : session.waitReason === 'question' ? 'Has a question'
+                : 'Needs input'
+            }>
+              {session.waitReason === 'permission' ? '\u{1F511}' : session.waitReason === 'question' ? '?' : '!'}
+            </span>
           )}
           {session.lock && (
             <span className="text-xs text-gray-400" title="Pinned">📌</span>

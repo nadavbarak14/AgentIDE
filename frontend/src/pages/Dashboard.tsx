@@ -788,14 +788,15 @@ export function Dashboard() {
   // ── Mobile Terminal State ──────────────────────────────────────────
   const mobileTerminalRef = useRef<TerminalViewHandle>(null);
   const mobileOutputBufferRef = useRef<string[]>([]);
-  const [mobileOutputBuffer, setMobileOutputBuffer] = useState<string[]>([]);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [_mobileOutputBuffer, setMobileOutputBuffer] = useState<string[]>([]);
   const [mobileDetectedPort, setMobileDetectedPort] = useState<{ port: number; localPort: number } | null>(null);
 
   const currentMobileSession = sessions.find((s) => s.id === currentSessionId);
   const { mode: mobileClaudeMode } = useClaudeMode(
     currentMobileSession?.needsInput ?? false,
     currentMobileSession?.status ?? 'active',
-    mobileOutputBuffer,
+    currentMobileSession?.waitReason ?? null,
   );
 
   const handleMobileWsMessage = useCallback((msg: WsServerMessage) => {
@@ -1076,7 +1077,7 @@ export function Dashboard() {
         <WaitingSessionAlert
           waitingSessions={activeSessions
             .filter(s => s.needsInput && s.id !== currentSessionId)
-            .map(s => ({ id: s.id, title: s.title || 'Untitled' }))}
+            .map(s => ({ id: s.id, title: s.title || 'Untitled', waitReason: s.waitReason }))}
           onSwitch={handleFocusSession}
           bottomOffset={keyboardOffset + 52}
         />

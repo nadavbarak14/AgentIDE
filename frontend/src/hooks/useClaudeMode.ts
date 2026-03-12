@@ -6,20 +6,17 @@ export interface UseClaudeModeReturn {
   mode: ClaudeMode;
 }
 
-// Matches common Claude Code permission prompt patterns
-const PERMISSION_RE = /\(y\/n\)|\(Y\/n\)|\(yes\/no\)|Allow\?|Deny\?|approve|reject|permission|Do you want to proceed/i;
-
 /**
- * Detect the current Claude Code interaction mode from session state + terminal output.
+ * Detect the current Claude Code interaction mode from session state + server-provided waitReason.
  *
  * @param needsInput - session.needsInput from polling/WebSocket
  * @param status - session.status ('active', 'completed', 'failed', 'crashed')
- * @param outputBuffer - last N lines of decoded terminal output
+ * @param waitReason - session.waitReason from server ('permission', 'question', 'stopped', or null)
  */
 export function useClaudeMode(
   needsInput: boolean,
   status: string,
-  outputBuffer: string[],
+  waitReason: string | null,
 ): UseClaudeModeReturn {
   const mode = useMemo<ClaudeMode>(() => {
     // Idle: session is done
@@ -32,18 +29,14 @@ export function useClaudeMode(
       return 'generating';
     }
 
-    // Waiting for input — check if it's a permission prompt
-    // Scan last 5 lines for permission patterns
-    const tail = outputBuffer.slice(-5);
-    const hasPermission = tail.some(line => PERMISSION_RE.test(line));
-
-    if (hasPermission) {
+    // Waiting for input — check waitReason from server
+    if (waitReason === 'permission') {
       return 'permission';
     }
 
-    // Waiting for text input (prompt)
+    // All other waiting states (question, stopped, null/unknown) → input mode
     return 'input';
-  }, [needsInput, status, outputBuffer]);
+  }, [needsInput, status, waitReason]);
 
   return { mode };
 }

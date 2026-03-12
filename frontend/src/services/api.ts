@@ -27,6 +27,7 @@ export interface Session {
   position: number | null;
   pid: number | null;
   needsInput: boolean;
+  waitReason: string | null;
   lock: boolean;
   continuationCount: number;
   worktree: boolean;

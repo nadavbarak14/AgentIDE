@@ -399,7 +399,9 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
   app.use(requireAuth(repo));
 
   // Hooks routes (restricted to localhost when server binds to non-localhost)
-  app.use('/api/hooks', createHooksRouter(repo, !isLocalhost));
+  app.use('/api/hooks', createHooksRouter(repo, !isLocalhost, (sessionId, needsInput, waitReason) => {
+    sessionManager.emit('needs_input_changed', sessionId, needsInput, waitReason);
+  }));
 
   // API routes
   app.use('/api/settings', createSettingsRouter(repo));

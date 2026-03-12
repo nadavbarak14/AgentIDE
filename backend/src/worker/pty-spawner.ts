@@ -29,17 +29,12 @@ export class PtySpawner extends EventEmitter {
   private processes = new Map<string, pty.IPty>();
   private processDimensions = new Map<string, { cols: number; rows: number }>();
   private outputBuffers = new Map<string, string>();
-  private lastOutputTime = new Map<string, number>();
   private scrollbackDir: string;
   private scrollbackWriters = new Map<string, ReturnType<typeof setTimeout>>();
   private scrollbackPending = new Map<string, string>();
-  private idleNotified = new Map<string, boolean>();
   private terminalParsers = new Map<string, TerminalParser>();
-  private idlePoller: ReturnType<typeof setInterval> | null = null;
   private hookSettingsPath: string;
   private hubPort: number;
-  // Sustained silence threshold: must have no output for this long
-  private static IDLE_THRESHOLD_MS = 8000;
 
   /**
    * Resolve a usable shell binary path for PTY spawning.
@@ -155,6 +150,17 @@ export class PtySpawner extends EventEmitter {
             ],
           },
         ],
+        Notification: [
+          {
+            hooks: [
+              {
+                type: 'command',
+                command: hookScript,
+                timeout: 10,
+              },
+            ],
+          },
+        ],
       },
     };
 
@@ -249,7 +255,6 @@ export class PtySpawner extends EventEmitter {
     this.processes.set(sessionId, proc);
     this.processDimensions.set(sessionId, { cols: 120, rows: 40 });
     this.outputBuffers.set(sessionId, '');
-    this.lastOutputTime.set(sessionId, Date.now());
     this.terminalParsers.set(sessionId, new TerminalParser());
 
     log.info({ pid: proc.pid }, 'bash shell spawned for tmux wrapping');
@@ -266,8 +271,6 @@ export class PtySpawner extends EventEmitter {
 
     // Handle output
     proc.onData((data) => {
-      this.lastOutputTime.set(sessionId, Date.now());
-
       // Append to rolling buffer (keep last 4KB for logging)
       const buf = (this.outputBuffers.get(sessionId) || '') + data;
       this.outputBuffers.set(sessionId, buf.slice(-4096));
@@ -286,13 +289,7 @@ export class PtySpawner extends EventEmitter {
 
       // Schedule scrollback write (throttled)
       this.scheduleScrollbackWrite(sessionId, data);
-
-      // Reset idle flag so poller can re-detect silence
-      this.idleNotified.set(sessionId, false);
     });
-
-    // Start the idle poller if not already running
-    this.ensureIdlePoller();
 
     // Handle exit
     proc.onExit(({ exitCode }) => {
@@ -349,7 +346,6 @@ export class PtySpawner extends EventEmitter {
     this.processes.set(sessionId, proc);
     this.processDimensions.set(sessionId, { cols: 120, rows: 40 });
     this.outputBuffers.set(sessionId, '');
-    this.lastOutputTime.set(sessionId, Date.now());
     this.terminalParsers.set(sessionId, new TerminalParser());
 
     // `exec` replaces bash with tmux client
@@ -358,7 +354,6 @@ export class PtySpawner extends EventEmitter {
 
     // Wire up same data/exit handlers
     proc.onData((data) => {
-      this.lastOutputTime.set(sessionId, Date.now());
       const buf = (this.outputBuffers.get(sessionId) || '') + data;
       this.outputBuffers.set(sessionId, buf.slice(-4096));
       this.emit('data', sessionId, data);
@@ -372,10 +367,7 @@ export class PtySpawner extends EventEmitter {
       }
 
       this.scheduleScrollbackWrite(sessionId, data);
-      this.idleNotified.set(sessionId, false);
     });
-
-    this.ensureIdlePoller();
 
     proc.onExit(({ exitCode }) => {
       log.info({ exitCode }, 'reattached tmux client exited');
@@ -452,36 +444,6 @@ export class PtySpawner extends EventEmitter {
     }
   }
 
-  /**
-   * Start a single global poller that checks ALL sessions for sustained silence.
-   * Runs every 2 seconds. Much more reliable than per-session timers which race
-   * with periodic TUI updates from Claude Code's ink-based UI.
-   */
-  private ensureIdlePoller(): void {
-    if (this.idlePoller) return;
-
-    this.idlePoller = setInterval(() => {
-      const now = Date.now();
-      for (const [sessionId] of this.processes) {
-        const lastOutput = this.lastOutputTime.get(sessionId) || 0;
-        const silenceMs = now - lastOutput;
-
-        if (silenceMs >= PtySpawner.IDLE_THRESHOLD_MS && !this.idleNotified.get(sessionId)) {
-          this.idleNotified.set(sessionId, true);
-          const log = createSessionLogger(sessionId);
-          log.info({ silenceMs }, 'sustained silence detected — emitting session_idle');
-          this.emit('session_idle', sessionId);
-        }
-      }
-
-      // Stop poller if no processes left
-      if (this.processes.size === 0 && this.idlePoller) {
-        clearInterval(this.idlePoller);
-        this.idlePoller = null;
-      }
-    }, 2000);
-  }
-
   private cleanup(sessionId: string): void {
     // Flush any pending scrollback before cleaning up
     this.flushScrollback(sessionId);
@@ -489,8 +451,6 @@ export class PtySpawner extends EventEmitter {
     this.processes.delete(sessionId);
     this.processDimensions.delete(sessionId);
     this.outputBuffers.delete(sessionId);
-    this.lastOutputTime.delete(sessionId);
-    this.idleNotified.delete(sessionId);
     this.terminalParsers.delete(sessionId);
   }
 
@@ -538,10 +498,6 @@ export class PtySpawner extends EventEmitter {
 
   destroy(): void {
     logger.info({ count: this.processes.size }, 'destroying all pty processes');
-    if (this.idlePoller) {
-      clearInterval(this.idlePoller);
-      this.idlePoller = null;
-    }
 
     // Track tmux session names we're killing so we can clean up orphans
     const trackedTmuxNames = new Set<string>();
