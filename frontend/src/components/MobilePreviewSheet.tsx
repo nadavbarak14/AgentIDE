@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { LivePreview } from './LivePreview';
 
-type ViewportMode = 'desktop' | 'mobile' | 'custom';
+type ViewportMode = 'desktop' | 'mobile' | 'custom' | null;
 
 interface MobilePreviewSheetProps {
   sessionId: string;
@@ -22,7 +22,7 @@ export function MobilePreviewSheet({
   onClose,
 }: MobilePreviewSheetProps) {
   const [visible, setVisible] = useState(false);
-  const [viewportMode, setViewportMode] = useState<ViewportMode>('desktop');
+  const [viewportMode, setViewportMode] = useState<ViewportMode>(null);
   const [customW, setCustomW] = useState(1024);
   const [customH, setCustomH] = useState(768);
   const [selectedDeviceId, setSelectedDeviceId] = useState('iphone-15-pro');
@@ -54,7 +54,7 @@ export function MobilePreviewSheet({
           localPort={localPort}
           detectedPorts={detectedPorts}
           onClose={handleClose}
-          isMobile={false}
+          isMobile={true}
           isLocalSession={isLocalSession}
           viewportMode={viewportMode}
           onViewportChange={setViewportMode}

@@ -5,6 +5,9 @@ import { BRANDS, getPresetsByBrand, getPresetById, DESKTOP_PRESETS, type DeviceP
 
 type ViewportMode = 'desktop' | 'mobile' | 'custom';
 
+// Minimum scale floor for desktop/custom viewports to prevent unreadably small previews
+const MIN_VIEWPORT_SCALE = 0.35;
+
 interface LivePreviewProps {
   sessionId: string;
   port: number;
@@ -12,8 +15,8 @@ interface LivePreviewProps {
   detectedPorts?: { port: number; localPort: number }[];
   onClose: () => void;
   refreshKey?: number;
-  viewportMode?: ViewportMode;
-  onViewportChange?: (mode: ViewportMode) => void;
+  viewportMode?: ViewportMode | null;
+  onViewportChange?: (mode: ViewportMode | null) => void;
   customViewportWidth?: number | null;
   customViewportHeight?: number | null;
   onCustomViewport?: (width: number, height: number) => void;
@@ -83,9 +86,7 @@ export function toProxyUrl(sessionId: string, displayUrl: string, isLocalDirect:
   return displayUrl;
 }
 
-export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose, refreshKey: _refreshKey = 0, viewportMode: viewportModeProp = 'desktop', onViewportChange, customViewportWidth, customViewportHeight, onCustomViewport, selectedDeviceId, onDevicePresetSelect, selectedDesktopId, onDesktopPresetSelect, bridgeRef, requestedUrl, onUrlChange, navCounter: _navCounter = 0, isLocalSession = true, isMobile = false }: LivePreviewProps) {
-  // Force desktop viewport on mobile — the phone IS the target device
-  const viewportMode = isMobile ? 'desktop' as ViewportMode : viewportModeProp;
+export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose, refreshKey: _refreshKey = 0, viewportMode = 'desktop' as ViewportMode | null, onViewportChange, customViewportWidth, customViewportHeight, onCustomViewport, selectedDeviceId, onDevicePresetSelect, selectedDesktopId, onDesktopPresetSelect, bridgeRef, requestedUrl, onUrlChange, navCounter: _navCounter = 0, isLocalSession = true, isMobile = false }: LivePreviewProps) {
   // Skip proxy when hub is accessed via localhost and session is local
   const isLocalDirect = isLocalSession &&
     (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
@@ -103,6 +104,17 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
   const deviceDropdownRef = useRef<HTMLDivElement>(null);
   const desktopDropdownRef = useRef<HTMLDivElement>(null);
   const [rotated, setRotated] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // Escape key handler for fullscreen exit
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsFullscreen(false);
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isFullscreen]);
 
   // Click-outside and Escape handler for device dropdown
   useEffect(() => {
@@ -320,11 +332,25 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
           />
         </div>
         {/* Viewport toggle — hidden on mobile (phone IS the device) */}
-        {!isMobile && <div className="flex rounded border border-gray-700">
+        <div className="flex rounded border border-gray-700">
+          {/* Fill / responsive mode — iframe fills available space */}
+          <button
+            onClick={() => onViewportChange?.(null)}
+            className={`px-1.5 py-0.5 text-xs rounded-l ${
+              viewportMode === null
+                ? 'bg-blue-600 text-white'
+                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+            }`}
+            title="Fill available space"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="2" y="3" width="20" height="18" rx="2" ry="2" />
+            </svg>
+          </button>
           <div className="relative" ref={desktopDropdownRef}>
             <button
               onClick={() => { setDesktopDropdownOpen((prev) => !prev); setDeviceDropdownOpen(false); }}
-              className={`px-1.5 py-0.5 text-xs rounded-l ${
+              className={`px-1.5 py-0.5 text-xs ${
                 viewportMode === 'desktop'
                   ? 'bg-blue-600 text-white'
                   : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
@@ -427,7 +453,7 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
             </button>
           )}
           <button
-            onClick={() => viewportMode === 'custom' ? onViewportChange?.('desktop') : handleApplyCustom()}
+            onClick={() => viewportMode === 'custom' ? onViewportChange?.(null) : handleApplyCustom()}
             className={`px-1.5 py-0.5 text-xs rounded-r ${
               viewportMode === 'custom'
                 ? 'bg-blue-600 text-white'
@@ -437,9 +463,9 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
           >
             ⊞
           </button>
-        </div>}
+        </div>
         {/* Custom resolution inputs */}
-        {!isMobile && viewportMode === 'custom' && (
+        {viewportMode === 'custom' && (
           <div className="flex items-center gap-0.5">
             <input
               type="number"
@@ -521,6 +547,8 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
                 bridge={bridge}
                 containerWidth={contentSize.width}
                 containerHeight={contentSize.height}
+                isFullscreen={isFullscreen}
+                onToggleFullscreen={() => setIsFullscreen((f) => !f)}
               />
             )}
             {loading && !error && (
@@ -662,7 +690,7 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
                   width: customViewportWidth,
                   height: customViewportHeight,
                   transform: contentSize.width > 0 && customViewportWidth > contentSize.width
-                    ? `scale(${Math.min(contentSize.width / customViewportWidth, (contentSize.height - 24) / customViewportHeight)})`
+                    ? `scale(${Math.max(Math.min(contentSize.width / customViewportWidth, (contentSize.height - 24) / customViewportHeight), MIN_VIEWPORT_SCALE)})`
                     : undefined,
                   transformOrigin: 'top center',
                 }}>
@@ -686,7 +714,7 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
                   const deskH = activeDesktop.height;
                   const scaleX = contentSize.width > 0 ? (contentSize.width - 16) / deskW : 1;
                   const scaleY = contentSize.height > 0 ? (contentSize.height - 32) / deskH : 1;
-                  const scale = Math.min(scaleX, scaleY, 1);
+                  const scale = Math.max(Math.min(scaleX, scaleY, 1), MIN_VIEWPORT_SCALE);
                   return (
                     <div className="relative flex-shrink-0" style={{
                       width: deskW,
@@ -721,6 +749,31 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
           </>
         )}
       </div>
+
+      {/* Fullscreen overlay — iframe fills entire viewport */}
+      {isFullscreen && iframeUrl && (
+        <div className="fixed inset-0 z-[60] bg-black flex items-center justify-center">
+          <iframe
+            src={iframeUrl}
+            className="w-full h-full border-0 bg-white"
+            onLoad={handleIframeLoad}
+            onError={() => { setError(true); setLoading(false); }}
+          />
+          {/* Floating exit button */}
+          <button
+            onClick={() => setIsFullscreen(false)}
+            className="fixed top-3 right-3 z-[61] w-8 h-8 flex items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80 backdrop-blur-sm border border-white/20"
+            title="Exit fullscreen (Escape)"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="4 14 10 14 10 20" />
+              <polyline points="20 10 14 10 14 4" />
+              <line x1="14" y1="10" x2="21" y2="3" />
+              <line x1="3" y1="21" x2="10" y2="14" />
+            </svg>
+          </button>
+        </div>
+      )}
     </div>
   );
 }
