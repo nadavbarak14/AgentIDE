@@ -86,7 +86,7 @@ export function toProxyUrl(sessionId: string, displayUrl: string, isLocalDirect:
   return displayUrl;
 }
 
-export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose, refreshKey: _refreshKey = 0, viewportMode = 'desktop' as ViewportMode | null, onViewportChange, customViewportWidth, customViewportHeight, onCustomViewport, selectedDeviceId, onDevicePresetSelect, selectedDesktopId, onDesktopPresetSelect, bridgeRef, requestedUrl, onUrlChange, navCounter: _navCounter = 0, isLocalSession = true, isMobile = false }: LivePreviewProps) {
+export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose, refreshKey: _refreshKey = 0, viewportMode = 'desktop' as ViewportMode | null, onViewportChange, customViewportWidth, customViewportHeight, onCustomViewport, selectedDeviceId, onDevicePresetSelect, selectedDesktopId, onDesktopPresetSelect, bridgeRef, requestedUrl, onUrlChange, navCounter: _navCounter = 0, isLocalSession = true, isMobile: _isMobile = false }: LivePreviewProps) {
   // Skip proxy when hub is accessed via localhost and session is local
   const isLocalDirect = isLocalSession &&
     (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
