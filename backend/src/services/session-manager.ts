@@ -228,7 +228,7 @@ export class SessionManager extends EventEmitter {
     }
     // Clear needs_input since user is responding
     this.repo.setNeedsInput(sessionId, false);
-    this.emit('needs_input_changed', sessionId, false);
+    this.emit('needs_input_changed', sessionId, false, null);
     return true;
   }
 
@@ -396,24 +396,10 @@ export class SessionManager extends EventEmitter {
       if (session?.needsInput) {
         log.info('user sent input — clearing needs_input');
         this.repo.setNeedsInput(sessionId, false);
-        this.emit('needs_input_changed', sessionId, false);
+        this.emit('needs_input_changed', sessionId, false, null);
       }
     });
 
-    // Idle detection: sustained silence (8s) = likely waiting for input.
-    // needsInput is STICKY — once set, only cleared when user sends input to this session.
-    this.ptySpawner.on('session_idle', (sessionId: string) => {
-      const session = this.repo.getSession(sessionId);
-      if (!session || session.status !== 'active') return;
-
-      const log = createSessionLogger(sessionId);
-
-      if (!session.needsInput) {
-        log.info('session idle — marking needs_input');
-        this.repo.setNeedsInput(sessionId, true);
-        this.emit('needs_input_changed', sessionId, true);
-      }
-    });
   }
 
   /**
@@ -483,7 +469,7 @@ export class SessionManager extends EventEmitter {
       if (session?.needsInput) {
         log.info('user sent input to remote session — clearing needs_input');
         this.repo.setNeedsInput(sessionId, false);
-        this.emit('needs_input_changed', sessionId, false);
+        this.emit('needs_input_changed', sessionId, false, null);
       }
     });
 
@@ -496,7 +482,7 @@ export class SessionManager extends EventEmitter {
       if (!session.needsInput) {
         log.info('remote session idle — marking needs_input');
         this.repo.setNeedsInput(sessionId, true);
-        this.emit('needs_input_changed', sessionId, true);
+        this.emit('needs_input_changed', sessionId, true, null);
       }
     });
   }

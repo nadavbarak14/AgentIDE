@@ -1,9 +1,15 @@
 import React from 'react';
 
 interface WaitingSessionAlertProps {
-  waitingSessions: Array<{ id: string; title: string }>;
+  waitingSessions: Array<{ id: string; title: string; waitReason?: string | null }>;
   onSwitch: (id: string) => void;
   bottomOffset?: number;
+}
+
+function getWaitLabel(session: { title: string; waitReason?: string | null }): string {
+  if (session.waitReason === 'permission') return `${session.title} needs permission`;
+  if (session.waitReason === 'question') return `${session.title} has a question`;
+  return `${session.title} needs input`;
 }
 
 export function WaitingSessionAlert({
@@ -17,7 +23,7 @@ export function WaitingSessionAlert({
 
   const label =
     waitingSessions.length === 1
-      ? `${waitingSessions[0].title} needs input`
+      ? getWaitLabel(waitingSessions[0])
       : `${waitingSessions.length} sessions waiting`;
 
   return (

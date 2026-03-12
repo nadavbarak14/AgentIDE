@@ -90,15 +90,28 @@ describe('SessionCard', () => {
     expect(screen.getByText('active')).toBeInTheDocument();
   });
 
-  it('shows needs_input indicator when needsInput is true', () => {
-    render(<SessionCard session={createMockSession({ needsInput: true })} />);
+  it('shows needs_input indicator with "!" when needsInput is true and no waitReason', () => {
+    render(<SessionCard session={createMockSession({ needsInput: true, waitReason: null })} />);
     expect(screen.getByTitle('Needs input')).toBeInTheDocument();
     expect(screen.getByTitle('Needs input').textContent).toBe('!');
+  });
+
+  it('shows needs_input indicator with "?" when waitReason is question', () => {
+    render(<SessionCard session={createMockSession({ needsInput: true, waitReason: 'question' })} />);
+    expect(screen.getByTitle('Has a question')).toBeInTheDocument();
+    expect(screen.getByTitle('Has a question').textContent).toBe('?');
+  });
+
+  it('shows needs_input indicator with key icon when waitReason is permission', () => {
+    render(<SessionCard session={createMockSession({ needsInput: true, waitReason: 'permission' })} />);
+    expect(screen.getByTitle('Needs permission')).toBeInTheDocument();
   });
 
   it('does not show needs_input indicator when needsInput is false', () => {
     render(<SessionCard session={createMockSession({ needsInput: false })} />);
     expect(screen.queryByTitle('Needs input')).not.toBeInTheDocument();
+    expect(screen.queryByTitle('Needs permission')).not.toBeInTheDocument();
+    expect(screen.queryByTitle('Has a question')).not.toBeInTheDocument();
   });
 
   it('shows pin indicator when session is locked', () => {

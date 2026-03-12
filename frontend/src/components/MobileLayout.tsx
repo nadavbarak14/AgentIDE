@@ -1,7 +1,6 @@
 import { useRef, useCallback, type ReactNode } from 'react';
 import { MobileTopBar } from './MobileTopBar';
 import { MobileActionBar } from './MobileActionBar';
-import { MobileApprovalCard } from './MobileApprovalCard';
 import { MobileHamburgerMenu } from './MobileHamburgerMenu';
 import { MobileSheetOverlay } from './MobileSheetOverlay';
 import { MobileSessionList } from './MobileSessionList';
@@ -130,13 +129,6 @@ export function MobileLayout({
       <div className="flex-1 min-h-0 overflow-hidden relative">
         {children}
 
-        {/* Approval Card Overlay */}
-        {isWaiting && (
-          <MobileApprovalCard
-            onAccept={() => sendInput('y\r')}
-            onReject={() => sendInput('n\r')}
-          />
-        )}
       </div>
 
       {/* Action Bar */}
@@ -145,7 +137,6 @@ export function MobileLayout({
         onScrollToTop={terminalScrollToTop}
         onScrollToBottom={terminalScrollToBottom}
         isScrolledUp={isScrolledUp}
-        isWaiting={isWaiting}
         keyboardOffset={keyboardOpen ? keyboardOffset : 0}
       />
 

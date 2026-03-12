@@ -48,6 +48,7 @@ function rowToSession(row: Record<string, unknown>): Session {
     position: row.position as number | null,
     pid: row.pid as number | null,
     needsInput: Boolean(row.needs_input),
+    waitReason: (row.wait_reason as string) || null,
     lock: Boolean(row.lock),
     continuationCount: row.continuation_count as number,
     worktree: Boolean(row.worktree),
@@ -324,10 +325,10 @@ export class Repository {
       .run(claudeSessionId, id);
   }
 
-  setNeedsInput(id: string, needsInput: boolean): void {
+  setNeedsInput(id: string, needsInput: boolean, waitReason?: string | null): void {
     this.db
-      .prepare("UPDATE sessions SET needs_input = ?, updated_at = datetime('now') WHERE id = ?")
-      .run(needsInput ? 1 : 0, id);
+      .prepare("UPDATE sessions SET needs_input = ?, wait_reason = ?, updated_at = datetime('now') WHERE id = ?")
+      .run(needsInput ? 1 : 0, needsInput ? (waitReason || null) : null, id);
   }
 
   countActiveSessions(): number {

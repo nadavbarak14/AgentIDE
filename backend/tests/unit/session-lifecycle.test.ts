@@ -119,19 +119,22 @@ describe('Session Lifecycle — No queue, immediate activation', () => {
     expect(session!.status).toBe('failed');
   });
 
-  // ── needsInput detection (preserved) ────────────────────────────
+  // ── needsInput detection (hook-based for local, idle-polling for remote) ──
 
-  it('sets needsInput when session goes idle', () => {
+  it('does not set needsInput from local idle events (hooks handle this now)', () => {
     const s1 = sessionManager.createSession({ workingDirectory: '/p1', title: 'S1' });
+    // Local PtySpawner no longer emits session_idle — hooks set needsInput via API
     fakeSpawner.simulateIdle(s1.id);
 
-    expect(repo.getSession(s1.id)!.needsInput).toBe(true);
+    // needsInput stays false because local sessions use hook-based detection
+    expect(repo.getSession(s1.id)!.needsInput).toBe(false);
     expect(repo.getSession(s1.id)!.status).toBe('active');
   });
 
   it('clears needsInput when user sends input', () => {
     const s1 = sessionManager.createSession({ workingDirectory: '/p1', title: 'S1' });
-    fakeSpawner.simulateIdle(s1.id);
+    // Simulate needsInput being set via hook API (not idle poller)
+    repo.setNeedsInput(s1.id, true);
     expect(repo.getSession(s1.id)!.needsInput).toBe(true);
 
     sessionManager.sendInput(s1.id, 'hello\n');
@@ -144,12 +147,12 @@ describe('Session Lifecycle — No queue, immediate activation', () => {
     const s1 = sessionManager.createSession({ workingDirectory: '/p1', title: 'S1' });
     sessionManager.createSession({ workingDirectory: '/p2', title: 'S2' });
 
-    // S1 goes idle — in old code this would trigger auto-suspend
+    // Local session_idle is no longer handled — hooks manage wait state
     fakeSpawner.simulateIdle(s1.id);
 
-    // Session stays active — only needsInput flag is set
+    // Session stays active, needsInput is NOT set (local idle events are ignored)
     expect(repo.getSession(s1.id)!.status).toBe('active');
-    expect(repo.getSession(s1.id)!.needsInput).toBe(true);
+    expect(repo.getSession(s1.id)!.needsInput).toBe(false);
     expect(fakeSpawner.killedIds).toHaveLength(0);
   });
 

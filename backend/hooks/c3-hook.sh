@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# C3 Dashboard Hook — called by Claude Code on SessionEnd and Stop events.
+# C3 Dashboard Hook — called by Claude Code on SessionEnd, Stop, and Notification events.
 # Reads JSON from stdin, extracts event info, and POSTs to C3 Hub API.
 
 # Read JSON from stdin
@@ -17,6 +17,8 @@ done
 EVENT=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('hook_event_name',''))" 2>/dev/null)
 CLAUDE_SID=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('session_id',''))" 2>/dev/null)
 CWD=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('cwd',''))" 2>/dev/null)
+NOTIFICATION_TYPE=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('notification_type',''))" 2>/dev/null)
+MESSAGE=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('message',''))" 2>/dev/null)
 
 # C3_SESSION_ID and C3_HUB_PORT are set by the PTY spawner
 HUB_PORT="${C3_HUB_PORT:-3000}"
@@ -30,7 +32,7 @@ fi
 # POST to the C3 hooks API
 curl -s -X POST "http://localhost:${HUB_PORT}/api/hooks/event" \
   -H "Content-Type: application/json" \
-  -d "{\"event\":\"${EVENT}\",\"c3SessionId\":\"${C3_SID}\",\"claudeSessionId\":\"${CLAUDE_SID}\",\"cwd\":\"${CWD}\"}" \
+  -d "{\"event\":\"${EVENT}\",\"c3SessionId\":\"${C3_SID}\",\"claudeSessionId\":\"${CLAUDE_SID}\",\"cwd\":\"${CWD}\",\"notificationType\":\"${NOTIFICATION_TYPE}\",\"message\":\"${MESSAGE}\"}" \
   >/dev/null 2>&1 &
 
 exit 0

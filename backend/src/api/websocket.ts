@@ -354,13 +354,14 @@ export function setupWebSocket(
   // Forward needs_input events
   sessionManager.on(
     'needs_input_changed',
-    (sessionId: string, needsInput: boolean, pattern?: string, idleSeconds?: number) => {
+    (sessionId: string, needsInput: boolean, waitReason?: string | null) => {
       broadcastJson(sessionId, {
         type: 'needs_input',
         sessionId,
         needsInput,
-        detectedPattern: pattern || '',
-        idleSeconds: idleSeconds || 0,
+        waitReason: waitReason || null,
+        detectedPattern: '',
+        idleSeconds: 0,
       });
     },
   );

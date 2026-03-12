@@ -23,4 +23,27 @@ describe('c3-hook.sh', () => {
   it('checks for curl dependency', () => {
     expect(content).toMatch(/for\s+cmd\s+in\s+[^;]*curl/);
   });
+
+  it('extracts notification_type field from stdin JSON', () => {
+    expect(content).toMatch(/notification_type/);
+    expect(content).toMatch(/python3.*notification_type/s);
+  });
+
+  it('extracts message field from stdin JSON', () => {
+    expect(content).toMatch(/\.get\(['"]message['"]/);
+    expect(content).toMatch(/python3.*\.get\(['"]message['"]/s);
+  });
+
+  it('includes notificationType in curl POST payload', () => {
+    expect(content).toMatch(/curl.*notificationType/s);
+  });
+
+  it('includes message in curl POST payload', () => {
+    expect(content).toMatch(/curl.*\\?"message\\?"/s);
+  });
+
+  it('remains backward-compatible with Stop and SessionEnd events', () => {
+    expect(content).toContain('Stop');
+    expect(content).toContain('SessionEnd');
+  });
 });

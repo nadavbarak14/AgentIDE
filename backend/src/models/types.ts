@@ -11,6 +11,7 @@ export interface Session {
   position: number | null;
   pid: number | null;
   needsInput: boolean;
+  waitReason: string | null;
   lock: boolean;
   continuationCount: number;
   worktree: boolean;
@@ -266,6 +267,7 @@ export interface WsNeedsInputMessage {
   type: 'needs_input';
   sessionId: string;
   needsInput: boolean;
+  waitReason: string | null;
   detectedPattern: string;
   idleSeconds: number;
 }

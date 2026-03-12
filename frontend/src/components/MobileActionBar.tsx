@@ -5,7 +5,6 @@ interface MobileActionBarProps {
   onScrollToTop?: () => void;
   onScrollToBottom?: () => void;
   isScrolledUp?: boolean;
-  isWaiting?: boolean;
   keyboardOffset?: number;
 }
 
@@ -25,26 +24,6 @@ function ActionButton({ label, onClick, className = '', mono = false }: ActionBu
     >
       {label}
     </button>
-  );
-}
-
-function WaitingActions({ onSend }: { onSend: (data: string) => void }) {
-  const accept = useCallback(() => onSend('y\r'), [onSend]);
-  const reject = useCallback(() => onSend('n\r'), [onSend]);
-
-  return (
-    <>
-      <ActionButton
-        label="Accept"
-        onClick={accept}
-        className="bg-green-600 hover:bg-green-500 text-white flex-1"
-      />
-      <ActionButton
-        label="Reject"
-        onClick={reject}
-        className="bg-red-600 hover:bg-red-500 text-white flex-1"
-      />
-    </>
   );
 }
 
@@ -121,7 +100,6 @@ export const MobileActionBar = React.memo(function MobileActionBar({
   onScrollToTop,
   onScrollToBottom,
   isScrolledUp = false,
-  isWaiting = false,
 }: MobileActionBarProps) {
   return (
     <div
@@ -133,11 +111,7 @@ export const MobileActionBar = React.memo(function MobileActionBar({
           <ScrollToBottomButton onClick={onScrollToBottom} />
         )}
 
-        {isWaiting ? (
-          <WaitingActions onSend={onSend} />
-        ) : (
-          <DefaultActions onSend={onSend} onScrollToTop={onScrollToTop} />
-        )}
+        <DefaultActions onSend={onSend} onScrollToTop={onScrollToTop} />
       </div>
     </div>
   );

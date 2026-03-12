@@ -351,6 +351,11 @@ function migrate(database: Database.Database): void {
     database.exec("ALTER TABLE sessions ADD COLUMN flags TEXT NOT NULL DEFAULT ''");
   }
 
+  // Add wait_reason column to sessions table (034-agent-wait-hooks)
+  if (!sessionColNames.has('wait_reason')) {
+    database.exec('ALTER TABLE sessions ADD COLUMN wait_reason TEXT DEFAULT NULL');
+  }
+
   // Add mobile_device_id column to panel_states
   if (!colNames.has('mobile_device_id')) {
     database.exec('ALTER TABLE panel_states ADD COLUMN mobile_device_id TEXT DEFAULT NULL');

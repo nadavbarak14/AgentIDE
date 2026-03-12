@@ -30,26 +30,6 @@ function ActionButton({ label, onClick, className = '', mono = false }: ActionBu
   );
 }
 
-function PermissionActions({ onSend }: { onSend: (data: string) => void }) {
-  const accept = useCallback(() => onSend('y\n'), [onSend]);
-  const reject = useCallback(() => onSend('n\n'), [onSend]);
-
-  return (
-    <>
-      <ActionButton
-        label="Accept"
-        onClick={accept}
-        className="bg-green-600 hover:bg-green-500 text-white flex-1"
-      />
-      <ActionButton
-        label="Reject"
-        onClick={reject}
-        className="bg-red-600 hover:bg-red-500 text-white flex-1"
-      />
-    </>
-  );
-}
-
 function GeneratingActions({ onSend }: { onSend: (data: string) => void }) {
   const stop = useCallback(() => onSend('\x03'), [onSend]);
 
@@ -160,9 +140,8 @@ export const ClaudeActionBar = React.memo(function ClaudeActionBar({
           <ScrollToBottomButton onClick={onScrollToBottom} />
         )}
 
-        {mode === 'permission' && <PermissionActions onSend={onSend} />}
         {mode === 'generating' && <GeneratingActions onSend={onSend} />}
-        {mode === 'input' && <InputActions onSend={onSend} />}
+        {(mode === 'permission' || mode === 'input') && <InputActions onSend={onSend} />}
         {mode === 'idle' && <IdleActions onSend={onSend} />}
       </div>
     </div>
