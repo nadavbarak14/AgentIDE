@@ -105,6 +105,12 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
     logger.warn('crash detected: hub_status was "running" from previous session');
   }
 
+  // Clean up stale completed/failed sessions from previous runs
+  const cleanedUp = repo.deleteNonActiveSessions();
+  if (cleanedUp > 0) {
+    logger.info({ count: cleanedUp }, 'cleaned up stale sessions on startup');
+  }
+
   // Set hub_status to 'running' before processing sessions
   repo.setHubStatus('running');
 
@@ -283,10 +289,10 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
       const worker = repo.getWorker(session.workerId);
       if (worker?.type === 'remote' && worker.remoteAgentPort) {
         unregisterFromAgent(sessionId, worker.id);
-        return;
       }
     }
     fileWatcher.stopWatching(sessionId);
+    repo.deleteSession(sessionId);
   });
 
   sessionManager.on('session_failed', (sessionId: string) => {
@@ -295,10 +301,10 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
       const worker = repo.getWorker(session.workerId);
       if (worker?.type === 'remote' && worker.remoteAgentPort) {
         unregisterFromAgent(sessionId, worker.id);
-        return;
       }
     }
     fileWatcher.stopWatching(sessionId);
+    repo.deleteSession(sessionId);
   });
 
   sessionManager.on('session_recovering', (sessionId: string, workerId: string) => {
