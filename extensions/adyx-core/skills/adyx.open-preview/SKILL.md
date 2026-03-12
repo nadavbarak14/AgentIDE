@@ -10,7 +10,7 @@ Opens the Preview panel in the C3 dashboard and navigates to the specified URL.
 ## Usage
 
 ```bash
-./scripts/open-preview.sh <url>
+./scripts/adyx.open-preview.sh <url>
 ```
 
 ## Parameters
@@ -21,8 +21,8 @@ Opens the Preview panel in the C3 dashboard and navigates to the specified URL.
 
 ```bash
 # Open a local dev server
-./scripts/open-preview.sh http://localhost:3000
+./scripts/adyx.open-preview.sh http://localhost:3000
 
 # Open a specific page
-./scripts/open-preview.sh http://localhost:5173/about
+./scripts/adyx.open-preview.sh http://localhost:5173/about
 ```

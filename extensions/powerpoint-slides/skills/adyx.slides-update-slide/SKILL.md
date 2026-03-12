@@ -10,7 +10,7 @@ Updates the HTML content and/or speaker notes of an existing slide. The slide mu
 ## Usage
 
 ```bash
-./scripts/slides-update-slide.sh <slide-name> <html-content> [speaker-notes]
+./scripts/adyx.slides-update-slide.sh <slide-name> <html-content> [speaker-notes]
 ```
 
 ## Parameters

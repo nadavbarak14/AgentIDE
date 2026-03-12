@@ -10,7 +10,7 @@ Closes the canvas panel, removing whatever HTML was being displayed. **Always ca
 ## Usage
 
 ```bash
-./scripts/widget-dismiss.sh
+./scripts/adyx.widget-dismiss.sh
 ```
 
 ## When to Use
@@ -24,6 +24,6 @@ Closes the canvas panel, removing whatever HTML was being displayed. **Always ca
 ```bash
 # Show UI, wait for result, then close
 RESULT=$(./scripts/widget-create.sh '<button onclick="C3.sendResult({ok:true})">OK</button>' --wait)
-./scripts/widget-dismiss.sh
+./scripts/adyx.widget-dismiss.sh
 echo "User said: $RESULT"
 ```

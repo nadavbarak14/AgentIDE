@@ -114,7 +114,7 @@ export const ExtensionPanel = forwardRef<ExtensionPanelHandle, ExtensionPanelPro
           <iframe
             ref={iframeRef}
             src={extension.panelUrl}
-            sandbox="allow-scripts"
+            sandbox="allow-scripts allow-same-origin"
             className="w-full h-full border-0"
             title={extension.displayName}
             onLoad={handleIframeLoad}

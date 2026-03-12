@@ -10,7 +10,7 @@ Click an element in the preview browser by its accessible role and name. Use `/v
 ## Usage
 
 ```bash
-./scripts/view-click.sh <role> <name>
+./scripts/adyx.view-click.sh <role> <name>
 ```
 
 ## Parameters
@@ -22,11 +22,11 @@ Click an element in the preview browser by its accessible role and name. Use `/v
 
 ```bash
 # Click a button
-./scripts/view-click.sh button "Sign In"
+./scripts/adyx.view-click.sh button "Sign In"
 
 # Click a link
-./scripts/view-click.sh link "Home"
+./scripts/adyx.view-click.sh link "Home"
 
 # Click a checkbox
-./scripts/view-click.sh checkbox "Remember me"
+./scripts/adyx.view-click.sh checkbox "Remember me"
 ```

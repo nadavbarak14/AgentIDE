@@ -102,8 +102,6 @@ export function createDirectoriesRouter(): Router {
       const directories = entries
         .filter((e) => {
           if (!e.isDirectory()) return false;
-          // Skip hidden dirs and common non-project dirs
-          if (e.name.startsWith('.') && e.name !== '.config') return false;
           if (e.name === 'node_modules') return false;
           // Apply prefix filter
           if (prefix && !e.name.toLowerCase().startsWith(prefix)) return false;

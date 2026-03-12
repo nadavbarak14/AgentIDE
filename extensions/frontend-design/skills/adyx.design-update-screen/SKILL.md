@@ -10,7 +10,7 @@ Updates the HTML content of an existing screen in the Frontend Design extension.
 ## Usage
 
 ```bash
-./scripts/design-update-screen.sh <screen-name> <html-content>
+./scripts/adyx.design-update-screen.sh <screen-name> <html-content>
 ```
 
 ## Parameters

@@ -10,7 +10,7 @@ Removes a slide from the Slide Deck extension by name.
 ## Usage
 
 ```bash
-./scripts/slides-remove-slide.sh <slide-name>
+./scripts/adyx.slides-remove-slide.sh <slide-name>
 ```
 
 ## Parameters
