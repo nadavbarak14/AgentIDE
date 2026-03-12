@@ -4,7 +4,7 @@ import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import { createTestDb, closeDb } from '../../src/models/db.js';
 import { Repository } from '../../src/models/repository.js';
-import { createAuthRouter } from '../../src/api/routes/auth.js';
+import { createAuthRouter, loginLimiter } from '../../src/api/routes/auth.js';
 import { requireAuth } from '../../src/api/middleware.js';
 import { getLoginPageHtml } from '../../src/api/login-page.js';
 import {
@@ -156,5 +156,75 @@ describe('Auth System Flow', () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ sessions: [] });
+  });
+
+  it('login with wrong key fails and is logged in audit', async () => {
+    const remoteIp = '203.0.113.50';
+
+    const res = await request(app)
+      .post('/api/auth/login')
+      .set('X-Test-Remote-Ip', remoteIp)
+      .send({ accessKey: 'wrong-key' });
+
+    expect(res.status).toBe(401);
+    expect(res.body.error).toBe('Invalid access key');
+
+    const entries = repo.getAuthAuditLog();
+    const failure = entries.find((e) => e.eventType === 'login_failure');
+    expect(failure).toBeDefined();
+    expect(failure!.sourceIp).toBe(remoteIp);
+  });
+
+  it('rate limiting blocks after 5 failed attempts', async () => {
+    const remoteIp = '198.51.100.99';
+    loginLimiter.resetKey(remoteIp);
+
+    // 5 failed attempts
+    for (let i = 0; i < 5; i++) {
+      const res = await request(app)
+        .post('/api/auth/login')
+        .set('X-Test-Remote-Ip', remoteIp)
+        .send({ accessKey: `wrong-${i}` });
+      expect(res.status).toBe(401);
+    }
+
+    // 6th attempt is rate limited
+    const blocked = await request(app)
+      .post('/api/auth/login')
+      .set('X-Test-Remote-Ip', remoteIp)
+      .send({ accessKey: 'wrong-6' });
+    expect(blocked.status).toBe(429);
+    expect(blocked.body.error).toContain('Too many failed attempts');
+  });
+
+  it('audit log endpoint shows all auth events', async () => {
+    const remoteIp = '203.0.113.60';
+
+    // Generate events: fail, succeed, logout
+    await request(app)
+      .post('/api/auth/login')
+      .set('X-Test-Remote-Ip', remoteIp)
+      .send({ accessKey: 'bad' });
+
+    const loginRes = await request(app)
+      .post('/api/auth/login')
+      .set('X-Test-Remote-Ip', remoteIp)
+      .send({ accessKey });
+    const cookies = loginRes.headers['set-cookie'];
+
+    await request(app)
+      .post('/api/auth/logout')
+      .set('Cookie', cookies)
+      .set('X-Test-Remote-Ip', remoteIp);
+
+    // Check audit log (localhost access)
+    const auditRes = await request(app)
+      .get('/api/auth/audit-log');
+
+    expect(auditRes.status).toBe(200);
+    const types = auditRes.body.entries.map((e: { eventType: string }) => e.eventType);
+    expect(types).toContain('login_failure');
+    expect(types).toContain('login_success');
+    expect(types).toContain('logout');
   });
 });

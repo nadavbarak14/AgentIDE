@@ -206,6 +206,16 @@ CREATE TABLE IF NOT EXISTS auth_config (
   cookie_secret TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS auth_audit_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_type TEXT NOT NULL,
+  source_ip TEXT NOT NULL,
+  details TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON auth_audit_log(created_at);
 `;
 
 const SEED = `
@@ -384,6 +394,23 @@ function migrate(database: Database.Database): void {
         cookie_secret TEXT NOT NULL,
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
       );
+    `);
+  }
+
+  // Add auth_audit_log table if it doesn't exist (035-endpoint-auth-hardening)
+  const auditTableExists = database.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='auth_audit_log'"
+  ).get();
+  if (!auditTableExists) {
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS auth_audit_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_type TEXT NOT NULL,
+        source_ip TEXT NOT NULL,
+        details TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON auth_audit_log(created_at);
     `);
   }
 

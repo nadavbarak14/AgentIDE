@@ -35,6 +35,7 @@ import type {
   VideoRecording,
   AuthConfig,
   LayoutSnapshot,
+  AuthAuditEntry,
 } from './types.js';
 
 // Helper: convert SQLite row to Session
@@ -437,6 +438,29 @@ export class Repository {
         'INSERT OR REPLACE INTO auth_config (id, key_hash, cookie_secret) VALUES (1, ?, ?)'
       )
       .run(keyHash, cookieSecret);
+  }
+
+  // ─── Auth Audit Log ───
+
+  logAuthEvent(eventType: string, sourceIp: string, details?: string): void {
+    this.db
+      .prepare(
+        'INSERT INTO auth_audit_log (event_type, source_ip, details) VALUES (?, ?, ?)'
+      )
+      .run(eventType, sourceIp, details || null);
+  }
+
+  getAuthAuditLog(limit: number = 50): AuthAuditEntry[] {
+    const rows = this.db
+      .prepare('SELECT * FROM auth_audit_log ORDER BY created_at DESC LIMIT ?')
+      .all(limit) as Record<string, unknown>[];
+    return rows.map((row) => ({
+      id: row.id as number,
+      eventType: row.event_type as AuthAuditEntry['eventType'],
+      sourceIp: row.source_ip as string,
+      details: row.details as string | null,
+      createdAt: row.created_at as string,
+    }));
   }
 
   // ─── Workers ───
