@@ -969,7 +969,17 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
   setupWebSocket(server, repo, sessionManager, ptySpawner, fileWatcher, shellSpawner, remotePtyBridge);
 
   // Start server
-  await new Promise<void>((resolve) => {
+  await new Promise<void>((resolve, reject) => {
+    server.on('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'EADDRINUSE') {
+        const msg = `\n  Port ${port} is already in use.\n\n  Another instance of Adyx (or another process) is using this port.\n  To fix this, either:\n    1. Stop the other process: lsof -ti :${port} | xargs kill\n    2. Use a different port: PORT=${port + 1} adyx\n`;
+        logger.error({ port }, `Port ${port} is already in use`);
+        console.error(msg);
+        reject(new Error(`Port ${port} is already in use`));
+      } else {
+        reject(err);
+      }
+    });
     server.listen(port, host, () => {
       logger.info(
         { port, host },
