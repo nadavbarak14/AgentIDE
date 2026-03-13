@@ -20,6 +20,7 @@ import {
   injectBridgeScript,
   isPrivateIp,
   MIME_TYPES,
+  BRIDGE_SCRIPT_TAG,
 } from '../proxy-utils.js';
 
 /**
@@ -788,57 +789,112 @@ export function createFilesRouter(repo: Repository, agentTunnelManager?: AgentTu
           proxyRes.on('data', (chunk: Buffer) => chunks.push(chunk));
           proxyRes.on('end', () => {
             let body = Buffer.concat(chunks).toString('utf-8');
+
+            // Detect Next.js RSC redirect in HTML payload and convert to HTTP redirect
+            // (NEXT_REDIRECT;replace;/path;307; is embedded in <script> tags by Next.js)
+            const rscRedirectMatch = body.match(/NEXT_REDIRECT;(?:replace|push);([^;]+);(\d+);/);
+            if (rscRedirectMatch) {
+              const redirectPath = rscRedirectMatch[1];
+              let redirectUrl = redirectPath;
+              if (redirectPath.startsWith('/')) {
+                redirectUrl = `${targetUrl.protocol}//${targetUrl.host}${redirectPath}`;
+              }
+              const proxyRedirectUrl = `/api/sessions/${sessionId}/proxy-url/${encodeURIComponent(redirectUrl)}`;
+              res.writeHead(307, { location: proxyRedirectUrl });
+              res.end();
+              return;
+            }
+
+            // Strip <meta> CSP tags that would block our injected scripts
+            body = body.replace(/<meta[^>]*http-equiv\s*=\s*["']Content-Security-Policy["'][^>]*>/gi, '');
             // Inject <base> tag to make relative URLs resolve against the remote server
             const baseTag = `<base href="${targetUrl.href}">`;
             body = body.replace(/<head[^>]*>/i, (match) => `${match}\n${baseTag}`);
 
-            // Inject script to fix localhost references and prevent cross-origin errors
+            // Inject script to fix localhost references, intercept navigation, prevent cross-origin errors
             const remoteHost = targetUrl.hostname;
-            const interceptorScript = `<script>
+            const proxyUrlBase = `/api/sessions/${sessionId}/proxy-url/`;
+            const targetOrigin = targetUrl.origin;
+            const interceptorScript = `<script>(function(){
+var proxyBase="${proxyUrlBase}";
+var targetOrigin="${targetOrigin}";
+
+// Route a URL back through the proxy-url endpoint
+// Uses absolute URLs (window.location.origin prefix) to bypass <base> tag resolution
+function toProxyUrl(url) {
+  if (typeof url !== "string") return url;
+  var origin = window.location.origin;
+  // Already a proxy URL
+  if (url.indexOf(proxyBase) !== -1) return url;
+  // Relative URL — route through proxy with absolute origin to bypass <base> tag
+  if (url.startsWith("/") && !url.startsWith("//")) {
+    return origin + proxyBase + encodeURIComponent(targetOrigin + url);
+  }
+  // Absolute URL to the target origin — route through proxy
+  if (url.startsWith(targetOrigin + "/") || url === targetOrigin) {
+    return origin + proxyBase + encodeURIComponent(url);
+  }
+  // Other absolute URLs (Supabase, Google, CDNs) — let them go directly
+  return url;
+}
+
 // Rewrite localhost URLs to use remote server's IP/hostname
 function rewriteLocalhostUrl(url) {
-  if (typeof url !== 'string') return url;
-  return url.replace(/^(https?:\\/\\/)localhost(:[0-9]+)?(\\/|$)/i, '$1${remoteHost}$2$3')
-            .replace(/^(wss?:\\/\\/)localhost(:[0-9]+)?(\\/|$)/i, '$1${remoteHost}$2$3');
+  if (typeof url !== "string") return url;
+  return url.replace(/^(https?:\\/\\/)localhost(:[0-9]+)?(\\/|$)/i, "$1${remoteHost}$2$3")
+            .replace(/^(wss?:\\/\\/)localhost(:[0-9]+)?(\\/|$)/i, "$1${remoteHost}$2$3");
 }
+
+// Intercept hard navigations (location.assign/replace/href) to route through proxy
+try { var oLA = location.assign.bind(location); location.assign = function(u) { return oLA(toProxyUrl(u)); }; } catch(e) {}
+try { var oLR = location.replace.bind(location); location.replace = function(u) { return oLR(toProxyUrl(u)); }; } catch(e) {}
+try {
+  var hd = Object.getOwnPropertyDescriptor(window.Location.prototype, "href");
+  if (hd && hd.set) {
+    var oHS = hd.set;
+    Object.defineProperty(window.Location.prototype, "href", {
+      set: function(u) { return oHS.call(this, toProxyUrl(u)); },
+      get: hd.get, configurable: true, enumerable: true
+    });
+  }
+} catch(e) {}
 
 // Intercept WebSocket to rewrite localhost URLs
 var OriginalWebSocket = window.WebSocket;
 window.WebSocket = function(url) {
   var rewritten = rewriteLocalhostUrl(url);
   try { return new OriginalWebSocket(rewritten); }
-  catch(e) { console.warn('[Proxy] WebSocket failed:', url); return null; }
+  catch(e) { console.warn("[Proxy] WebSocket failed:", url); return null; }
 };
 
-// Intercept fetch to rewrite localhost URLs
+// Intercept fetch/XHR — route relative URLs through proxy so API calls
+// (login, data fetching) go to the external server, not the Adyx server
 var OriginalFetch = window.fetch;
 window.fetch = function() {
-  if (arguments.length > 0 && typeof arguments[0] === 'string') {
-    arguments[0] = rewriteLocalhostUrl(arguments[0]);
+  if (arguments.length > 0 && typeof arguments[0] === "string") {
+    arguments[0] = toProxyUrl(rewriteLocalhostUrl(arguments[0]));
   }
   return OriginalFetch.apply(this, arguments);
 };
-
-// Intercept XMLHttpRequest.open to rewrite localhost URLs
 var OriginalXHROpen = XMLHttpRequest.prototype.open;
 XMLHttpRequest.prototype.open = function(method, url) {
-  if (typeof url === 'string') {
-    url = rewriteLocalhostUrl(url);
-  }
+  if (typeof url === "string") { url = toProxyUrl(rewriteLocalhostUrl(url)); }
   return OriginalXHROpen.apply(this, [method, url].concat(Array.prototype.slice.call(arguments, 2)));
 };
 
 // Stub out history API to prevent cross-origin errors
 window.history.replaceState = function() { return null; };
 window.history.pushState = function() { return null; };
-</script>`;
-            body = body.replace(/<head[^>]*>/i, (match) => `${match}\n${interceptorScript}`);
+})()</script>`;
+            // Inject bridge + interceptor right after <head>, BEFORE <base>.
+            // Bridge must load before <base> so /api/inspect-bridge.js resolves
+            // against the proxy origin, not the external server.
+            body = body.replace(/<head[^>]*>/i, (match) => `${match}\n${BRIDGE_SCRIPT_TAG}\n${interceptorScript}`);
 
-            const modified = injectBridgeScript(body);
             delete responseHeaders['content-length'];
-            responseHeaders['content-length'] = String(Buffer.byteLength(modified));
+            responseHeaders['content-length'] = String(Buffer.byteLength(body));
             res.writeHead(proxyRes.statusCode || 200, responseHeaders);
-            res.end(modified);
+            res.end(body);
           });
         } else {
           res.writeHead(proxyRes.statusCode || 200, responseHeaders);
