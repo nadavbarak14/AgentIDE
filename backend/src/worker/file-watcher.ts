@@ -188,6 +188,15 @@ export class FileWatcher extends EventEmitter {
   }
 
   /**
+   * Get currently known listening ports for a session.
+   */
+  getKnownPorts(sessionId: string): DetectedPort[] {
+    const ports = this.knownPorts.get(sessionId);
+    if (!ports) return [];
+    return [...ports.values()];
+  }
+
+  /**
    * Start polling for listening ports associated with a session's process tree.
    */
   private startPortScanning(sessionId: string, pid: number): void {

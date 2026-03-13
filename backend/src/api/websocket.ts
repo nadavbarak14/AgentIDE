@@ -117,6 +117,21 @@ export function setupWebSocket(
           pid: session.pid,
         }),
       );
+
+      // Send currently known ports so reconnecting clients see the preview
+      if (fileWatcher) {
+        const knownPorts = fileWatcher.getKnownPorts(sessionId);
+        for (const p of knownPorts) {
+          ws.send(
+            JSON.stringify({
+              type: 'port_detected',
+              port: p.port,
+              localPort: p.port,
+              protocol: 'http',
+            }),
+          );
+        }
+      }
     }
 
     // Force a TUI redraw for the new client by "bouncing" the PTY size.

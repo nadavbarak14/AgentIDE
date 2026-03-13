@@ -275,7 +275,7 @@ export function SessionCard({
           };
 
           // Only open preview for commands that explicitly need it visible
-          const needsPreviewVisible = msg.command === 'view-navigate' || msg.command === 'view-set-resolution';
+          const needsPreviewVisible = msg.command === 'view-navigate' || msg.command === 'view-set-resolution' || msg.command === 'view-screenshot' || msg.command === 'view-read-page' || msg.command === 'view-click' || msg.command === 'view-type';
           if (needsPreviewVisible) {
             ensurePanelOpen('preview');
           }
