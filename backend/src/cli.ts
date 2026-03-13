@@ -35,11 +35,21 @@ program
     runPreFlightCheck();
 
     const { startHub } = await import('./hub-entry.js');
-    const result = await startHub({
-      port: parseInt(opts.port, 10),
-      host: opts.host,
-      password: opts.password,
-    });
+    let result;
+    try {
+      result = await startHub({
+        port: parseInt(opts.port, 10),
+        host: opts.host,
+        password: opts.password,
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('already in use')) {
+        process.exit(1);
+      }
+      console.error(`Failed to start Adyx: ${msg}`);
+      process.exit(1);
+    }
 
     // Display access key info
     if (result.accessKey) {

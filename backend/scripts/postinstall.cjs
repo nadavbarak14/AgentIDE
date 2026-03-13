@@ -2,9 +2,9 @@
 
 /**
  * Postinstall script — runs after `npm install -g adyx-ide`.
- * Checks for required system dependencies and prints warnings.
+ * Checks for required system dependencies.
  * Plain JS (no TypeScript) so it works without a build step.
- * Always exits 0 — never fails the install, just warns.
+ * Fails the install if critical dependencies are missing (node-pty, tmux).
  */
 
 const { execSync } = require('child_process');
@@ -33,6 +33,7 @@ const DEPS = [
     name: 'tmux',
     binary: 'tmux',
     versionFlag: '-V',
+    required: true,
     install: {
       ubuntu: 'sudo apt install -y tmux',
       rhel: 'sudo dnf install -y tmux',
@@ -44,6 +45,7 @@ const DEPS = [
     name: 'GitHub CLI',
     binary: 'gh',
     versionFlag: '--version',
+    required: false,
     install: {
       ubuntu: 'sudo apt install -y gh  (or see https://github.com/cli/cli/blob/trunk/docs/install_linux.md)',
       rhel: 'sudo dnf install -y gh  (or see https://github.com/cli/cli/blob/trunk/docs/install_linux.md)',
@@ -69,9 +71,31 @@ function checkBinary(binary, versionFlag) {
   }
 }
 
+/**
+ * Test that node-pty can actually spawn a process, not just load.
+ * Returns { ok: true } or { ok: false, error: string }.
+ */
+function testNodePtySpawn() {
+  try {
+    const ptyModule = require('node-pty');
+    const shell = process.platform === 'win32' ? 'cmd.exe' : '/bin/sh';
+    const proc = ptyModule.spawn(shell, ['-c', 'echo pty_ok'], {
+      name: 'xterm-256color',
+      cols: 80,
+      rows: 24,
+    });
+    // Give it a moment then kill — we just need to confirm spawn works
+    proc.kill();
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
 try {
   const platform = detectPlatform();
   const results = DEPS.map((dep) => ({ ...dep, ...checkBinary(dep.binary, dep.versionFlag) }));
+  const errors = [];
 
   console.log('');
   console.log(`${BOLD}Adyx Dependency Check${RESET}`);
@@ -83,48 +107,45 @@ try {
       console.log(`  ${r.name} ${dots} ${GREEN}v${r.version}${RESET} (ok)`);
     } else {
       console.log(`  ${r.name} ${dots} ${RED}MISSING${RESET}`);
+      if (r.required) {
+        const instruction = r.install[platform] || 'See documentation for installation';
+        errors.push(`${r.name} is required. Install with:\n    ${instruction}`);
+      }
     }
   }
 
-  const missing = results.filter((r) => !r.installed);
-  if (missing.length > 0) {
-    console.log('');
-    console.log(`${YELLOW}Missing dependencies:${RESET}`);
-    for (const r of missing) {
-      const instruction = r.install[platform] || 'See documentation for installation';
-      console.log(`  ${r.name}: ${instruction}`);
-    }
-    console.log('');
-    console.log('Install missing dependencies, then run: adyx doctor');
+  // Test node-pty — not just loading, but actually spawning
+  const ptyResult = testNodePtySpawn();
+  if (ptyResult.ok) {
+    console.log(`  node-pty ${'.'.repeat(13)} ${GREEN}working${RESET} (ok)`);
   } else {
-    console.log('');
-    console.log(`${GREEN}All dependencies satisfied!${RESET}`);
+    console.log(`  node-pty ${'.'.repeat(13)} ${RED}FAILED${RESET}`);
+    let fix;
+    if (process.platform === 'darwin') {
+      fix = `Install Xcode command-line tools, then reinstall:\n    xcode-select --install\n    npm install -g adyx-ide`;
+    } else {
+      fix = `Install build tools, then reinstall:\n    sudo apt-get install -y build-essential python3\n    npm install -g adyx-ide`;
+    }
+    errors.push(`node-pty failed to spawn a process: ${ptyResult.error}\n    ${fix}`);
   }
+
   console.log('');
 
-  // Check node-pty native module health
-  try {
-    require('node-pty');
-    console.log(`  node-pty native module .. ${GREEN}loaded${RESET} (ok)`);
-  } catch (ptyErr) {
-    console.log(`  node-pty native module .. ${RED}FAILED${RESET}`);
+  if (errors.length > 0) {
+    console.log(`${RED}${BOLD}Installation cannot continue — missing critical dependencies:${RESET}`);
     console.log('');
-    console.log(`${YELLOW}Warning: node-pty native module failed to load: ${ptyErr.message}${RESET}`);
-    console.log('  Terminal session support requires a working native module.');
-    console.log('');
-    if (process.platform === 'darwin') {
-      console.log('  On macOS: Install Xcode command-line tools:');
-      console.log('    xcode-select --install');
-    } else {
-      console.log('  On Linux: Install build tools:');
-      console.log('    sudo apt-get install -y build-essential python3');
+    for (const err of errors) {
+      console.log(`  ${RED}✗${RESET} ${err}`);
+      console.log('');
     }
+    console.log(`After fixing, reinstall with: ${BOLD}npm install -g adyx-ide${RESET}`);
     console.log('');
-    console.log('  Then reinstall: npm install -g adyx-ide');
+    process.exit(1);
   }
+
+  console.log(`${GREEN}All dependencies satisfied!${RESET}`);
+  console.log('');
 } catch (err) {
-  // Never fail the install
+  // Never fail on unexpected errors in the check itself
   console.log('Note: Could not check system dependencies. Run `adyx doctor` to verify.');
 }
-
-process.exit(0);
