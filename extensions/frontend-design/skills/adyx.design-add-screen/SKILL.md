@@ -10,7 +10,7 @@ Adds a new named screen to the Frontend Design extension panel. The screen conte
 ## Usage
 
 ```bash
-./scripts/adyx.design-add-screen.sh <screen-name> <html-content>
+./adyx.design-add-screen/scripts/adyx.design-add-screen.sh <screen-name> <html-content>
 ```
 
 ## Parameters
@@ -21,5 +21,5 @@ Adds a new named screen to the Frontend Design extension panel. The screen conte
 ## Example
 
 ```bash
-./scripts/adyx.design-add-screen.sh "homepage" '<div style="padding:20px"><h1>Welcome</h1><button>Get Started</button></div>'
+./adyx.design-add-screen/scripts/adyx.design-add-screen.sh "homepage" '<div style="padding:20px"><h1>Welcome</h1><button>Get Started</button></div>'
 ```

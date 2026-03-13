@@ -10,7 +10,7 @@ Set the preview browser viewport to a custom resolution.
 ## Usage
 
 ```bash
-./scripts/adyx.view-set-resolution.sh <width> <height>
+./adyx.view-set-resolution/scripts/adyx.view-set-resolution.sh <width> <height>
 ```
 
 ## Parameters
@@ -22,11 +22,11 @@ Set the preview browser viewport to a custom resolution.
 
 ```bash
 # Set to tablet portrait
-./scripts/adyx.view-set-resolution.sh 768 1024
+./adyx.view-set-resolution/scripts/adyx.view-set-resolution.sh 768 1024
 
 # Set to mobile
-./scripts/adyx.view-set-resolution.sh 375 667
+./adyx.view-set-resolution/scripts/adyx.view-set-resolution.sh 375 667
 
 # Set to desktop
-./scripts/adyx.view-set-resolution.sh 1920 1080
+./adyx.view-set-resolution/scripts/adyx.view-set-resolution.sh 1920 1080
 ```

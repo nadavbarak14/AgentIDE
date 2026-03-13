@@ -10,7 +10,7 @@ Stop the current preview browser recording and save the video as a WebM file. Re
 ## Usage
 
 ```bash
-./scripts/adyx.view-record-stop.sh
+./adyx.view-record-stop/scripts/adyx.view-record-stop.sh
 ```
 
 ## Parameters
@@ -21,5 +21,5 @@ None.
 
 ```bash
 # Stop recording and get the saved file path
-./scripts/adyx.view-record-stop.sh
+./adyx.view-record-stop/scripts/adyx.view-record-stop.sh
 ```

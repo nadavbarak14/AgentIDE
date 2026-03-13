@@ -10,7 +10,7 @@ Start recording the preview browser as a WebM video. Use `/view.record-stop` to 
 ## Usage
 
 ```bash
-./scripts/adyx.view-record-start.sh [mode]
+./adyx.view-record-start/scripts/adyx.view-record-start.sh [mode]
 ```
 
 ## Parameters
@@ -21,10 +21,10 @@ Start recording the preview browser as a WebM video. Use `/view.record-stop` to 
 
 ```bash
 # Start recording full page (default)
-./scripts/adyx.view-record-start.sh
+./adyx.view-record-start/scripts/adyx.view-record-start.sh
 
 # Start recording viewport only
-./scripts/adyx.view-record-start.sh viewport
+./adyx.view-record-start/scripts/adyx.view-record-start.sh viewport
 
 # ... interact with the preview ...
 

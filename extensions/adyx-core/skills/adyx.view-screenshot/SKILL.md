@@ -10,7 +10,7 @@ Capture a screenshot of the preview browser and save it as a PNG image.
 ## Usage
 
 ```bash
-./scripts/adyx.view-screenshot.sh [mode]
+./adyx.view-screenshot/scripts/adyx.view-screenshot.sh [mode]
 ```
 
 ## Parameters
@@ -21,11 +21,11 @@ Capture a screenshot of the preview browser and save it as a PNG image.
 
 ```bash
 # Take a viewport screenshot (default)
-./scripts/adyx.view-screenshot.sh
+./adyx.view-screenshot/scripts/adyx.view-screenshot.sh
 
 # Take a viewport screenshot (explicit)
-./scripts/adyx.view-screenshot.sh viewport
+./adyx.view-screenshot/scripts/adyx.view-screenshot.sh viewport
 
 # Take a full-page screenshot
-./scripts/adyx.view-screenshot.sh full
+./adyx.view-screenshot/scripts/adyx.view-screenshot.sh full
 ```

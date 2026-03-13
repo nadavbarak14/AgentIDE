@@ -10,12 +10,12 @@ Opens the Git diff panel in the C3 dashboard to show current changes.
 ## Usage
 
 ```bash
-./scripts/adyx.show-diff.sh
+./adyx.show-diff/scripts/adyx.show-diff.sh
 ```
 
 ## Examples
 
 ```bash
 # Show git changes
-./scripts/adyx.show-diff.sh
+./adyx.show-diff/scripts/adyx.show-diff.sh
 ```

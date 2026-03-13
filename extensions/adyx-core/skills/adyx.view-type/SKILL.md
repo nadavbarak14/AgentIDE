@@ -10,7 +10,7 @@ Type text into an element in the preview browser by its accessible role and name
 ## Usage
 
 ```bash
-./scripts/adyx.view-type.sh <role> <name> <text>
+./adyx.view-type/scripts/adyx.view-type.sh <role> <name> <text>
 ```
 
 ## Parameters
@@ -23,11 +23,11 @@ Type text into an element in the preview browser by its accessible role and name
 
 ```bash
 # Type into an email field
-./scripts/adyx.view-type.sh textbox "Email" "user@test.com"
+./adyx.view-type/scripts/adyx.view-type.sh textbox "Email" "user@test.com"
 
 # Type into a search box
-./scripts/adyx.view-type.sh combobox "Search" "query text"
+./adyx.view-type/scripts/adyx.view-type.sh combobox "Search" "query text"
 
 # Type into a password field
-./scripts/adyx.view-type.sh textbox "Password" "secret123"
+./adyx.view-type/scripts/adyx.view-type.sh textbox "Password" "secret123"
 ```

@@ -14,7 +14,7 @@ The `C3` bridge SDK is **automatically injected** — do NOT include any script 
 ## Usage
 
 ```bash
-./scripts/adyx.widget-create.sh <html-content> [--wait]
+./adyx.widget-create/scripts/adyx.widget-create.sh <html-content> [--wait]
 ```
 
 ## Parameters
@@ -34,14 +34,14 @@ Use `C3.sendResult(data)` — it's always available:
 ## Example — Show a Simple UI
 
 ```bash
-./scripts/adyx.widget-create.sh '<div style="padding:20px;font-family:sans-serif"><h2>Pick a color</h2><button onclick="C3.sendResult({color:\"blue\"})">Blue</button> <button onclick="C3.sendResult({color:\"red\"})">Red</button></div>'
+./adyx.widget-create/scripts/adyx.widget-create.sh '<div style="padding:20px;font-family:sans-serif"><h2>Pick a color</h2><button onclick="C3.sendResult({color:\"blue\"})">Blue</button> <button onclick="C3.sendResult({color:\"red\"})">Red</button></div>'
 ```
 
 ## Example — Show UI and Wait for Response
 
 ```bash
 # Blocks until the user clicks, then outputs the result JSON
-RESULT=$(./scripts/adyx.widget-create.sh '<div style="padding:20px;font-family:sans-serif"><p>Deploy to production?</p><button onclick="C3.sendResult({ok:true})">Yes</button> <button onclick="C3.sendResult({ok:false})">No</button></div>' --wait)
+RESULT=$(./adyx.widget-create/scripts/adyx.widget-create.sh '<div style="padding:20px;font-family:sans-serif"><p>Deploy to production?</p><button onclick="C3.sendResult({ok:true})">Yes</button> <button onclick="C3.sendResult({ok:false})">No</button></div>' --wait)
 echo "$RESULT"  # e.g. {"ok":true}
 ```
 
