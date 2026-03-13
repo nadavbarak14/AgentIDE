@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 
-export type MobilePanelName = 'none' | 'hamburger' | 'sessions' | 'preview' | 'files' | 'git' | 'shell' | 'settings' | 'issues' | 'widgets' | 'extension';
+export type MobilePanelName = 'none' | 'hamburger' | 'sessions' | 'preview' | 'files' | 'git' | 'shell' | 'settings' | 'issues' | 'widgets' | 'extensions' | 'extension';
 
 export interface UseMobilePanelReturn {
   activePanel: MobilePanelName;
