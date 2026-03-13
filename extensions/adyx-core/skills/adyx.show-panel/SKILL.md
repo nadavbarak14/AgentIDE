@@ -10,7 +10,7 @@ Opens the specified panel in the C3 dashboard.
 ## Usage
 
 ```bash
-./scripts/adyx.show-panel.sh <panel-name>
+./adyx.show-panel/scripts/adyx.show-panel.sh <panel-name>
 ```
 
 ## Parameters
@@ -21,11 +21,11 @@ Opens the specified panel in the C3 dashboard.
 
 ```bash
 # Show the files panel
-./scripts/adyx.show-panel.sh files
+./adyx.show-panel/scripts/adyx.show-panel.sh files
 
 # Show the git panel
-./scripts/adyx.show-panel.sh git
+./adyx.show-panel/scripts/adyx.show-panel.sh git
 
 # Show the preview panel
-./scripts/adyx.show-panel.sh preview
+./adyx.show-panel/scripts/adyx.show-panel.sh preview
 ```

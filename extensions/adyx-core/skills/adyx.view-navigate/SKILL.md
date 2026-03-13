@@ -10,7 +10,7 @@ Navigate the preview browser to a specified URL.
 ## Usage
 
 ```bash
-./scripts/adyx.view-navigate.sh <url>
+./adyx.view-navigate/scripts/adyx.view-navigate.sh <url>
 ```
 
 ## Parameters
@@ -21,8 +21,8 @@ Navigate the preview browser to a specified URL.
 
 ```bash
 # Navigate to a local dev server
-./scripts/adyx.view-navigate.sh http://localhost:3000
+./adyx.view-navigate/scripts/adyx.view-navigate.sh http://localhost:3000
 
 # Navigate to a specific page
-./scripts/adyx.view-navigate.sh http://localhost:3000/login
+./adyx.view-navigate/scripts/adyx.view-navigate.sh http://localhost:3000/login
 ```

@@ -10,7 +10,7 @@ Set the preview browser viewport mode: desktop with a resolution preset, or mobi
 ## Usage
 
 ```bash
-./scripts/adyx.view-set-viewport.sh <mode> [deviceId]
+./adyx.view-set-viewport/scripts/adyx.view-set-viewport.sh <mode> [deviceId]
 ```
 
 ## Parameters
@@ -28,17 +28,17 @@ Set the preview browser viewport mode: desktop with a resolution preset, or mobi
 
 ```bash
 # Switch to desktop mode (default 1080p)
-./scripts/adyx.view-set-viewport.sh desktop
+./adyx.view-set-viewport/scripts/adyx.view-set-viewport.sh desktop
 
 # Switch to desktop 1440p
-./scripts/adyx.view-set-viewport.sh desktop desktop-1440p
+./adyx.view-set-viewport/scripts/adyx.view-set-viewport.sh desktop desktop-1440p
 
 # Switch to MacBook Pro 14" resolution
-./scripts/adyx.view-set-viewport.sh desktop macbook-pro-14
+./adyx.view-set-viewport/scripts/adyx.view-set-viewport.sh desktop macbook-pro-14
 
 # Switch to iPhone 17 Pro (402x874)
-./scripts/adyx.view-set-viewport.sh mobile iphone-17-pro
+./adyx.view-set-viewport/scripts/adyx.view-set-viewport.sh mobile iphone-17-pro
 
 # Switch to iPad Air 11" (820x1180)
-./scripts/adyx.view-set-viewport.sh mobile ipad-air-11
+./adyx.view-set-viewport/scripts/adyx.view-set-viewport.sh mobile ipad-air-11
 ```

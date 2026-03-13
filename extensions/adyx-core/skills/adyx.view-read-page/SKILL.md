@@ -10,7 +10,7 @@ Read the current page content from the preview browser as an accessibility tree.
 ## Usage
 
 ```bash
-./scripts/adyx.view-read-page.sh
+./adyx.view-read-page/scripts/adyx.view-read-page.sh
 ```
 
 ## Parameters
@@ -21,5 +21,5 @@ None.
 
 ```bash
 # Read the current page's accessibility tree
-./scripts/adyx.view-read-page.sh
+./adyx.view-read-page/scripts/adyx.view-read-page.sh
 ```
