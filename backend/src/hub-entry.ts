@@ -172,13 +172,19 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
   });
 
   fileWatcher.on('port_change', (event: { sessionId: string; port: number; pid: number; process: string; action: string }) => {
-    broadcastToSession(event.sessionId, {
-      type: 'port_change',
-      port: event.port,
-      pid: event.pid,
-      process: event.process,
-      action: event.action,
-    });
+    if (event.action === 'detected') {
+      broadcastToSession(event.sessionId, {
+        type: 'port_detected',
+        port: event.port,
+        localPort: event.port,
+        protocol: 'http',
+      });
+    } else if (event.action === 'closed') {
+      broadcastToSession(event.sessionId, {
+        type: 'port_closed',
+        port: event.port,
+      });
+    }
   });
 
   // Track agent WebSocket connections per worker
@@ -227,13 +233,19 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
               timestamp: msg.timestamp,
             });
           } else if (msg.type === 'port_change' && msg.sessionId) {
-            broadcastToSession(msg.sessionId, {
-              type: 'port_change',
-              port: msg.port,
-              pid: msg.pid,
-              process: msg.process,
-              action: msg.action,
-            });
+            if (msg.action === 'detected') {
+              broadcastToSession(msg.sessionId, {
+                type: 'port_detected',
+                port: msg.port,
+                localPort: msg.port,
+                protocol: 'http',
+              });
+            } else if (msg.action === 'closed') {
+              broadcastToSession(msg.sessionId, {
+                type: 'port_closed',
+                port: msg.port,
+              });
+            }
           }
         } catch {
           // Ignore malformed messages
@@ -400,6 +412,19 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
     res.setHeader('Content-Type', 'text/html');
     res.send(getLoginPageHtml());
   });
+
+  // PWA assets — serve before auth so manifest.json doesn't redirect to login
+  const frontendDistForPwa = path.join(import.meta.dirname, '../../frontend/dist');
+  for (const file of ['manifest.json', 'icon.svg']) {
+    const filePath = path.join(frontendDistForPwa, file);
+    app.get(`/${file}`, (_req, res) => {
+      if (fs.existsSync(filePath)) {
+        res.sendFile(filePath);
+      } else {
+        res.status(404).end();
+      }
+    });
+  }
 
   // Auth middleware — gates all subsequent routes for non-localhost
   app.use(requireAuth(repo));
