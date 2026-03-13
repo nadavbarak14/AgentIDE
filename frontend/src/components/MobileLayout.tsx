@@ -182,8 +182,7 @@ export function MobileLayout({
           onKillSession={currentSessionId && onKillSession ? () => onKillSession(currentSessionId) : undefined}
           hasActiveSession={currentSession?.status === 'active'}
           showIssues={!!currentSessionId}
-          extensions={extensionsWithPanel}
-          onSelectExtension={handleSelectExtension}
+          extensionCount={extensionsWithPanel.length}
           widgetCount={widgetCount}
         />
       )}
@@ -278,7 +277,30 @@ export function MobileLayout({
         </MobileSheetOverlay>
       )}
 
-      {/* Extension Overlay */}
+      {/* Extensions List Overlay */}
+      {activePanel === 'extensions' && (
+        <MobileSheetOverlay title="Extensions" onClose={close}>
+          <div className="flex flex-col p-2 gap-1">
+            {extensionsWithPanel.map((ext) => (
+              <button
+                key={ext.name}
+                type="button"
+                onClick={() => handleSelectExtension(ext.name)}
+                className="flex items-center gap-3 w-full min-h-[52px] px-4 rounded-lg bg-gray-900 hover:bg-gray-800 text-gray-200 transition-colors"
+              >
+                <span className="flex-shrink-0 text-gray-400">
+                  <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M13 2H7v4H3v6h4v4h6v-4h4V6h-4V2z" />
+                  </svg>
+                </span>
+                <span className="text-sm font-medium">{ext.displayName}</span>
+              </button>
+            ))}
+          </div>
+        </MobileSheetOverlay>
+      )}
+
+      {/* Extension Panel Overlay */}
       {activePanel === 'extension' && activeExtensionName && currentSessionId && (() => {
         const ext = extensionsWithPanel.find(e => e.name === activeExtensionName);
         if (!ext) return null;

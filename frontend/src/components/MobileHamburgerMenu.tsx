@@ -1,6 +1,5 @@
 import { useCallback, useState, useEffect } from 'react';
 import type { MobilePanelName } from '../hooks/useMobilePanel';
-import type { LoadedExtension } from '../services/extension-types';
 import { MobileSheetOverlay } from './MobileSheetOverlay';
 
 interface MobileHamburgerMenuProps {
@@ -10,8 +9,7 @@ interface MobileHamburgerMenuProps {
   onKillSession?: () => void;
   hasActiveSession?: boolean;
   showIssues?: boolean;
-  extensions?: LoadedExtension[];
-  onSelectExtension?: (name: string) => void;
+  extensionCount?: number;
   widgetCount?: number;
 }
 
@@ -82,6 +80,15 @@ const menuItems: { panel: MobilePanelName; label: string; icon: React.ReactNode 
     ),
   },
   {
+    panel: 'extensions',
+    label: 'Extensions',
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M13 2H7v4H3v6h4v4h6v-4h4V6h-4V2z" />
+      </svg>
+    ),
+  },
+  {
     panel: 'settings',
     label: 'Settings',
     icon: (
@@ -93,7 +100,7 @@ const menuItems: { panel: MobilePanelName; label: string; icon: React.ReactNode 
   },
 ];
 
-export function MobileHamburgerMenu({ onSelectPanel, onClose, onNewSession, onKillSession, hasActiveSession, showIssues, extensions, onSelectExtension, widgetCount }: MobileHamburgerMenuProps) {
+export function MobileHamburgerMenu({ onSelectPanel, onClose, onNewSession, onKillSession, hasActiveSession, showIssues, extensionCount, widgetCount }: MobileHamburgerMenuProps) {
   const handleSelect = (panel: MobilePanelName) => {
     onSelectPanel(panel);
   };
@@ -135,6 +142,7 @@ export function MobileHamburgerMenu({ onSelectPanel, onClose, onNewSession, onKi
         {menuItems.filter(item => {
           if (item.panel === 'issues' && !showIssues) return false;
           if (item.panel === 'widgets' && !(widgetCount && widgetCount > 0)) return false;
+          if (item.panel === 'extensions' && !(extensionCount && extensionCount > 0)) return false;
           return true;
         }).map((item) => (
           <button
@@ -145,23 +153,6 @@ export function MobileHamburgerMenu({ onSelectPanel, onClose, onNewSession, onKi
           >
             <span className="flex-shrink-0 text-gray-400">{item.icon}</span>
             <span className="text-sm font-medium">{item.label}</span>
-          </button>
-        ))}
-
-        {/* Extension panels */}
-        {extensions && extensions.length > 0 && extensions.map((ext) => (
-          <button
-            key={`ext-${ext.name}`}
-            type="button"
-            onClick={() => { onSelectExtension?.(ext.name); }}
-            className="flex items-center gap-3 w-full min-h-[52px] px-4 rounded-lg bg-gray-900 hover:bg-gray-800 text-gray-200 transition-colors"
-          >
-            <span className="flex-shrink-0 text-gray-400">
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M13 2H7v4H3v6h4v4h6v-4h4V6h-4V2z" />
-              </svg>
-            </span>
-            <span className="text-sm font-medium">{ext.displayName}</span>
           </button>
         ))}
 

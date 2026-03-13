@@ -1,7 +1,6 @@
 {
   "extensions": [
     "adyx-core",
-    "frontend-design",
-    "powerpoint-slides"
+    "frontend-design"
   ]
 }
