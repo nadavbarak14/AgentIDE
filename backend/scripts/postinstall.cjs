@@ -2,13 +2,15 @@
 
 /**
  * Postinstall script — runs after `npm install -g adyx-ide`.
- * Checks for required system dependencies and prints warnings.
- * Plain JS (no TypeScript) so it works without a build step.
- * Always exits 0 — never fails the install, just warns.
+ * Checks for required system dependencies, fixes node-pty spawn-helper
+ * permissions (npm strips +x on pack/install), and verifies node-pty
+ * can actually spawn a process.
+ * Exits non-zero only if node-pty spawn is broken after attempted fix.
  */
 
-const { execSync } = require('child_process');
-const { readFileSync } = require('fs');
+const { execSync, spawnSync } = require('child_process');
+const { readFileSync, chmodSync, existsSync, statSync } = require('fs');
+const path = require('path');
 
 const GREEN = '\x1b[32m';
 const RED = '\x1b[31m';
@@ -102,14 +104,16 @@ try {
   }
   console.log('');
 
-  // Fix node-pty spawn-helper permissions (npm doesn't preserve +x on pack/install)
+  // --- node-pty: fix permissions, then verify spawn ---
+  let ptyOk = false;
+
+  // Step 1: Fix spawn-helper permissions (npm strips +x on pack/install)
   try {
     const nodePtyDir = require.resolve('node-pty').replace(/[/\\]lib[/\\]index\.js$/, '');
     const spawnHelperPaths = [
-      require('path').join(nodePtyDir, 'prebuilds', `${process.platform}-${process.arch}`, 'spawn-helper'),
-      require('path').join(nodePtyDir, 'build', 'Release', 'spawn-helper'),
+      path.join(nodePtyDir, 'prebuilds', `${process.platform}-${process.arch}`, 'spawn-helper'),
+      path.join(nodePtyDir, 'build', 'Release', 'spawn-helper'),
     ];
-    const { chmodSync, existsSync, statSync } = require('fs');
     for (const p of spawnHelperPaths) {
       if (existsSync(p)) {
         const mode = statSync(p).mode;
@@ -126,28 +130,41 @@ try {
     console.log(`  spawn-helper .......... ${YELLOW}could not fix permissions${RESET}`);
   }
 
-  // Check node-pty native module health
+  // Step 2: Verify node-pty can actually spawn a process
   try {
-    require('node-pty');
-    console.log(`  node-pty native module .. ${GREEN}loaded${RESET} (ok)`);
-  } catch (ptyErr) {
-    console.log(`  node-pty native module .. ${RED}FAILED${RESET}`);
+    const pty = require('node-pty');
+    const testProc = pty.spawn(process.execPath, ['-e', 'process.exit(0)'], {
+      cols: 80,
+      rows: 24,
+    });
+    // Give it a moment to spawn, then check it didn't throw
+    testProc.kill();
+    ptyOk = true;
+    console.log(`  node-pty .............. ${GREEN}spawn ok${RESET}`);
+  } catch (spawnErr) {
+    console.log(`  node-pty .............. ${RED}FAILED${RESET}`);
     console.log('');
-    console.log(`${YELLOW}Warning: node-pty native module failed to load: ${ptyErr.message}${RESET}`);
-    console.log('  Terminal session support requires a working native module.');
+    console.log(`${RED}${BOLD}Installation cannot continue — missing critical dependencies:${RESET}`);
     console.log('');
+    console.log(`  ${RED}\u2717${RESET} node-pty failed to spawn a process: ${spawnErr.message}`);
     if (process.platform === 'darwin') {
-      console.log('  On macOS: Install Xcode command-line tools:');
+      console.log('    Install Xcode command-line tools, then reinstall:');
       console.log('    xcode-select --install');
+      console.log('    npm install -g adyx-ide');
     } else {
-      console.log('  On Linux: Install build tools:');
+      console.log('    Install build tools, then reinstall:');
       console.log('    sudo apt-get install -y build-essential python3');
+      console.log('    npm install -g adyx-ide');
     }
     console.log('');
-    console.log('  Then reinstall: npm install -g adyx-ide');
+    console.log(`After fixing, reinstall with: ${BOLD}npm install -g adyx-ide${RESET}`);
+  }
+
+  if (!ptyOk) {
+    process.exit(1);
   }
 } catch (err) {
-  // Never fail the install
+  // Never fail the install for non-pty errors (missing tmux/gh is a warning)
   console.log('Note: Could not check system dependencies. Run `adyx doctor` to verify.');
 }
 
