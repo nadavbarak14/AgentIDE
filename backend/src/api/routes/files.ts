@@ -857,18 +857,18 @@ window.WebSocket = function(url) {
   catch(e) { console.warn("[Proxy] WebSocket failed:", url); return null; }
 };
 
-// Intercept fetch/XHR — only rewrite localhost URLs (don't route through proxy
-// to avoid corrupting RSC/JSON responses that Next.js expects)
+// Intercept fetch/XHR — route relative URLs through proxy so API calls
+// (login, data fetching) go to the external server, not the Adyx server
 var OriginalFetch = window.fetch;
 window.fetch = function() {
   if (arguments.length > 0 && typeof arguments[0] === "string") {
-    arguments[0] = rewriteLocalhostUrl(arguments[0]);
+    arguments[0] = toProxyUrl(rewriteLocalhostUrl(arguments[0]));
   }
   return OriginalFetch.apply(this, arguments);
 };
 var OriginalXHROpen = XMLHttpRequest.prototype.open;
 XMLHttpRequest.prototype.open = function(method, url) {
-  if (typeof url === "string") { url = rewriteLocalhostUrl(url); }
+  if (typeof url === "string") { url = toProxyUrl(rewriteLocalhostUrl(url)); }
   return OriginalXHROpen.apply(this, [method, url].concat(Array.prototype.slice.call(arguments, 2)));
 };
 
