@@ -789,6 +789,22 @@ export function createFilesRouter(repo: Repository, agentTunnelManager?: AgentTu
           proxyRes.on('data', (chunk: Buffer) => chunks.push(chunk));
           proxyRes.on('end', () => {
             let body = Buffer.concat(chunks).toString('utf-8');
+
+            // Detect Next.js RSC redirect in HTML payload and convert to HTTP redirect
+            // (NEXT_REDIRECT;replace;/path;307; is embedded in <script> tags by Next.js)
+            const rscRedirectMatch = body.match(/NEXT_REDIRECT;(?:replace|push);([^;]+);(\d+);/);
+            if (rscRedirectMatch) {
+              const redirectPath = rscRedirectMatch[1];
+              let redirectUrl = redirectPath;
+              if (redirectPath.startsWith('/')) {
+                redirectUrl = `${targetUrl.protocol}//${targetUrl.host}${redirectPath}`;
+              }
+              const proxyRedirectUrl = `/api/sessions/${sessionId}/proxy-url/${encodeURIComponent(redirectUrl)}`;
+              res.writeHead(307, { location: proxyRedirectUrl });
+              res.end();
+              return;
+            }
+
             // Strip <meta> CSP tags that would block our injected scripts
             body = body.replace(/<meta[^>]*http-equiv\s*=\s*["']Content-Security-Policy["'][^>]*>/gi, '');
             // Inject <base> tag to make relative URLs resolve against the remote server
