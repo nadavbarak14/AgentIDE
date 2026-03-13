@@ -819,12 +819,22 @@ export function createFilesRouter(repo: Repository, agentTunnelManager?: AgentTu
 var proxyBase="${proxyUrlBase}";
 var targetOrigin="${targetOrigin}";
 
-// Route a URL back through the proxy-url endpoint (for hard navigations only)
+// Route a URL back through the proxy-url endpoint
+// Uses absolute URLs (window.location.origin prefix) to bypass <base> tag resolution
 function toProxyUrl(url) {
   if (typeof url !== "string") return url;
-  if (url.startsWith(proxyBase) || url.startsWith("/api/")) return url;
-  if (url.startsWith("/") && !url.startsWith("//")) return proxyBase + encodeURIComponent(targetOrigin + url);
-  if (url.startsWith("http://") || url.startsWith("https://")) return proxyBase + encodeURIComponent(url);
+  var origin = window.location.origin;
+  // Already a proxy URL
+  if (url.indexOf(proxyBase) !== -1) return url;
+  // Relative URL — route through proxy with absolute origin to bypass <base> tag
+  if (url.startsWith("/") && !url.startsWith("//")) {
+    return origin + proxyBase + encodeURIComponent(targetOrigin + url);
+  }
+  // Absolute URL to the target origin — route through proxy
+  if (url.startsWith(targetOrigin + "/") || url === targetOrigin) {
+    return origin + proxyBase + encodeURIComponent(url);
+  }
+  // Other absolute URLs (Supabase, Google, CDNs) — let them go directly
   return url;
 }
 
