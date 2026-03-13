@@ -844,6 +844,10 @@ export function Dashboard() {
           previewPort={mobileDetectedPort?.port}
           previewLocalPort={mobileDetectedPort?.localPort}
           isLocalSession={!currentMobileSession?.workerId}
+          settings={appSettings}
+          onSettingsChange={handleSettingsChange}
+          workers={workersList}
+          onWorkersChange={setWorkersList}
         >
           {currentSessionId && (
             <TerminalView

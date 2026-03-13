@@ -1,11 +1,18 @@
 import { useCallback, useState, useEffect } from 'react';
 import type { MobilePanelName } from '../hooks/useMobilePanel';
+import type { LoadedExtension } from '../services/extension-types';
 import { MobileSheetOverlay } from './MobileSheetOverlay';
 
 interface MobileHamburgerMenuProps {
   onSelectPanel: (panel: MobilePanelName) => void;
   onClose: () => void;
   onNewSession: () => void;
+  onKillSession?: () => void;
+  hasActiveSession?: boolean;
+  showIssues?: boolean;
+  extensions?: LoadedExtension[];
+  onSelectExtension?: (name: string) => void;
+  widgetCount?: number;
 }
 
 const menuItems: { panel: MobilePanelName; label: string; icon: React.ReactNode }[] = [
@@ -41,6 +48,17 @@ const menuItems: { panel: MobilePanelName; label: string; icon: React.ReactNode 
     ),
   },
   {
+    panel: 'issues',
+    label: 'Issues',
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="10" cy="10" r="8" />
+        <line x1="10" y1="6" x2="10" y2="11" />
+        <circle cx="10" cy="14" r="0.5" fill="currentColor" />
+      </svg>
+    ),
+  },
+  {
     panel: 'shell',
     label: 'Shell',
     icon: (
@@ -48,6 +66,18 @@ const menuItems: { panel: MobilePanelName; label: string; icon: React.ReactNode 
         <rect x="2" y="3" width="16" height="14" rx="2" />
         <polyline points="6,8 9,10.5 6,13" />
         <line x1="11" y1="13" x2="14" y2="13" />
+      </svg>
+    ),
+  },
+  {
+    panel: 'widgets',
+    label: 'Canvas',
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="2" y="2" width="7" height="7" rx="1" />
+        <rect x="11" y="2" width="7" height="7" rx="1" />
+        <rect x="2" y="11" width="7" height="7" rx="1" />
+        <rect x="11" y="11" width="7" height="7" rx="1" />
       </svg>
     ),
   },
@@ -63,7 +93,7 @@ const menuItems: { panel: MobilePanelName; label: string; icon: React.ReactNode 
   },
 ];
 
-export function MobileHamburgerMenu({ onSelectPanel, onClose, onNewSession }: MobileHamburgerMenuProps) {
+export function MobileHamburgerMenu({ onSelectPanel, onClose, onNewSession, onKillSession, hasActiveSession, showIssues, extensions, onSelectExtension, widgetCount }: MobileHamburgerMenuProps) {
   const handleSelect = (panel: MobilePanelName) => {
     onSelectPanel(panel);
   };
@@ -102,7 +132,11 @@ export function MobileHamburgerMenu({ onSelectPanel, onClose, onNewSession }: Mo
   return (
     <MobileSheetOverlay onClose={onClose} title="Menu">
       <div className="flex flex-col p-2 gap-1">
-        {menuItems.map((item) => (
+        {menuItems.filter(item => {
+          if (item.panel === 'issues' && !showIssues) return false;
+          if (item.panel === 'widgets' && !(widgetCount && widgetCount > 0)) return false;
+          return true;
+        }).map((item) => (
           <button
             key={item.panel}
             type="button"
@@ -111,6 +145,23 @@ export function MobileHamburgerMenu({ onSelectPanel, onClose, onNewSession }: Mo
           >
             <span className="flex-shrink-0 text-gray-400">{item.icon}</span>
             <span className="text-sm font-medium">{item.label}</span>
+          </button>
+        ))}
+
+        {/* Extension panels */}
+        {extensions && extensions.length > 0 && extensions.map((ext) => (
+          <button
+            key={`ext-${ext.name}`}
+            type="button"
+            onClick={() => { onSelectExtension?.(ext.name); }}
+            className="flex items-center gap-3 w-full min-h-[52px] px-4 rounded-lg bg-gray-900 hover:bg-gray-800 text-gray-200 transition-colors"
+          >
+            <span className="flex-shrink-0 text-gray-400">
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M13 2H7v4H3v6h4v4h6v-4h4V6h-4V2z" />
+              </svg>
+            </span>
+            <span className="text-sm font-medium">{ext.displayName}</span>
           </button>
         ))}
 
@@ -156,6 +207,23 @@ export function MobileHamburgerMenu({ onSelectPanel, onClose, onNewSession }: Mo
           </span>
           <span className="text-sm font-medium">New Session</span>
         </button>
+
+        {/* Kill Session */}
+        {hasActiveSession && onKillSession && (
+          <button
+            type="button"
+            onClick={() => { onKillSession(); onClose(); }}
+            className="flex items-center gap-3 w-full min-h-[52px] px-4 rounded-lg bg-gray-900 hover:bg-red-900/30 text-red-400 transition-colors"
+          >
+            <span className="flex-shrink-0">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </span>
+            <span className="text-sm font-medium">Kill Session</span>
+          </button>
+        )}
       </div>
     </MobileSheetOverlay>
   );

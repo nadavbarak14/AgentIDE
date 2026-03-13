@@ -1,4 +1,4 @@
-import { useRef, useCallback, type ReactNode } from 'react';
+import { useState, useRef, useCallback, type ReactNode } from 'react';
 import { MobileTopBar } from './MobileTopBar';
 import { MobileActionBar } from './MobileActionBar';
 import { MobileHamburgerMenu } from './MobileHamburgerMenu';
@@ -9,8 +9,14 @@ import { FileTree } from './FileTree';
 import { FileViewer } from './FileViewer';
 import { DiffViewer } from './DiffViewer';
 import { ShellTerminal } from './ShellTerminal';
+import { GitHubIssues } from './GitHubIssues';
+import { WidgetPanel } from './WidgetPanel';
+import { ExtensionPanel } from './ExtensionPanel';
+import { SettingsPanel } from './SettingsPanel';
 import { useMobilePanel, type MobilePanelName } from '../hooks/useMobilePanel';
-import type { Session } from '../services/api';
+import { useExtensions } from '../hooks/useExtensions';
+import { useWidgets } from '../hooks/useWidgets';
+import type { Settings, Worker, Session } from '../services/api';
 
 interface MobileLayoutProps {
   viewportHeight: number;
@@ -34,6 +40,11 @@ interface MobileLayoutProps {
   previewLocalPort?: number;
   detectedPorts?: { port: number; localPort: number }[];
   isLocalSession?: boolean;
+  /** Settings panel props */
+  settings?: Settings | null;
+  onSettingsChange?: (settings: Settings) => void;
+  workers?: Worker[];
+  onWorkersChange?: (workers: Worker[]) => void;
 }
 
 export function MobileLayout({
@@ -57,8 +68,19 @@ export function MobileLayout({
   previewLocalPort,
   detectedPorts,
   isLocalSession,
+  settings,
+  onSettingsChange,
+  workers,
+  onWorkersChange,
 }: MobileLayoutProps) {
   const { activePanel, open, close } = useMobilePanel();
+
+  // Extensions and widgets (per-session hooks, same as SessionCard)
+  const { extensionsWithPanel } = useExtensions();
+  const { widgets, activeWidget, removeWidget, widgetCount } = useWidgets();
+
+  // Extension panel state
+  const [activeExtensionName, setActiveExtensionName] = useState<string | null>(null);
 
   const currentSession = sessions.find((s) => s.id === currentSessionId);
   const waitingCount = activeSessions.filter(
@@ -99,6 +121,17 @@ export function MobileLayout({
     onFocusSession(id);
     close();
   }, [onFocusSession, close]);
+
+  const handleSelectExtension = useCallback((name: string) => {
+    close(); // Close hamburger
+    setActiveExtensionName(name);
+    setTimeout(() => open('extension'), 50);
+  }, [open, close]);
+
+  const handleExtensionClose = useCallback(() => {
+    setActiveExtensionName(null);
+    close();
+  }, [close]);
 
   const sendInput = useCallback((data: string) => {
     terminalSendInput?.(data);
@@ -146,6 +179,12 @@ export function MobileLayout({
           onSelectPanel={handlePanelSelect}
           onClose={close}
           onNewSession={() => { close(); onNewSession(); }}
+          onKillSession={currentSessionId && onKillSession ? () => onKillSession(currentSessionId) : undefined}
+          hasActiveSession={currentSession?.status === 'active'}
+          showIssues={!!currentSessionId}
+          extensions={extensionsWithPanel}
+          onSelectExtension={handleSelectExtension}
+          widgetCount={widgetCount}
         />
       )}
 
@@ -213,6 +252,57 @@ export function MobileLayout({
           isLocalSession={isLocalSession}
           onClose={close}
         />
+      )}
+
+      {/* Issues Overlay */}
+      {activePanel === 'issues' && currentSessionId && (
+        <MobileSheetOverlay title="Issues" onClose={close}>
+          <GitHubIssues
+            sessionId={currentSessionId}
+            onClose={close}
+          />
+        </MobileSheetOverlay>
+      )}
+
+      {/* Canvas/Widgets Overlay */}
+      {activePanel === 'widgets' && currentSessionId && (
+        <MobileSheetOverlay title="Canvas" onClose={close}>
+          <WidgetPanel
+            widgets={widgets}
+            activeWidget={activeWidget}
+            sessionId={currentSessionId}
+            onClose={close}
+            onSetActiveWidget={() => {}}
+            onDismissWidget={removeWidget}
+          />
+        </MobileSheetOverlay>
+      )}
+
+      {/* Extension Overlay */}
+      {activePanel === 'extension' && activeExtensionName && currentSessionId && (() => {
+        const ext = extensionsWithPanel.find(e => e.name === activeExtensionName);
+        if (!ext) return null;
+        return (
+          <MobileSheetOverlay title={ext.displayName} onClose={handleExtensionClose}>
+            <ExtensionPanel
+              extension={ext}
+              sessionId={currentSessionId}
+              onClose={handleExtensionClose}
+            />
+          </MobileSheetOverlay>
+        );
+      })()}
+
+      {/* Settings Overlay */}
+      {activePanel === 'settings' && settings && (
+        <MobileSheetOverlay title="Settings" onClose={close}>
+          <SettingsPanel
+            settings={settings}
+            onSettingsChange={onSettingsChange || (() => {})}
+            workers={workers || []}
+            onWorkersChange={onWorkersChange || (() => {})}
+          />
+        </MobileSheetOverlay>
       )}
     </div>
   );
