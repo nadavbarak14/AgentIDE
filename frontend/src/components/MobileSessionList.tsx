@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import type { Session } from '../services/api';
 
@@ -27,8 +27,7 @@ function getStatusBadge(session: Session): { text: string; classes: string } {
   return { text: 'idle', classes: 'bg-gray-500/20 text-gray-400' };
 }
 
-/** Swipeable session row — swipe left to reveal Kill button */
-function SwipeableSessionRow({
+function SessionRow({
   session,
   isCurrent,
   onSelect,
@@ -46,105 +45,45 @@ function SwipeableSessionRow({
     ? session.workingDirectory.split('/').slice(-2).join('/')
     : '';
 
-  const rowRef = useRef<HTMLDivElement>(null);
-  const startX = useRef(0);
-  const currentX = useRef(0);
-  const swiping = useRef(false);
-  const [offset, setOffset] = useState(0);
-  const [revealed, setRevealed] = useState(false);
-  const THRESHOLD = 70;
-
-  const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    startX.current = e.touches[0].clientX;
-    currentX.current = startX.current;
-    swiping.current = true;
-  }, []);
-
-  const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    if (!swiping.current) return;
-    currentX.current = e.touches[0].clientX;
-    const dx = currentX.current - startX.current;
-    // Only allow swipe left (negative), cap at -THRESHOLD
-    if (dx < 0) {
-      setOffset(Math.max(dx, -THRESHOLD));
-    } else if (revealed) {
-      // swiping right to close
-      setOffset(Math.min(0, -THRESHOLD + dx));
-    }
-  }, [revealed]);
-
-  const handleTouchEnd = useCallback(() => {
-    swiping.current = false;
-    if (offset < -THRESHOLD / 2) {
-      setOffset(-THRESHOLD);
-      setRevealed(true);
-    } else {
-      setOffset(0);
-      setRevealed(false);
-    }
-  }, [offset]);
-
   const handleKill = useCallback((e: React.MouseEvent | React.TouchEvent) => {
     e.stopPropagation();
     onKill?.();
-    setOffset(0);
-    setRevealed(false);
   }, [onKill]);
 
   return (
-    <div className="relative overflow-hidden rounded-lg">
-      {/* Kill button behind the card */}
-      {onKill && (
-        <button
-          type="button"
-          className="absolute right-0 top-0 bottom-0 w-[70px] bg-red-600 flex items-center justify-center text-white text-xs font-semibold"
-          onClick={handleKill}
-          onTouchEnd={handleKill}
-        >
-          Kill
-        </button>
-      )}
-
-      {/* Swipeable card */}
-      <div
-        ref={rowRef}
-        className={`relative w-full text-left p-3 transition-transform ${swiping.current ? '' : 'duration-200'} ${
-          isCurrent ? 'bg-blue-600/20 border border-blue-500/30' : 'bg-gray-800 border border-gray-700'
-        } ${isWaiting ? 'border-l-2 border-l-amber-400' : ''} rounded-lg`}
-        style={{ transform: `translateX(${offset}px)` }}
-        onTouchStart={onKill ? handleTouchStart : undefined}
-        onTouchMove={onKill ? handleTouchMove : undefined}
-        onTouchEnd={onKill ? handleTouchEnd : undefined}
-        onClick={() => { if (!revealed) onSelect(); else { setOffset(0); setRevealed(false); } }}
-      >
-        <div className="flex items-center gap-2">
-          <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${dotColor} ${isWaiting ? 'animate-pulse' : ''}`} />
-          <span className="text-sm font-semibold text-white truncate flex-1">
-            {session.title || 'Untitled'}
-          </span>
-          <span className={`text-xs px-2 py-0.5 rounded-full flex-shrink-0 ${badge.classes}`}>
-            {badge.text}
-          </span>
-          {onKill && (
-            <button
-              type="button"
-              onClick={handleKill}
-              className="w-7 h-7 flex items-center justify-center text-gray-500 hover:text-red-400 hover:bg-red-500/10 rounded transition-colors flex-shrink-0"
-              aria-label="Kill session"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            </button>
-          )}
-        </div>
-        {projectPath && (
-          <p className="text-xs text-gray-500 mt-1 ml-4.5 truncate">
-            {projectPath}
-          </p>
+    <div
+      className={`relative w-full text-left p-3 ${
+        isCurrent ? 'bg-blue-600/20 border border-blue-500/30' : 'bg-gray-800 border border-gray-700'
+      } ${isWaiting ? 'border-l-2 border-l-amber-400' : ''} rounded-lg`}
+      onClick={onSelect}
+    >
+      <div className="flex items-center gap-2">
+        <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${dotColor} ${isWaiting ? 'animate-pulse' : ''}`} />
+        <span className="text-sm font-semibold text-white truncate flex-1">
+          {session.title || 'Untitled'}
+        </span>
+        <span className={`text-xs px-2 py-0.5 rounded-full flex-shrink-0 ${badge.classes}`}>
+          {badge.text}
+        </span>
+        {onKill && (
+          <button
+            type="button"
+            onClick={handleKill}
+            className="w-7 h-7 flex items-center justify-center text-gray-500 hover:text-red-400 hover:bg-red-500/10 rounded transition-colors flex-shrink-0"
+            aria-label="Kill session"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
         )}
       </div>
+      {projectPath && (
+        <p className="text-xs text-gray-500 mt-1 ml-4.5 truncate">
+          {projectPath}
+        </p>
+      )}
     </div>
   );
 }
@@ -235,7 +174,7 @@ export function MobileSessionList({
             </div>
           ) : (
             sessions.map((session) => (
-              <SwipeableSessionRow
+              <SessionRow
                 key={session.id}
                 session={session}
                 isCurrent={session.id === currentSessionId}

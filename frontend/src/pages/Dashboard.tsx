@@ -836,6 +836,7 @@ export function Dashboard() {
           onFocusSession={handleFocusSession}
           onSetCurrentSession={handleSetCurrentSession}
           onNewSession={handleMobileNewSession}
+          onKillSession={(id) => killSession(id).catch(() => {})}
           terminalSendInput={(data) => mobileTerminalRef.current?.sendInput(data)}
           terminalScrollToTop={() => {/* scrollToTop handled via terminal ref */}}
           terminalScrollToBottom={() => mobileTerminalRef.current?.scrollToBottom()}
