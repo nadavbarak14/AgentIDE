@@ -20,6 +20,7 @@ import {
   injectBridgeScript,
   isPrivateIp,
   MIME_TYPES,
+  BRIDGE_SCRIPT_TAG,
 } from '../proxy-utils.js';
 
 /**
@@ -788,6 +789,8 @@ export function createFilesRouter(repo: Repository, agentTunnelManager?: AgentTu
           proxyRes.on('data', (chunk: Buffer) => chunks.push(chunk));
           proxyRes.on('end', () => {
             let body = Buffer.concat(chunks).toString('utf-8');
+            // Strip <meta> CSP tags that would block our injected scripts
+            body = body.replace(/<meta[^>]*http-equiv\s*=\s*["']Content-Security-Policy["'][^>]*>/gi, '');
             // Inject <base> tag to make relative URLs resolve against the remote server
             const baseTag = `<base href="${targetUrl.href}">`;
             body = body.replace(/<head[^>]*>/i, (match) => `${match}\n${baseTag}`);
@@ -832,13 +835,15 @@ XMLHttpRequest.prototype.open = function(method, url) {
 window.history.replaceState = function() { return null; };
 window.history.pushState = function() { return null; };
 </script>`;
-            body = body.replace(/<head[^>]*>/i, (match) => `${match}\n${interceptorScript}`);
+            // Inject bridge + interceptor right after <head>, BEFORE <base>.
+            // Bridge must load before <base> so /api/inspect-bridge.js resolves
+            // against the proxy origin, not the external server.
+            body = body.replace(/<head[^>]*>/i, (match) => `${match}\n${BRIDGE_SCRIPT_TAG}\n${interceptorScript}`);
 
-            const modified = injectBridgeScript(body);
             delete responseHeaders['content-length'];
-            responseHeaders['content-length'] = String(Buffer.byteLength(modified));
+            responseHeaders['content-length'] = String(Buffer.byteLength(body));
             res.writeHead(proxyRes.statusCode || 200, responseHeaders);
-            res.end(modified);
+            res.end(body);
           });
         } else {
           res.writeHead(proxyRes.statusCode || 200, responseHeaders);
