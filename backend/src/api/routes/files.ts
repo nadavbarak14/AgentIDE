@@ -795,7 +795,7 @@ export function createFilesRouter(repo: Repository, agentTunnelManager?: AgentTu
             const baseTag = `<base href="${targetUrl.href}">`;
             body = body.replace(/<head[^>]*>/i, (match) => `${match}\n${baseTag}`);
 
-            // Inject script to intercept navigation/fetch and route through proxy
+            // Inject script to fix localhost references, intercept navigation, prevent cross-origin errors
             const remoteHost = targetUrl.hostname;
             const proxyUrlBase = `/api/sessions/${sessionId}/proxy-url/`;
             const targetOrigin = targetUrl.origin;
@@ -803,19 +803,12 @@ export function createFilesRouter(repo: Repository, agentTunnelManager?: AgentTu
 var proxyBase="${proxyUrlBase}";
 var targetOrigin="${targetOrigin}";
 
-// Route a URL back through the proxy-url endpoint
+// Route a URL back through the proxy-url endpoint (for hard navigations only)
 function toProxyUrl(url) {
   if (typeof url !== "string") return url;
-  // Already proxied or Adyx API — don't double-wrap
   if (url.startsWith(proxyBase) || url.startsWith("/api/")) return url;
-  // Relative URL — resolve against target origin
-  if (url.startsWith("/") && !url.startsWith("//")) {
-    return proxyBase + encodeURIComponent(targetOrigin + url);
-  }
-  // Absolute URL — proxy it
-  if (url.startsWith("http://") || url.startsWith("https://")) {
-    return proxyBase + encodeURIComponent(url);
-  }
+  if (url.startsWith("/") && !url.startsWith("//")) return proxyBase + encodeURIComponent(targetOrigin + url);
+  if (url.startsWith("http://") || url.startsWith("https://")) return proxyBase + encodeURIComponent(url);
   return url;
 }
 
@@ -826,11 +819,9 @@ function rewriteLocalhostUrl(url) {
             .replace(/^(wss?:\\/\\/)localhost(:[0-9]+)?(\\/|$)/i, "$1${remoteHost}$2$3");
 }
 
-// Intercept location.assign and location.replace
+// Intercept hard navigations (location.assign/replace/href) to route through proxy
 try { var oLA = location.assign.bind(location); location.assign = function(u) { return oLA(toProxyUrl(u)); }; } catch(e) {}
 try { var oLR = location.replace.bind(location); location.replace = function(u) { return oLR(toProxyUrl(u)); }; } catch(e) {}
-
-// Intercept location.href setter (handles window.location = "..." and location.href = "...")
 try {
   var hd = Object.getOwnPropertyDescriptor(window.Location.prototype, "href");
   if (hd && hd.set) {
@@ -842,29 +833,6 @@ try {
   }
 } catch(e) {}
 
-// Intercept link clicks to route through proxy
-document.addEventListener("click", function(e) {
-  if (e.defaultPrevented) return;
-  var a = e.target && e.target.closest ? e.target.closest("a[href]") : null;
-  if (!a) return;
-  var h = a.getAttribute("href");
-  if (h && (h.startsWith("/") || h.startsWith("http://") || h.startsWith("https://")) && !h.startsWith(proxyBase)) {
-    e.preventDefault();
-    location.assign(toProxyUrl(h));
-  }
-});
-
-// Intercept form submissions
-document.addEventListener("submit", function(e) {
-  var f = e.target;
-  if (f && f.action) {
-    var act = f.getAttribute("action");
-    if (act && !act.startsWith(proxyBase)) {
-      f.setAttribute("action", toProxyUrl(act));
-    }
-  }
-});
-
 // Intercept WebSocket to rewrite localhost URLs
 var OriginalWebSocket = window.WebSocket;
 window.WebSocket = function(url) {
@@ -873,27 +841,24 @@ window.WebSocket = function(url) {
   catch(e) { console.warn("[Proxy] WebSocket failed:", url); return null; }
 };
 
-// Intercept fetch — route relative/external URLs through proxy
+// Intercept fetch/XHR — only rewrite localhost URLs (don't route through proxy
+// to avoid corrupting RSC/JSON responses that Next.js expects)
 var OriginalFetch = window.fetch;
 window.fetch = function() {
   if (arguments.length > 0 && typeof arguments[0] === "string") {
-    arguments[0] = toProxyUrl(rewriteLocalhostUrl(arguments[0]));
+    arguments[0] = rewriteLocalhostUrl(arguments[0]);
   }
   return OriginalFetch.apply(this, arguments);
 };
-
-// Intercept XMLHttpRequest.open — route through proxy
 var OriginalXHROpen = XMLHttpRequest.prototype.open;
 XMLHttpRequest.prototype.open = function(method, url) {
-  if (typeof url === "string") { url = toProxyUrl(rewriteLocalhostUrl(url)); }
+  if (typeof url === "string") { url = rewriteLocalhostUrl(url); }
   return OriginalXHROpen.apply(this, [method, url].concat(Array.prototype.slice.call(arguments, 2)));
 };
 
-// Intercept history API — rewrite URLs through proxy instead of stubbing
-var oPS = history.pushState.bind(history);
-history.pushState = function(s, t, u) { return oPS(s, t, u ? toProxyUrl(u) : u); };
-var oRS = history.replaceState.bind(history);
-history.replaceState = function(s, t, u) { return oRS(s, t, u ? toProxyUrl(u) : u); };
+// Stub out history API to prevent cross-origin errors
+window.history.replaceState = function() { return null; };
+window.history.pushState = function() { return null; };
 })()</script>`;
             // Inject bridge + interceptor right after <head>, BEFORE <base>.
             // Bridge must load before <base> so /api/inspect-bridge.js resolves
