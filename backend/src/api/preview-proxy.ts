@@ -3,7 +3,7 @@ import type { Duplex } from 'node:stream';
 import zlib from 'node:zlib';
 import { createProxyServer } from 'http-proxy-3';
 import type { Request, Response, NextFunction } from 'express';
-import { decompressBuffer, injectBridgeScript } from './proxy-utils.js';
+import { decompressBuffer, injectBridgeScript, cleanSetCookieHeaders } from './proxy-utils.js';
 import { logger } from '../services/logger.js';
 
 /**
@@ -356,11 +356,18 @@ proxy.on('proxyRes', (proxyRes: IncomingMessage, req: IncomingMessage, res: Serv
   // Allow cross-origin access for fonts/scripts loaded by the iframe
   proxyRes.headers['access-control-allow-origin'] = '*';
 
-  // Store upstream Set-Cookie in jar and strip from response
-  if (sessionId && port) {
+  // Store upstream Set-Cookie in jar (for catch-all sub-resource requests)
+  // AND forward to browser with rewritten Path (for client-side JS access)
+  if (sessionId && port && proxyRes.headers['set-cookie']) {
+    const pb = proxyBase || `/api/sessions/${sessionId}/proxy/${port}`;
     cookieJar.store(sessionId, port, proxyRes.headers['set-cookie']);
+    const cleaned = cleanSetCookieHeaders(proxyRes.headers['set-cookie'], pb);
+    if (cleaned.length > 0) {
+      proxyRes.headers['set-cookie'] = cleaned;
+    } else {
+      delete proxyRes.headers['set-cookie'];
+    }
   }
-  delete proxyRes.headers['set-cookie'];
 
   // Rewrite Location headers for redirects
   if (proxyRes.headers['location'] && sessionId && proxyBase) {
