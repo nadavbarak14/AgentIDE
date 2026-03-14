@@ -41,7 +41,7 @@ export interface PanelStateValues {
   panelWidthPercent: number; // legacy — kept for backward compat
 }
 
-const DEFAULT_STATE: PanelStateValues = {
+export const DEFAULT_STATE: PanelStateValues = {
   leftPanel: 'none',
   rightPanel: 'none',
   leftWidthPercent: 25,
@@ -50,7 +50,7 @@ const DEFAULT_STATE: PanelStateValues = {
   bottomHeightPercent: 40,
   terminalPosition: 'center',
   terminalVisible: true,
-  previewViewport: 'desktop',
+  previewViewport: null,
   customViewportWidth: null,
   customViewportHeight: null,
   mobileDeviceId: null,
@@ -98,7 +98,7 @@ export function usePanel(sessionId: string | null, viewMode: ViewMode = 'grid') 
   const [bottomHeightPercent, setBottomHeightPercent] = useState(40);
   const [terminalPosition, setTerminalPosition] = useState<TerminalPosition>('center');
   const [terminalVisible, setTerminalVisible] = useState(true);
-  const [previewViewport, setPreviewViewport] = useState<ViewportMode>('desktop');
+  const [previewViewport, setPreviewViewport] = useState<ViewportMode>(null);
   const [customViewportWidth, setCustomViewportWidth] = useState<number | null>(null);
   const [customViewportHeight, setCustomViewportHeight] = useState<number | null>(null);
   const [mobileDeviceId, setMobileDeviceId] = useState<string | null>(null);
@@ -187,7 +187,9 @@ export function usePanel(sessionId: string | null, viewMode: ViewMode = 'grid') 
     setBottomHeightPercent(state.bottomHeightPercent ?? 40);
     setTerminalPosition(state.terminalPosition ?? 'center');
     setTerminalVisible(state.terminalVisible ?? true);
-    setPreviewViewport((state.previewViewport as ViewportMode) ?? 'desktop');
+    // Migrate old default: 'desktop' → null (fill-screen)
+    const savedViewport = state.previewViewport as ViewportMode;
+    setPreviewViewport(savedViewport === 'desktop' ? null : savedViewport ?? null);
     setCustomViewportWidth(state.customViewportWidth ?? null);
     setCustomViewportHeight(state.customViewportHeight ?? null);
     setMobileDeviceId(state.mobileDeviceId ?? null);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getCombinationKey } from '../../src/hooks/usePanel';
+import { getCombinationKey, DEFAULT_STATE } from '../../src/hooks/usePanel';
 
 describe('getCombinationKey', () => {
   it('returns just the panel name when left is active and right is none', () => {
@@ -28,5 +28,15 @@ describe('getCombinationKey', () => {
 
   it('sorts alphabetically regardless of input order (git, files -> files+git)', () => {
     expect(getCombinationKey('git', 'files')).toBe('files+git');
+  });
+});
+
+describe('DEFAULT_STATE viewport default', () => {
+  it('defaults previewViewport to null (fill-screen mode)', () => {
+    expect(DEFAULT_STATE.previewViewport).toBeNull();
+  });
+
+  it('does not default previewViewport to desktop', () => {
+    expect(DEFAULT_STATE.previewViewport).not.toBe('desktop');
   });
 });
