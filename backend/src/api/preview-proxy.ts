@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import type { Socket } from 'node:net';
+import type { Duplex } from 'node:stream';
 import zlib from 'node:zlib';
 import { createProxyServer } from 'http-proxy-3';
 import type { Request, Response, NextFunction } from 'express';
@@ -456,7 +456,7 @@ proxy.on('proxyRes', (proxyRes: IncomingMessage, req: IncomingMessage, res: Serv
 // Proxy error handler
 // ---------------------------------------------------------------------------
 
-proxy.on('error', (err: Error, req: IncomingMessage, res: ServerResponse | Socket) => {
+proxy.on('error', (err: Error, req: IncomingMessage, res: ServerResponse | Duplex) => {
   const port = (req as any).__c3Port;
   logger.warn({ port, error: (err as Error).message }, 'proxy connection failed');
   // If res is a ServerResponse (not a Socket from WS upgrade), send 502
@@ -569,7 +569,7 @@ const WS_PROXY_PATH_RE = /^\/api\/sessions\/([a-f0-9-]+)\/proxy\/(\d+)(\/.*)?$/;
  */
 export function handleProxyWsUpgrade(
   req: IncomingMessage,
-  socket: Socket,
+  socket: Duplex,
   head: Buffer,
   repo: ProxyRepo,
   agentTunnel?: ProxyAgentTunnel,
