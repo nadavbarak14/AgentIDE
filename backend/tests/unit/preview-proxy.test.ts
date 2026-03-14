@@ -68,15 +68,48 @@ describe('extractProxyContext', () => {
     expect(result).toEqual({ sessionId: 'session-abc', port: 4000 });
   });
 
-  it('falls back to cookie when Referer has no proxy pattern', () => {
+  it('returns null when Referer present but has no proxy pattern (does NOT fall back to cookie)', () => {
+    // CRITICAL: If Referer is present but doesn't match the proxy pattern,
+    // the request is from a non-proxy page (e.g., the Adyx dashboard).
+    // The cookie must NOT be used, or normal hub navigation gets hijacked.
     const req = {
       headers: {
         referer: 'http://localhost:4000/dashboard',
         cookie: '__c3_preview=sess-123:9090',
       },
     } as any;
-    const result = extractProxyContext(req);
-    expect(result).toEqual({ sessionId: 'sess-123', port: 9090 });
+    expect(extractProxyContext(req)).toBeNull();
+  });
+
+  it('returns null when Referer is from the Adyx settings page (not proxy)', () => {
+    const req = {
+      headers: {
+        referer: 'http://151.145.83.151:3005/settings',
+        cookie: '__c3_preview=sess-123:3010',
+      },
+    } as any;
+    expect(extractProxyContext(req)).toBeNull();
+  });
+
+  it('returns null when Referer is from the Adyx root (not proxy)', () => {
+    const req = {
+      headers: {
+        referer: 'http://151.145.83.151:3005/',
+        cookie: '__c3_preview=sess-123:3010',
+      },
+    } as any;
+    expect(extractProxyContext(req)).toBeNull();
+  });
+
+  it('falls back to cookie ONLY when Referer is completely absent', () => {
+    // No Referer at all (e.g., referrerPolicy: no-referrer stripped it)
+    const req = {
+      headers: {
+        cookie: '__c3_preview=sess-123:9090',
+      },
+    } as any;
+    // This is the ONLY case where cookie fallback should work
+    expect(extractProxyContext(req)).toEqual({ sessionId: 'sess-123', port: 9090 });
   });
 
   it('Referer takes priority over cookie', () => {
@@ -654,5 +687,265 @@ describe('handleProxyWsUpgrade', () => {
     }
 
     expect(socket.destroy).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Real-world scenario tests — covering bugs found during testing
+// ---------------------------------------------------------------------------
+describe('Real-world scenarios', () => {
+  const HUB_PUBLIC = 'http://151.145.83.151:3005';
+  const SESSION = 'abc-def-123';
+  const PROXY_BASE = `/api/sessions/${SESSION}/proxy/3010`;
+
+  describe('Adyx dashboard must NOT be hijacked by catch-all', () => {
+    function makeRepo(): ProxyRepo {
+      return {
+        getSession: (id: string) => id === SESSION ? { id: SESSION, workerId: null } : null,
+        getWorker: () => null,
+      };
+    }
+
+    it('navigating the Adyx dashboard does not get caught (Referer is dashboard URL)', () => {
+      // User clicks a link in the Adyx dashboard
+      const ctx = extractProxyContext({
+        headers: {
+          referer: `${HUB_PUBLIC}/`,
+          cookie: `__c3_preview=${SESSION}:3010`,
+        },
+      } as any);
+      expect(ctx).toBeNull();
+    });
+
+    it('loading Adyx settings page does not get caught', () => {
+      const ctx = extractProxyContext({
+        headers: {
+          referer: `${HUB_PUBLIC}/settings`,
+          cookie: `__c3_preview=${SESSION}:3010`,
+        },
+      } as any);
+      expect(ctx).toBeNull();
+    });
+
+    it('Adyx API calls do not get caught', () => {
+      const ctx = extractProxyContext({
+        headers: {
+          referer: `${HUB_PUBLIC}/`,
+          cookie: `__c3_preview=${SESSION}:3010; adyx_auth=sometoken`,
+        },
+      } as any);
+      expect(ctx).toBeNull();
+    });
+
+    it('catch-all middleware passes through when Referer is Adyx (not proxy)', () => {
+      const middleware = createPreviewCatchAll(makeRepo());
+      const req = {
+        method: 'GET',
+        url: '/assets/main.js',
+        headers: {
+          referer: `${HUB_PUBLIC}/`,
+          cookie: `__c3_preview=${SESSION}:3010`,
+        },
+      } as any;
+      const res = { redirect: vi.fn() } as any;
+      const next = vi.fn();
+
+      middleware(req, res, next);
+
+      expect(next).toHaveBeenCalled();
+      expect(res.redirect).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Proxied app sub-resources use Referer correctly', () => {
+    it('script loaded from proxy page has proxy Referer → caught', () => {
+      const ctx = extractProxyContext({
+        headers: {
+          referer: `${HUB_PUBLIC}${PROXY_BASE}/login`,
+        },
+      } as any);
+      expect(ctx).toEqual({ sessionId: SESSION, port: 3010 });
+    });
+
+    it('CSS loaded from proxy page has proxy Referer → caught', () => {
+      const ctx = extractProxyContext({
+        headers: {
+          referer: `${HUB_PUBLIC}${PROXY_BASE}/`,
+        },
+      } as any);
+      expect(ctx).toEqual({ sessionId: SESSION, port: 3010 });
+    });
+
+    it('fetch() from proxy page has proxy Referer → caught', () => {
+      const ctx = extractProxyContext({
+        headers: {
+          referer: `${HUB_PUBLIC}${PROXY_BASE}/dashboard`,
+          'sec-fetch-mode': 'cors',
+        },
+      } as any);
+      expect(ctx).toEqual({ sessionId: SESSION, port: 3010 });
+    });
+  });
+
+  describe('Cookie fallback only when Referer is absent', () => {
+    it('no Referer at all + cookie → works (referrerPolicy stripped it)', () => {
+      const ctx = extractProxyContext({
+        headers: {
+          cookie: `__c3_preview=${SESSION}:3010`,
+        },
+      } as any);
+      expect(ctx).toEqual({ sessionId: SESSION, port: 3010 });
+    });
+
+    it('empty Referer + cookie → still null (empty string is truthy check edge)', () => {
+      // Empty string Referer — technically present but empty
+      const ctx = extractProxyContext({
+        headers: {
+          referer: '',
+          cookie: `__c3_preview=${SESSION}:3010`,
+        },
+      } as any);
+      // Empty string is falsy, so it falls through to cookie
+      expect(ctx).toEqual({ sessionId: SESSION, port: 3010 });
+    });
+  });
+
+  describe('Location header rewriting for login/auth flows', () => {
+    it('internal redirect /login → proxy prefix /login', () => {
+      expect(rewriteLocationHeader('/login', PROXY_BASE, SESSION))
+        .toBe(`${PROXY_BASE}/login`);
+    });
+
+    it('internal redirect /dashboard → proxy prefix /dashboard', () => {
+      expect(rewriteLocationHeader('/dashboard', PROXY_BASE, SESSION))
+        .toBe(`${PROXY_BASE}/dashboard`);
+    });
+
+    it('localhost redirect after auth callback', () => {
+      expect(rewriteLocationHeader('http://localhost:3010/dashboard?code=abc', PROXY_BASE, SESSION))
+        .toBe(`/api/sessions/${SESSION}/proxy/3010/dashboard?code=abc`);
+    });
+
+    it('external OAuth redirect → proxy-url', () => {
+      const oauthUrl = 'https://accounts.google.com/o/oauth2/auth?client_id=xxx&redirect_uri=http://localhost:3010/callback';
+      const result = rewriteLocationHeader(oauthUrl, PROXY_BASE, SESSION);
+      expect(result).toBe(`/api/sessions/${SESSION}/proxy-url/${encodeURIComponent(oauthUrl)}`);
+    });
+
+    it('already-proxied path not double-rewritten', () => {
+      expect(rewriteLocationHeader(`${PROXY_BASE}/page`, PROXY_BASE, SESSION))
+        .toBe(`${PROXY_BASE}/page`);
+    });
+  });
+
+  describe('Navigation vs sub-resource detection', () => {
+    it('Next.js RSC fetch is NOT navigation (Sec-Fetch-Mode: cors)', () => {
+      expect(isNavigationRequest({
+        method: 'GET',
+        headers: {
+          'sec-fetch-mode': 'cors',
+          'rsc': '1',
+          'accept': 'text/x-component',
+        },
+      } as any)).toBe(false);
+    });
+
+    it('clicking a link IS navigation (Sec-Fetch-Mode: navigate)', () => {
+      expect(isNavigationRequest({
+        method: 'GET',
+        headers: {
+          'sec-fetch-mode': 'navigate',
+          'accept': 'text/html',
+        },
+      } as any)).toBe(true);
+    });
+
+    it('form POST IS navigation (Sec-Fetch-Mode: navigate)', () => {
+      expect(isNavigationRequest({
+        method: 'POST',
+        headers: {
+          'sec-fetch-mode': 'navigate',
+          'accept': 'text/html',
+        },
+      } as any)).toBe(true);
+    });
+
+    it('script tag load is NOT navigation (Sec-Fetch-Mode: no-cors)', () => {
+      expect(isNavigationRequest({
+        method: 'GET',
+        headers: {
+          'sec-fetch-mode': 'no-cors',
+          'accept': '*/*',
+        },
+      } as any)).toBe(false);
+    });
+
+    it('image load is NOT navigation', () => {
+      expect(isNavigationRequest({
+        method: 'GET',
+        headers: {
+          'sec-fetch-mode': 'no-cors',
+          'accept': 'image/webp,image/apng,*/*',
+        },
+      } as any)).toBe(false);
+    });
+  });
+
+  describe('buildProxyInjectionHtml includes fetch interceptor', () => {
+    const html = buildProxyInjectionHtml(PROXY_BASE);
+
+    it('intercepts fetch() to rewrite URLs through proxy', () => {
+      expect(html).toContain('window.fetch=function');
+    });
+
+    it('intercepts XHR to rewrite URLs through proxy', () => {
+      expect(html).toContain('XMLHttpRequest.prototype.open=function');
+    });
+
+    it('rewrites absolute paths starting with / to go through proxy base', () => {
+      // The rw() function should prepend proxy base to absolute paths
+      expect(html).toContain('u.startsWith("/")');
+      expect(html).toContain('return b+u');
+    });
+
+    it('rewrites origin-prefixed paths to go through proxy base', () => {
+      // e.g., http://hub:3005/dashboard → http://hub:3005/api/sessions/.../proxy/3010/dashboard
+      expect(html).toContain('location.origin');
+      expect(html).toContain('o+b+u.slice(o.length)');
+    });
+
+    it('strips proxy prefix from Next-URL header in fetch', () => {
+      expect(html).toContain('Next-URL');
+      expect(html).toContain('stripB');
+    });
+  });
+
+  describe('Cookie jar stores and serves cookies correctly', () => {
+    it('stores Supabase-style auth cookies', () => {
+      const jar = new PreviewCookieJar();
+      jar.store(SESSION, 3010, [
+        'sb-access-token=eyJhbGciOi...; Path=/; HttpOnly; SameSite=Lax',
+        'sb-refresh-token=abc123; Path=/; HttpOnly; SameSite=Lax',
+      ]);
+      const cookies = jar.get(SESSION, 3010);
+      expect(cookies).toContain('sb-access-token=eyJhbGciOi...');
+      expect(cookies).toContain('sb-refresh-token=abc123');
+    });
+
+    it('serves cookies for different sessions independently', () => {
+      const jar = new PreviewCookieJar();
+      jar.store('session-A', 3010, ['token=aaa']);
+      jar.store('session-B', 3010, ['token=bbb']);
+      expect(jar.get('session-A', 3010)).toBe('token=aaa');
+      expect(jar.get('session-B', 3010)).toBe('token=bbb');
+    });
+
+    it('serves cookies for different ports independently', () => {
+      const jar = new PreviewCookieJar();
+      jar.store(SESSION, 3010, ['app=typenote']);
+      jar.store(SESSION, 3000, ['app=bstat']);
+      expect(jar.get(SESSION, 3010)).toBe('app=typenote');
+      expect(jar.get(SESSION, 3000)).toBe('app=bstat');
+    });
   });
 });

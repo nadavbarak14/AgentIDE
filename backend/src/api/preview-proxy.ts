@@ -35,9 +35,14 @@ export function extractProxyContext(req: IncomingMessage): ProxyContext | null {
         return { sessionId: match[1], port };
       }
     }
+    // Referer is present but doesn't match proxy pattern — this request
+    // is NOT from a proxy page (e.g., it's from the Adyx dashboard).
+    // Do NOT fall back to cookie, or we'd hijack normal hub navigation.
+    return null;
   }
 
-  // Fall back to cookie
+  // Fall back to cookie ONLY when there's no Referer at all
+  // (e.g., referrerPolicy: no-referrer stripped it)
   const cookieHeader = req.headers.cookie;
   if (cookieHeader) {
     const cookies = cookieHeader.split(';');
