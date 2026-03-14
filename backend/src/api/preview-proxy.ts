@@ -24,7 +24,10 @@ export function extractProxyContext(req: IncomingMessage): ProxyContext | null {
   if (referer) {
     const match = PROXY_PATH_RE.exec(referer);
     if (match) {
-      return { sessionId: match[1], port: Number(match[2]) };
+      const port = Number(match[2]);
+      if (port > 0 && port <= 65535) {
+        return { sessionId: match[1], port };
+      }
     }
   }
 
@@ -41,7 +44,7 @@ export function extractProxyContext(req: IncomingMessage): ProxyContext | null {
         const sessionId = value.slice(0, lastColon);
         const portStr = value.slice(lastColon + 1);
         const port = Number(portStr);
-        if (!sessionId || !portStr || isNaN(port)) return null;
+        if (!sessionId || !portStr || isNaN(port) || port < 1 || port > 65535) return null;
         return { sessionId, port };
       }
     }
@@ -141,7 +144,7 @@ export class PreviewCookieJar {
   }
 }
 
-const LOCALHOST_RE = /^https?:\/\/(?:localhost|127\.0\.0\.1):(\d+)(\/.*)?$/;
+const LOCALHOST_RE = /^https?:\/\/(?:localhost|127\.0\.0\.1):(\d+)(\/.*)?$/i;
 
 /**
  * Rewrite a Location header value for proxy context.
@@ -204,13 +207,14 @@ export function buildProxyInjectionHtml(proxyBase: string): string {
 
   const iife = `<script>(function(){
 var b="${proxyBase}";
-document.cookie="__c3_preview=${sessionId}:${port};path=/";
-function report(){var p=location.pathname;if(p.startsWith(b))p=p.slice(b.length)||"/";try{parent.postMessage({type:"c3:proxy:urlchange",path:p},location.origin)}catch(e){}}
+try{document.cookie="__c3_preview=${sessionId}:${port};path=/;SameSite=Lax"}catch(e){}
+function report(){var p=location.pathname;if(p.startsWith(b))p=p.slice(b.length)||"/";try{parent.postMessage({type:"c3:proxy:urlchange",path:p+location.search+location.hash},location.origin)}catch(e){}}
 var oPS=history.pushState.bind(history);
 history.pushState=function(s,t,u){var r=oPS(s,t,u?((typeof u==="string"&&u.startsWith("/")&&!u.startsWith(b)&&!u.startsWith("//"))?b+u:u):u);report();return r};
 var oRS=history.replaceState.bind(history);
 history.replaceState=function(s,t,u){var r=oRS(s,t,u?((typeof u==="string"&&u.startsWith("/")&&!u.startsWith(b)&&!u.startsWith("//"))?b+u:u):u);report();return r};
 window.addEventListener("popstate",function(){report()});
+report()
 })()</script>`;
 
   return proxyBaseScript + iife;
