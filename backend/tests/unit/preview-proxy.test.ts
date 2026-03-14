@@ -8,7 +8,6 @@ import {
   createPreviewCatchAll,
   handleProxyWsUpgrade,
   type ProxyRepo,
-  type ProxyAgentTunnel,
 } from '../../src/api/preview-proxy.js';
 
 // ---------------------------------------------------------------------------

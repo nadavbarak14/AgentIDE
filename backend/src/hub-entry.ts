@@ -23,6 +23,7 @@ import { createPreviewRouter } from './api/routes/preview.js';
 import { createUploadsRouter } from './api/routes/uploads.js';
 import { PreviewService } from './services/preview-service.js';
 import { setupWebSocket, broadcastToSession } from './api/websocket.js';
+import { createPreviewCatchAll, handleProxyWsUpgrade } from './api/preview-proxy.js';
 import { FileWatcher } from './worker/file-watcher.js';
 import { requestLogger, errorHandler } from './api/middleware.js';
 import { logger } from './services/logger.js';
@@ -946,6 +947,9 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
     res.json({ widgets });
   });
 
+  // Preview proxy catch-all: routes stray sub-resource requests based on Referer
+  app.use(createPreviewCatchAll(repo, agentTunnelManager));
+
   // Serve static frontend in production
   const frontendDist = path.join(import.meta.dirname, '../../frontend/dist');
   if (fs.existsSync(frontendDist)) {
@@ -966,7 +970,10 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
   app.use(errorHandler);
 
   const server = http.createServer(app);
-  setupWebSocket(server, repo, sessionManager, ptySpawner, fileWatcher, shellSpawner, remotePtyBridge);
+  setupWebSocket(
+    server, repo, sessionManager, ptySpawner, fileWatcher, shellSpawner, remotePtyBridge,
+    (req, socket, head) => handleProxyWsUpgrade(req, socket, head, repo, agentTunnelManager),
+  );
 
   // Start server
   await new Promise<void>((resolve, reject) => {
