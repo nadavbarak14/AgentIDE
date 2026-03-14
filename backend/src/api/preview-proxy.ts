@@ -275,9 +275,16 @@ export function handleProxyRequest(
     ? (req.url || '').substring((req.url || '').indexOf('?'))
     : '';
 
-  // Set host header to target host
+  // Set host header to target host so upstream sees localhost, not the hub's public IP
   const targetUrl = new URL(target);
   req.headers['host'] = targetUrl.host;
+  // Also set x-forwarded-host to localhost — Next.js and other frameworks read this
+  req.headers['x-forwarded-host'] = targetUrl.host;
+  req.headers['x-forwarded-proto'] = 'http';
+  // Remove any stale forwarded headers that expose the hub's public IP
+  delete req.headers['x-forwarded-for'];
+  delete req.headers['x-real-ip'];
+  delete req.headers['origin'];
 
   // Strip proxy prefix from Referer so upstream sees real paths
   if (req.headers['referer'] && typeof req.headers['referer'] === 'string') {
@@ -534,6 +541,14 @@ export function createPreviewCatchAll(
 
     // Sub-resource: transparent proxy
     const target = `http://127.0.0.1:${ctx.port}`;
+
+    // Clean headers so upstream sees localhost, not the hub's public IP
+    req.headers['host'] = `127.0.0.1:${ctx.port}`;
+    req.headers['x-forwarded-host'] = `127.0.0.1:${ctx.port}`;
+    req.headers['x-forwarded-proto'] = 'http';
+    delete req.headers['x-forwarded-for'];
+    delete req.headers['x-real-ip'];
+    delete req.headers['origin'];
 
     // Attach jar cookies
     const jarCookies = cookieJar.get(ctx.sessionId, ctx.port);
