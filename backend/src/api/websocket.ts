@@ -23,7 +23,7 @@ export function setupWebSocket(
   fileWatcher?: FileWatcher,
   shellSpawner?: ShellSpawner,
   remotePtyBridge?: RemotePtyBridge,
-  proxyWsFallback?: (req: import('node:http').IncomingMessage, socket: import('node:net').Socket, head: Buffer) => void,
+  proxyWsFallback?: (req: import('node:http').IncomingMessage, socket: import('stream').Duplex, head: Buffer) => void,
 ): void {
   const wss = new WebSocketServer({ noServer: true });
   const shellWss = new WebSocketServer({ noServer: true });
