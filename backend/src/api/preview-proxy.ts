@@ -215,6 +215,10 @@ export function buildProxyInjectionHtml(proxyBase: string): string {
 var b="${proxyBase}";
 try{document.cookie="__c3_preview=${sessionId}:${port};path=/;SameSite=Lax"}catch(e){}
 function report(){var p=location.pathname;if(p.startsWith(b))p=p.slice(b.length)||"/";try{parent.postMessage({type:"c3:proxy:urlchange",path:p+location.search+location.hash},location.origin)}catch(e){}}
+function rw(u){if(typeof u!=="string")return u;if(u.startsWith("/")&&!u.startsWith(b)&&!u.startsWith("//"))return b+u;var o=location.origin;if(u.startsWith(o+"/")&&!u.startsWith(o+b))return o+b+u.slice(o.length);return u}
+function stripB(u){if(typeof u!=="string")return u;if(u.startsWith(b+"/"))return u.slice(b.length);if(u===b)return"/";return u}
+var oF=window.fetch;window.fetch=function(u,o){var h=(o&&o.headers)?o.headers:null;if(h){if(h instanceof Headers){if(h.has("Next-URL"))h.set("Next-URL",stripB(h.get("Next-URL")))}else if(typeof h==="object"&&h["Next-URL"]){h["Next-URL"]=stripB(h["Next-URL"])}}return oF.call(this,typeof u==="string"?rw(u):u,o)};
+var oX=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,u){return oX.apply(this,[m,rw(u)].concat([].slice.call(arguments,2)))};
 var oPS=history.pushState.bind(history);
 history.pushState=function(s,t,u){var r=oPS(s,t,u?((typeof u==="string"&&u.startsWith("/")&&!u.startsWith(b)&&!u.startsWith("//"))?b+u:u):u);report();return r};
 var oRS=history.replaceState.bind(history);
