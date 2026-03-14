@@ -58,20 +58,9 @@ describe('extractProxyContext', () => {
     expect(extractProxyContext(req)).toBeNull();
   });
 
-  it('falls back to __c3_preview cookie when no Referer', () => {
-    const req = {
-      headers: {
-        cookie: '__c3_preview=session-abc:4000; other=value',
-      },
-    } as any;
-    const result = extractProxyContext(req);
-    expect(result).toEqual({ sessionId: 'session-abc', port: 4000 });
-  });
-
-  it('returns null when Referer present but has no proxy pattern (does NOT fall back to cookie)', () => {
-    // CRITICAL: If Referer is present but doesn't match the proxy pattern,
-    // the request is from a non-proxy page (e.g., the Adyx dashboard).
-    // The cookie must NOT be used, or normal hub navigation gets hijacked.
+  it('returns null when Referer has no proxy pattern (even with cookie)', () => {
+    // CRITICAL: Referer-only extraction. No cookie fallback.
+    // A non-proxy Referer means the request is from the Adyx dashboard.
     const req = {
       headers: {
         referer: 'http://localhost:4000/dashboard',
@@ -81,38 +70,18 @@ describe('extractProxyContext', () => {
     expect(extractProxyContext(req)).toBeNull();
   });
 
-  it('returns null when Referer is from the Adyx settings page (not proxy)', () => {
+  it('returns null when no Referer even with cookie (no cookie fallback)', () => {
+    // No Referer + cookie = still null. Cookie fallback was removed
+    // because it hijacked main Adyx navigation on refresh/new tab.
     const req = {
       headers: {
-        referer: 'http://151.145.83.151:3005/settings',
-        cookie: '__c3_preview=sess-123:3010',
+        cookie: '__c3_preview=session-abc:4000; other=value',
       },
     } as any;
     expect(extractProxyContext(req)).toBeNull();
   });
 
-  it('returns null when Referer is from the Adyx root (not proxy)', () => {
-    const req = {
-      headers: {
-        referer: 'http://151.145.83.151:3005/',
-        cookie: '__c3_preview=sess-123:3010',
-      },
-    } as any;
-    expect(extractProxyContext(req)).toBeNull();
-  });
-
-  it('falls back to cookie ONLY when Referer is completely absent', () => {
-    // No Referer at all (e.g., referrerPolicy: no-referrer stripped it)
-    const req = {
-      headers: {
-        cookie: '__c3_preview=sess-123:9090',
-      },
-    } as any;
-    // This is the ONLY case where cookie fallback should work
-    expect(extractProxyContext(req)).toEqual({ sessionId: 'sess-123', port: 9090 });
-  });
-
-  it('Referer takes priority over cookie', () => {
+  it('Referer with proxy pattern works even with conflicting cookie', () => {
     const req = {
       headers: {
         referer: 'http://localhost:4000/api/sessions/aabbccdd/proxy/3000/',
@@ -121,24 +90,6 @@ describe('extractProxyContext', () => {
     } as any;
     const result = extractProxyContext(req);
     expect(result).toEqual({ sessionId: 'aabbccdd', port: 3000 });
-  });
-
-  it('returns null for malformed cookie value', () => {
-    const req = {
-      headers: {
-        cookie: '__c3_preview=malformed',
-      },
-    } as any;
-    expect(extractProxyContext(req)).toBeNull();
-  });
-
-  it('returns null for cookie with non-numeric port', () => {
-    const req = {
-      headers: {
-        cookie: '__c3_preview=session:abc',
-      },
-    } as any;
-    expect(extractProxyContext(req)).toBeNull();
   });
 
   it('handles full UUID session IDs', () => {
@@ -152,15 +103,15 @@ describe('extractProxyContext', () => {
     expect(result).toEqual({ sessionId: uuid, port: 3000 });
   });
 
-  it('handles cookie with UUID session ID', () => {
+  it('returns null for cookie-only request (no cookie fallback)', () => {
     const uuid = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
     const req = {
       headers: {
         cookie: `__c3_preview=${uuid}:5000`,
       },
     } as any;
-    const result = extractProxyContext(req);
-    expect(result).toEqual({ sessionId: uuid, port: 5000 });
+    // Cookie fallback removed — Referer is the only source
+    expect(extractProxyContext(req)).toBeNull();
   });
 });
 
@@ -433,10 +384,10 @@ describe('buildProxyInjectionHtml', () => {
     expect(html).toContain('})()');
   });
 
-  it('sets __c3_preview cookie from proxyBase', () => {
+  it('clears stale __c3_preview cookie', () => {
     const html = buildProxyInjectionHtml(proxyBase);
     expect(html).toContain('__c3_preview=');
-    expect(html).toContain('aabb:3000');
+    expect(html).toContain('max-age=0');
   });
 
   it('wraps history.pushState', () => {
@@ -787,26 +738,43 @@ describe('Real-world scenarios', () => {
     });
   });
 
-  describe('Cookie fallback only when Referer is absent', () => {
-    it('no Referer at all + cookie → works (referrerPolicy stripped it)', () => {
+  describe('No cookie fallback — Referer only', () => {
+    it('no Referer + cookie → null (cookie fallback removed)', () => {
       const ctx = extractProxyContext({
         headers: {
           cookie: `__c3_preview=${SESSION}:3010`,
         },
       } as any);
-      expect(ctx).toEqual({ sessionId: SESSION, port: 3010 });
+      expect(ctx).toBeNull();
     });
 
-    it('empty Referer + cookie → still null (empty string is truthy check edge)', () => {
-      // Empty string Referer — technically present but empty
+    it('empty Referer + cookie → null', () => {
       const ctx = extractProxyContext({
         headers: {
           referer: '',
           cookie: `__c3_preview=${SESSION}:3010`,
         },
       } as any);
-      // Empty string is falsy, so it falls through to cookie
-      expect(ctx).toEqual({ sessionId: SESSION, port: 3010 });
+      expect(ctx).toBeNull();
+    });
+
+    it('page refresh with no Referer does NOT hijack main page', () => {
+      // User refreshes Adyx dashboard — no Referer, cookie present
+      const ctx = extractProxyContext({
+        headers: {
+          cookie: `__c3_preview=${SESSION}:3010; adyx_auth=sometoken`,
+        },
+      } as any);
+      expect(ctx).toBeNull();
+    });
+
+    it('new tab open with no Referer does NOT hijack', () => {
+      const ctx = extractProxyContext({
+        headers: {
+          cookie: `__c3_preview=${SESSION}:3010`,
+        },
+      } as any);
+      expect(ctx).toBeNull();
     });
   });
 

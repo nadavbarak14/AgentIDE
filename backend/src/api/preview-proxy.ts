@@ -35,32 +35,12 @@ export function extractProxyContext(req: IncomingMessage): ProxyContext | null {
         return { sessionId: match[1], port };
       }
     }
-    // Referer is present but doesn't match proxy pattern — this request
-    // is NOT from a proxy page (e.g., it's from the Adyx dashboard).
-    // Do NOT fall back to cookie, or we'd hijack normal hub navigation.
-    return null;
   }
 
-  // Fall back to cookie ONLY when there's no Referer at all
-  // (e.g., referrerPolicy: no-referrer stripped it)
-  const cookieHeader = req.headers.cookie;
-  if (cookieHeader) {
-    const cookies = cookieHeader.split(';');
-    for (const c of cookies) {
-      const trimmed = c.trim();
-      if (trimmed.startsWith('__c3_preview=')) {
-        const value = trimmed.slice('__c3_preview='.length);
-        const lastColon = value.lastIndexOf(':');
-        if (lastColon === -1) return null;
-        const sessionId = value.slice(0, lastColon);
-        const portStr = value.slice(lastColon + 1);
-        const port = Number(portStr);
-        if (!sessionId || !portStr || isNaN(port) || port < 1 || port > 65535) return null;
-        return { sessionId, port };
-      }
-    }
-  }
-
+  // Referer-only: no cookie fallback. The __c3_preview cookie caused
+  // false positives — hijacking main Adyx navigation on page refresh
+  // (no Referer) or new tab opens. The Referer header is reliable for
+  // virtually all browser requests (scripts, CSS, fetch, XHR, navigation).
   return null;
 }
 
@@ -218,7 +198,7 @@ export function buildProxyInjectionHtml(proxyBase: string): string {
 
   const iife = `<script>(function(){
 var b="${proxyBase}";
-try{document.cookie="__c3_preview=${sessionId}:${port};path=/;SameSite=Lax"}catch(e){}
+try{document.cookie="__c3_preview=;path=/;max-age=0"}catch(e){}
 function report(){var p=location.pathname;if(p.startsWith(b))p=p.slice(b.length)||"/";try{parent.postMessage({type:"c3:proxy:urlchange",path:p+location.search+location.hash},location.origin)}catch(e){}}
 function rw(u){if(typeof u!=="string")return u;if(u.startsWith("/")&&!u.startsWith(b)&&!u.startsWith("//"))return b+u;var o=location.origin;if(u.startsWith(o+"/")&&!u.startsWith(o+b))return o+b+u.slice(o.length);return u}
 function stripB(u){if(typeof u!=="string")return u;if(u.startsWith(b+"/"))return u.slice(b.length);if(u===b)return"/";return u}
