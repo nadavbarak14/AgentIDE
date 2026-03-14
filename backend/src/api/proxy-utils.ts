@@ -101,8 +101,8 @@ history.pushState=function(s,t,u){if(u&&_c3Nav){var up=stripProxy(typeof u==="st
 var oRS=history.replaceState.bind(history);history.replaceState=function(s,t,u){return oRS(s,t,u?rw(u):u)};
 var oF=window.fetch;window.fetch=function(u,o){
 var hdrs=(o&&o.headers)?o.headers:(u&&typeof u==="object"&&u.headers)?u.headers:null;
-if(hdrs){if(hdrs instanceof Headers){if(hdrs.has("Next-URL"))hdrs.set("Next-URL",stripProxy(hdrs.get("Next-URL")))}
-else if(typeof hdrs==="object"&&hdrs!==null){if(hdrs["Next-URL"])hdrs["Next-URL"]=stripProxy(hdrs["Next-URL"])}}
+if(hdrs){if(hdrs instanceof Headers){if(hdrs.has("Next-URL"))hdrs.set("Next-URL",stripProxy(hdrs.get("Next-URL")));if(hdrs.has("next-url"))hdrs.set("next-url",stripProxy(hdrs.get("next-url")))}
+else if(typeof hdrs==="object"&&hdrs!==null){if(hdrs["Next-URL"])hdrs["Next-URL"]=stripProxy(hdrs["Next-URL"]);if(hdrs["next-url"])hdrs["next-url"]=stripProxy(hdrs["next-url"])}}
 var ir=false;if(hdrs){if(hdrs instanceof Headers)ir=hdrs.has("RSC")||hdrs.has("rsc");else if(typeof hdrs==="object")ir=!!hdrs.RSC||!!hdrs.rsc}
 var oo=o;
 if(ir){if(o&&o.signal){oo=Object.assign({},o);delete oo.signal}

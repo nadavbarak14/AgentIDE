@@ -457,6 +457,11 @@ export function createFilesRouter(repo: Repository, agentTunnelManager?: AgentTu
     if (forwardHeaders['referer'] && typeof forwardHeaders['referer'] === 'string') {
       forwardHeaders['referer'] = forwardHeaders['referer'].replace(proxyBase, '');
     }
+    // Rewrite Origin header to match the target server — Next.js Server Actions
+    // validate Origin for CSRF protection and reject mismatched origins with 500.
+    if (forwardHeaders['origin']) {
+      forwardHeaders['origin'] = `http://localhost:${targetPort}`;
+    }
     // Merge browser cookies (set via document.cookie by JS like Supabase)
     // with server-side jar cookies (captured from Set-Cookie headers).
     // Jar cookies take priority for same-name cookies.
@@ -478,7 +483,6 @@ export function createFilesRouter(repo: Repository, agentTunnelManager?: AgentTu
     } else {
       delete forwardHeaders['cookie'];
     }
-
     const proxyReq = http.request(
       {
         hostname: '127.0.0.1',
@@ -506,8 +510,26 @@ export function createFilesRouter(repo: Repository, agentTunnelManager?: AgentTu
             try { followPath = new URL(loc).pathname + new URL(loc).search; } catch { followPath = '/'; }
           }
 
+          // Store cookies from the redirect response (e.g. login setting session cookie)
+          // so the follow-up request includes them
+          storeCookies(sessionId, targetPort, proxyRes.headers['set-cookie']);
+
           const followReqHeaders: Record<string, string | string[] | undefined> = { ...forwardHeaders };
           followReqHeaders['next-url'] = followPath.split('?')[0];
+          // Rebuild cookie header with newly stored jar cookies
+          const updatedJar = getStoredCookies(sessionId, targetPort);
+          if (updatedJar) {
+            const updatedMerged = new Map<string, string>();
+            for (const pair of browserCookies.split(';').map(s => s.trim()).filter(Boolean)) {
+              const eqIdx = pair.indexOf('=');
+              if (eqIdx > 0) updatedMerged.set(pair.substring(0, eqIdx), pair);
+            }
+            for (const pair of updatedJar.split(';').map(s => s.trim()).filter(Boolean)) {
+              const eqIdx = pair.indexOf('=');
+              if (eqIdx > 0) updatedMerged.set(pair.substring(0, eqIdx), pair);
+            }
+            followReqHeaders['cookie'] = Array.from(updatedMerged.values()).join('; ');
+          }
 
           const followReq = http.request({
             hostname: '127.0.0.1',
@@ -522,7 +544,10 @@ export function createFilesRouter(repo: Repository, agentTunnelManager?: AgentTu
             delete fHeaders['x-frame-options'];
             delete fHeaders['content-security-policy'];
             storeCookies(sessionId, targetPort, followRes.headers['set-cookie']);
-            const fCookies = cleanSetCookieHeaders(followRes.headers['set-cookie'], proxyBase);
+            // Merge Set-Cookie from both the redirect response and the follow-up response
+            const redirectCookies = cleanSetCookieHeaders(proxyRes.headers['set-cookie'], proxyBase);
+            const followCookies = cleanSetCookieHeaders(followRes.headers['set-cookie'], proxyBase);
+            const fCookies = [...redirectCookies, ...followCookies];
             if (fCookies.length > 0) {
               fHeaders['set-cookie'] = fCookies;
             } else {
@@ -594,8 +619,11 @@ export function createFilesRouter(repo: Repository, agentTunnelManager?: AgentTu
           responseHeaders['link'] = linkVal.replace(/<\//g, `<${proxyBase}/`);
         }
 
-        // Cache immutable static assets (hashed filenames) — browser skips network on reload
-        if (targetPath.includes('/_next/static/')) {
+        // Cache immutable static assets (hashed filenames) — browser skips network on reload.
+        // Only cache successful responses — caching error responses (404/502 during dev
+        // server restarts) with immutable causes the browser to permanently serve stale
+        // HTML error pages for JS chunks, breaking the preview until cache is cleared.
+        if (targetPath.includes('/_next/static/') && proxyRes.statusCode === 200) {
           responseHeaders['cache-control'] = 'public, max-age=31536000, immutable';
         }
 
