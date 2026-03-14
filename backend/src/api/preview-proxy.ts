@@ -482,7 +482,7 @@ proxy.on('error', (err: Error, req: IncomingMessage, res: ServerResponse | Socke
  */
 export function createPreviewCatchAll(
   repo: ProxyRepo,
-  agentTunnel?: ProxyAgentTunnel,
+  _agentTunnel?: ProxyAgentTunnel,
 ): (req: Request, res: Response, next: NextFunction) => void {
   return (req: Request, res: Response, next: NextFunction) => {
     const ctx = extractProxyContext(req);

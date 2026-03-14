@@ -23,6 +23,7 @@ export function setupWebSocket(
   fileWatcher?: FileWatcher,
   shellSpawner?: ShellSpawner,
   remotePtyBridge?: RemotePtyBridge,
+  proxyWsFallback?: (req: import('node:http').IncomingMessage, socket: import('node:net').Socket, head: Buffer) => void,
 ): void {
   const wss = new WebSocketServer({ noServer: true });
   const shellWss = new WebSocketServer({ noServer: true });
@@ -58,7 +59,11 @@ export function setupWebSocket(
     const claudeMatch = url.pathname.match(/^\/ws\/sessions\/([a-f0-9-]+)$/);
 
     if (!shellMatch && !claudeMatch) {
-      socket.destroy();
+      if (proxyWsFallback) {
+        proxyWsFallback(request, socket, head);
+      } else {
+        socket.destroy();
+      }
       return;
     }
 

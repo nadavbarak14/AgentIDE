@@ -3,7 +3,6 @@ import http from 'node:http';
 import https from 'node:https';
 import dns from 'node:dns/promises';
 import net from 'node:net';
-import zlib from 'node:zlib';
 import path from 'node:path';
 import fs from 'node:fs';
 import type { Repository } from '../../models/repository.js';
@@ -13,14 +12,11 @@ import { listDirectory, readFile, writeFile, searchFiles } from '../../worker/fi
 import { getDiff } from '../../worker/git-operations.js';
 import { logger } from '../../services/logger.js';
 import {
-  decompressBuffer,
-  cleanSetCookieHeaders,
-  rewriteHtmlForProxy,
-  rewriteCssForProxy,
   injectBridgeScript,
   isPrivateIp,
   MIME_TYPES,
 } from '../proxy-utils.js';
+import { handleProxyRequest } from '../preview-proxy.js';
 
 /**
  * Proxy an HTTP request to the remote agent via the SSH tunnel.
@@ -379,42 +375,9 @@ export function createFilesRouter(repo: Repository, agentTunnelManager?: AgentTu
     }
   });
 
-  // Server-side cookie jar: stores upstream cookies per session+port so the browser never sees them.
-  // Key: "sessionId:port", Value: Map of cookie name → full "name=value" string
-  const cookieJar = new Map<string, Map<string, string>>();
-
-  function getCookieJarKey(sessionId: string, port: number): string {
-    return `${sessionId}:${port}`;
-  }
-
-  /** Parse Set-Cookie headers and store in the jar; returns nothing (cookies are stripped from response) */
-  function storeCookies(sessionId: string, port: number, setCookieHeaders: string | string[] | undefined): void {
-    if (!setCookieHeaders) return;
-    const headers = Array.isArray(setCookieHeaders) ? setCookieHeaders : [setCookieHeaders];
-    const key = getCookieJarKey(sessionId, port);
-    if (!cookieJar.has(key)) cookieJar.set(key, new Map());
-    const jar = cookieJar.get(key)!;
-    for (const header of headers) {
-      // Extract "name=value" from the cookie string (everything before first ";")
-      const nameValue = header.split(';')[0].trim();
-      const eqIdx = nameValue.indexOf('=');
-      if (eqIdx > 0) {
-        const name = nameValue.substring(0, eqIdx);
-        jar.set(name, nameValue);
-      }
-    }
-  }
-
-  /** Build a Cookie header string from the jar for outgoing requests */
-  function getStoredCookies(sessionId: string, port: number): string {
-    const key = getCookieJarKey(sessionId, port);
-    const jar = cookieJar.get(key);
-    if (!jar || jar.size === 0) return '';
-    return Array.from(jar.values()).join('; ');
-  }
-
   // ALL /api/sessions/:id/proxy/:port/* — reverse proxy to localhost:<port> for preview
   router.all('/:id/proxy/:port/*', validateUuid('id'), (req, res) => {
+    // Remote sessions: delegate to agent via SSH tunnel (existing behavior)
     if (agentTunnelManager && proxyToAgent(req, res, agentTunnelManager, repo)) return;
 
     const sessionId = req.params.id as string;
@@ -431,265 +394,13 @@ export function createFilesRouter(repo: Repository, agentTunnelManager?: AgentTu
     }
 
     const targetPath = '/' + ((req.params as Record<string, string>)[0] || '');
-    const queryString = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
+    const target = `http://127.0.0.1:${targetPort}`;
 
-    const proxyBase = `/api/sessions/${sessionId}/proxy/${targetPort}`;
-
-    logger.debug({ method: req.method, targetPath }, `proxy ${req.method} ${targetPath}`);
-
-    // Strip hop-by-hop headers; inject server-side cookie jar
-    const forwardHeaders: Record<string, string | string[] | undefined> = { ...req.headers };
-    delete forwardHeaders['host'];
-    delete forwardHeaders['connection'];
-    delete forwardHeaders['upgrade'];
-    // Keep accept-encoding for non-rewritten content (images, fonts stream compressed).
-    // For HTML/JS/CSS we decompress in the buffering path before rewriting.
-    forwardHeaders['host'] = `localhost:${targetPort}`;
-    // Strip proxy prefix from Next.js headers so the server sees real app paths
-    if (forwardHeaders['next-url'] && typeof forwardHeaders['next-url'] === 'string') {
-      const nextUrl = forwardHeaders['next-url'];
-      if (nextUrl.startsWith(proxyBase + '/')) {
-        forwardHeaders['next-url'] = nextUrl.slice(proxyBase.length);
-      } else if (nextUrl === proxyBase) {
-        forwardHeaders['next-url'] = '/';
-      }
-    }
-    if (forwardHeaders['referer'] && typeof forwardHeaders['referer'] === 'string') {
-      forwardHeaders['referer'] = forwardHeaders['referer'].replace(proxyBase, '');
-    }
-    // Merge browser cookies (set via document.cookie by JS like Supabase)
-    // with server-side jar cookies (captured from Set-Cookie headers).
-    // Jar cookies take priority for same-name cookies.
-    const browserCookies = typeof req.headers.cookie === 'string' ? req.headers.cookie : '';
-    const jarCookies = getStoredCookies(sessionId, targetPort);
-    // Parse browser cookies into a map
-    const merged = new Map<string, string>();
-    for (const pair of browserCookies.split(';').map(s => s.trim()).filter(Boolean)) {
-      const eqIdx = pair.indexOf('=');
-      if (eqIdx > 0) merged.set(pair.substring(0, eqIdx), pair);
-    }
-    // Overlay jar cookies (take priority)
-    for (const pair of jarCookies.split(';').map(s => s.trim()).filter(Boolean)) {
-      const eqIdx = pair.indexOf('=');
-      if (eqIdx > 0) merged.set(pair.substring(0, eqIdx), pair);
-    }
-    if (merged.size > 0) {
-      forwardHeaders['cookie'] = Array.from(merged.values()).join('; ');
-    } else {
-      delete forwardHeaders['cookie'];
-    }
-
-    const proxyReq = http.request(
-      {
-        hostname: '127.0.0.1',
-        port: targetPort,
-        path: targetPath + queryString,
-        method: req.method,
-        headers: forwardHeaders as http.OutgoingHttpHeaders,
-      },
-      (proxyRes) => {
-        logger.debug({ status: proxyRes.statusCode }, `proxy ${proxyRes.statusCode} ${req.method} ${targetPath}`);
-
-        // For RSC requests that result in a redirect, follow the redirect server-side.
-        // Next.js uses redirect:'manual' for RSC fetches, producing opaque responses.
-        // Through a reverse proxy, timing issues cause router.push() to be aborted
-        // while router.refresh() doesn't update the URL bar. By following the redirect
-        // here, we return final content + a header signaling the URL change.
-        const isRscRequest = !!req.headers['rsc'];
-        const isRedirect = (proxyRes.statusCode || 0) >= 300 && (proxyRes.statusCode || 0) < 400;
-        if (isRedirect && isRscRequest && proxyRes.headers['location']) {
-          const loc = proxyRes.headers['location'] as string;
-          let followPath: string;
-          if (loc.startsWith('/')) {
-            followPath = loc;
-          } else {
-            try { followPath = new URL(loc).pathname + new URL(loc).search; } catch { followPath = '/'; }
-          }
-
-          const followReqHeaders: Record<string, string | string[] | undefined> = { ...forwardHeaders };
-          followReqHeaders['next-url'] = followPath.split('?')[0];
-
-          const followReq = http.request({
-            hostname: '127.0.0.1',
-            port: targetPort,
-            path: followPath,
-            method: 'GET',
-            headers: followReqHeaders as http.OutgoingHttpHeaders,
-          }, (followRes) => {
-            res.removeHeader('x-frame-options');
-            res.removeHeader('content-security-policy');
-            const fHeaders = { ...followRes.headers };
-            delete fHeaders['x-frame-options'];
-            delete fHeaders['content-security-policy'];
-            storeCookies(sessionId, targetPort, followRes.headers['set-cookie']);
-            const fCookies = cleanSetCookieHeaders(followRes.headers['set-cookie'], proxyBase);
-            if (fCookies.length > 0) {
-              fHeaders['set-cookie'] = fCookies;
-            } else {
-              delete fHeaders['set-cookie'];
-            }
-            fHeaders['access-control-allow-origin'] = '*';
-            fHeaders['x-proxy-redirect'] = followPath;
-            fHeaders['access-control-expose-headers'] = 'x-proxy-redirect';
-            res.writeHead(followRes.statusCode || 200, fHeaders);
-            followRes.pipe(res);
-          });
-
-          followReq.on('error', (err) => {
-            logger.warn({ error: err.message }, 'proxy RSC redirect follow failed');
-            res.removeHeader('x-frame-options');
-            res.removeHeader('content-security-policy');
-            const fbHeaders = { ...proxyRes.headers };
-            delete fbHeaders['x-frame-options'];
-            delete fbHeaders['content-security-policy'];
-            if (fbHeaders['location'] && typeof fbHeaders['location'] === 'string' && fbHeaders['location'].startsWith('/')) {
-              fbHeaders['location'] = proxyBase + fbHeaders['location'];
-            }
-            res.writeHead(proxyRes.statusCode || 307, fbHeaders);
-            proxyRes.pipe(res);
-          });
-
-          followReq.end();
-          proxyRes.resume();
-          return;
-        }
-
-        // Remove restrictive headers set by the global security middleware —
-        // these would otherwise merge into writeHead() and block iframe embedding
-        res.removeHeader('x-frame-options');
-        res.removeHeader('content-security-policy');
-
-        // Remove headers from upstream that could also cause issues
-        const responseHeaders = { ...proxyRes.headers };
-        delete responseHeaders['x-frame-options'];
-        delete responseHeaders['content-security-policy'];
-        // Store upstream cookies in server-side jar AND pass to browser with rewritten Path
-        storeCookies(sessionId, targetPort, proxyRes.headers['set-cookie']);
-        const cleanedCookies = cleanSetCookieHeaders(proxyRes.headers['set-cookie'], proxyBase);
-        if (cleanedCookies.length > 0) {
-          responseHeaders['set-cookie'] = cleanedCookies;
-        } else {
-          delete responseHeaders['set-cookie'];
-        }
-        // Allow cross-origin access for fonts/scripts loaded by the iframe
-        responseHeaders['access-control-allow-origin'] = '*';
-        // Rewrite Location headers for browser-followed redirects.
-        // RSC redirects are already handled above (server-side follow).
-        if (responseHeaders['location']) {
-          const loc = responseHeaders['location'] as string;
-          if (loc.startsWith('/')) {
-            responseHeaders['location'] = proxyBase + loc;
-          } else if (loc.startsWith('http://localhost:') || loc.startsWith('http://127.0.0.1:')) {
-            try {
-              const locUrl = new URL(loc);
-              responseHeaders['location'] = proxyBase + locUrl.pathname + locUrl.search + locUrl.hash;
-            } catch { /* leave as-is */ }
-          }
-        }
-
-        // Rewrite Link header preload hints (e.g. Next.js font preloads)
-        // These contain absolute paths that the browser fetches before HTML is processed
-        if (responseHeaders['link']) {
-          const linkVal = responseHeaders['link'] as string;
-          responseHeaders['link'] = linkVal.replace(/<\//g, `<${proxyBase}/`);
-        }
-
-        // Cache immutable static assets (hashed filenames) — browser skips network on reload
-        if (targetPath.includes('/_next/static/')) {
-          responseHeaders['cache-control'] = 'public, max-age=31536000, immutable';
-        }
-
-        const clientAcceptsGzip = (req.headers['accept-encoding'] || '').includes('gzip');
-        const contentType = (proxyRes.headers['content-type'] || '').toLowerCase();
-        // Only rewrite full HTML documents (navigation requests).
-        // Skip rewriting for fetch/XHR responses (RSC, server actions, API calls)
-        // which may also come back as text/html but contain non-HTML payloads.
-        const isNavigationRequest = req.method === 'GET' && !req.headers['rsc'] && !req.headers['next-action'] &&
-          req.headers['accept']?.includes('text/html') && !req.headers['x-requested-with'];
-        const shouldRewriteHtml = contentType.includes('text/html') && isNavigationRequest;
-        // Only buffer the Turbopack/Webpack runtime chunk (needs CHUNK_BASE_PATH rewrite).
-        // All other JS files stream directly — no rewriting needed.
-        const isRuntimeChunk = contentType.includes('javascript') &&
-          (targetPath.includes('turbopack') || targetPath.includes('webpack'));
-        const isCss = contentType.includes('text/css');
-        const shouldBuffer = shouldRewriteHtml || isRuntimeChunk || isCss;
-        if (shouldBuffer) {
-          // Buffer response to rewrite paths
-          const chunks: Buffer[] = [];
-          proxyRes.on('data', (chunk: Buffer) => chunks.push(chunk));
-          proxyRes.on('end', () => {
-            try {
-              let raw: Buffer = Buffer.concat(chunks);
-              const encoding = (proxyRes.headers['content-encoding'] || '').toLowerCase();
-              if (encoding) {
-                raw = decompressBuffer(raw, encoding) as Buffer;
-                delete responseHeaders['content-encoding'];
-              }
-              let body = raw.toString('utf-8');
-              if (shouldRewriteHtml) {
-                body = rewriteHtmlForProxy(body, proxyBase);
-              } else if (isRuntimeChunk) {
-                // Rewrite Turbopack/Webpack runtime chunk base paths so dynamic
-                // imports resolve through the proxy instead of the dashboard root
-                body = body.replaceAll('CHUNK_BASE_PATH = "/_next/"', `CHUNK_BASE_PATH = "${proxyBase}/_next/"`);
-                body = body.replaceAll('RUNTIME_PUBLIC_PATH = "/_next/"', `RUNTIME_PUBLIC_PATH = "${proxyBase}/_next/"`);
-              } else if (isCss) {
-                body = rewriteCssForProxy(body, proxyBase);
-              }
-              const bodyBuf = Buffer.from(body);
-              delete responseHeaders['content-length'];
-              if (clientAcceptsGzip) {
-                const compressed = zlib.gzipSync(bodyBuf);
-                responseHeaders['content-encoding'] = 'gzip';
-                responseHeaders['content-length'] = String(compressed.length);
-                res.writeHead(proxyRes.statusCode || 200, responseHeaders);
-                res.end(compressed);
-              } else {
-                responseHeaders['content-length'] = String(bodyBuf.length);
-                res.writeHead(proxyRes.statusCode || 200, responseHeaders);
-                res.end(bodyBuf);
-              }
-            } catch (err) {
-              logger.warn({ error: (err as Error).message }, 'Failed to process proxied response');
-              const raw = Buffer.concat(chunks);
-              delete responseHeaders['content-length'];
-              responseHeaders['content-length'] = String(raw.length);
-              res.writeHead(proxyRes.statusCode || 200, responseHeaders);
-              res.end(raw);
-            }
-          });
-        } else {
-          // Stream non-rewritten content — compress text-based responses for remote clients
-          const isCompressible = contentType.includes('javascript') || contentType.includes('text/') ||
-            contentType.includes('json') || contentType.includes('xml') || contentType.includes('svg');
-          if (clientAcceptsGzip && isCompressible && !responseHeaders['content-encoding']) {
-            responseHeaders['content-encoding'] = 'gzip';
-            delete responseHeaders['content-length'];
-            res.writeHead(proxyRes.statusCode || 200, responseHeaders);
-            proxyRes.pipe(zlib.createGzip()).pipe(res);
-          } else {
-            res.writeHead(proxyRes.statusCode || 200, responseHeaders);
-            proxyRes.pipe(res);
-          }
-        }
-      },
-    );
-
-    proxyReq.on('error', (err) => {
-      logger.warn({ port: targetPort, error: err.message }, 'proxy connection failed');
-      if (!res.headersSent) {
-        res.status(502).send(`Cannot connect to localhost:${targetPort} — is the dev server running?`);
-      }
-    });
-
-    // Pipe request body for POST/PUT/etc.
-    // The proxy route is excluded from express.json() so the raw stream is intact.
-    req.pipe(proxyReq);
+    handleProxyRequest(req, res, sessionId, targetPort, targetPath, target);
   });
 
   // Handle root proxy path (no trailing path)
   router.all('/:id/proxy/:port', validateUuid('id'), (req, res) => {
-    // Redirect to trailing slash so relative paths resolve correctly
     res.redirect(301, req.originalUrl + '/');
   });
 
@@ -777,8 +488,16 @@ export function createFilesRouter(repo: Repository, agentTunnelManager?: AgentTu
           if (redirectUrl.startsWith('/')) {
             redirectUrl = `${targetUrl.protocol}//${targetUrl.host}${redirectUrl}`;
           }
-          // Route the redirect back through proxy
-          responseHeaders.location = `/api/sessions/${sessionId}/proxy-url/${encodeURIComponent(redirectUrl)}`;
+          // Check if redirect points to localhost/127.0.0.1 — route through local proxy (not proxy-url, which would be SSRF-blocked)
+          const localhostMatch = redirectUrl.match(/^https?:\/\/(?:localhost|127\.0\.0\.1):(\d+)(\/.*)?$/i);
+          if (localhostMatch) {
+            const locPort = localhostMatch[1];
+            const locPath = localhostMatch[2] || '/';
+            responseHeaders.location = `/api/sessions/${sessionId}/proxy/${locPort}${locPath}`;
+          } else {
+            // Route the redirect back through proxy-url
+            responseHeaders.location = `/api/sessions/${sessionId}/proxy-url/${encodeURIComponent(redirectUrl)}`;
+          }
         }
 
         const contentType = (proxyRes.headers['content-type'] || '').toLowerCase();
