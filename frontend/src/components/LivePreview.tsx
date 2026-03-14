@@ -166,6 +166,26 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
     return () => observer.disconnect();
   }, []);
 
+  // Listen for URL change messages from injected proxy client script
+  useEffect(() => {
+    function handleMessage(event: MessageEvent) {
+      if (event.origin !== window.location.origin) return;
+      if (event.data?.type !== 'c3:proxy:urlchange') return;
+      const path = event.data.path as string;
+      if (!path) return;
+
+      // Reconstruct the display URL from the clean path
+      const portMatch = currentDisplayUrlRef.current.match(/:(\d+)/);
+      const urlPort = portMatch ? portMatch[1] : String(port);
+      const realUrl = `http://localhost:${urlPort}${path}`;
+
+      setDisplayUrl((prev) => prev === realUrl ? prev : realUrl);
+      setAddressInput((prev) => prev === realUrl ? prev : realUrl);
+    }
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [port]);
+
   // displayUrl is what the user sees. Empty string = no content loaded yet.
   const currentHost = window.location.hostname;
   const detectedUrl = (localPort || port) > 0 ? `http://${currentHost}:${localPort || port}` : '';
@@ -223,39 +243,22 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
   // Uses functional state updates to avoid unnecessary re-renders.
   const handleIframeLoad = useCallback(() => {
     setLoading(false);
-    try {
-      const iframeLoc = iframeRef.current?.contentWindow?.location;
-      if (!iframeLoc) return;
-
-      if (isLocalDirect) {
-        // Direct iframe — read the real URL directly
-        const realUrl = iframeLoc.href;
-        if (realUrl && realUrl !== 'about:blank') {
-          setDisplayUrl((prev) => prev === realUrl ? prev : realUrl);
-          setAddressInput((prev) => prev === realUrl ? prev : realUrl);
+    // For local direct mode, try to read the iframe location
+    if (isLocalDirect) {
+      try {
+        const iframeLoc = iframeRef.current?.contentWindow?.location;
+        if (iframeLoc) {
+          const realUrl = iframeLoc.href;
+          if (realUrl && realUrl !== 'about:blank') {
+            setDisplayUrl((prev) => prev === realUrl ? prev : realUrl);
+            setAddressInput((prev) => prev === realUrl ? prev : realUrl);
+          }
         }
-        return;
+      } catch (_e) {
+        // Cross-origin — URL sync handled by postMessage
       }
-
-      const path = iframeLoc.pathname;
-      // Extract the real path from proxy URL: /api/sessions/{id}/proxy/{port}/path...
-      const proxyMatch = path.match(/\/api\/sessions\/[^/]+\/proxy\/(\d+)(\/.*)?$/);
-      if (proxyMatch) {
-        const proxyPort = proxyMatch[1];
-        const pagePath = proxyMatch[2] || '/';
-        // Strip cache-bust _t= params so they don't accumulate on reloads
-        const params = new URLSearchParams(iframeLoc.search || '');
-        params.delete('_t');
-        const cleanSearch = params.toString() ? `?${params.toString()}` : '';
-        const hash = iframeLoc.hash || '';
-        const realUrl = `http://localhost:${proxyPort}${pagePath}${cleanSearch}${hash}`;
-        // Only update state if URL actually changed (prevents re-render loops)
-        setDisplayUrl((prev) => prev === realUrl ? prev : realUrl);
-        setAddressInput((prev) => prev === realUrl ? prev : realUrl);
-      }
-    } catch (_e) {
-      // Cross-origin — can't read iframe location, ignore
     }
+    // For proxy mode: URL sync handled by postMessage from injected client script
   }, [isLocalDirect]);
 
   const handleReload = useCallback(() => {
