@@ -58,6 +58,7 @@ Auto-generated from all feature plans. Last updated: 2026-02-17
 - TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, Tailwind CSS 3, Vite 6, better-sqlite3, ws 8 (026-cli-session-flags)
 - SQLite (better-sqlite3) with WAL mode — existing `c3.db` database, one new table (`panel_layout_snapshots`) (035-save-panel-position)
 - N/A — no database or schema changes (036-mobile-preview-fixes)
+- TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, Tailwind CSS 3, Vite 6, ws 8 (038-fix-preview-background-cache)
 
 - TypeScript 5.x, Node.js 20 LTS + React 18, Tailwind CSS 3, xterm.js 5, Monaco Editor, Express, node-pty, ssh2, chokidar, diff2html, ws (001-c3-dashboard)
 
@@ -77,9 +78,9 @@ npm test && npm run lint
 TypeScript 5.x, Node.js 20 LTS: Follow standard conventions
 
 ## Recent Changes
+- 038-fix-preview-background-cache: Added TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, Tailwind CSS 3, Vite 6, ws 8
 - 036-mobile-preview-fixes: Added TypeScript 5.7, Node.js 20 LTS + React 18, Tailwind CSS 3, Vite 6
 - 035-save-panel-position: Added SQLite (better-sqlite3) — new `panel_layout_snapshots` table for per-combination layout persistence
-- 026-cli-session-flags: Added TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, Tailwind CSS 3, Vite 6, better-sqlite3, ws 8
 
 
 <!-- MANUAL ADDITIONS START -->
