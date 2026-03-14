@@ -1,10 +1,14 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   extractProxyContext,
   isNavigationRequest,
   PreviewCookieJar,
   rewriteLocationHeader,
   buildProxyInjectionHtml,
+  createPreviewCatchAll,
+  handleProxyWsUpgrade,
+  type ProxyRepo,
+  type ProxyAgentTunnel,
 } from '../../src/api/preview-proxy.js';
 
 // ---------------------------------------------------------------------------
@@ -422,5 +426,234 @@ describe('buildProxyInjectionHtml', () => {
   it('listens for popstate events', () => {
     const html = buildProxyInjectionHtml(proxyBase);
     expect(html).toContain('popstate');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createPreviewCatchAll
+// ---------------------------------------------------------------------------
+describe('createPreviewCatchAll', () => {
+  function makeRepo(sessions: Record<string, any> = {}, workers: Record<string, any> = {}): ProxyRepo {
+    return {
+      getSession: (id: string) => sessions[id] || null,
+      getWorker: (id: string) => workers[id] || null,
+    };
+  }
+
+  function makeReq(overrides: Record<string, any> = {}): any {
+    return {
+      method: 'GET',
+      url: '/some-asset.js',
+      headers: {},
+      ...overrides,
+    };
+  }
+
+  function makeRes(): any {
+    const res: any = {
+      redirect: vi.fn(),
+      status: vi.fn().mockReturnThis(),
+      json: vi.fn(),
+      writeHead: vi.fn(),
+      end: vi.fn(),
+      headersSent: false,
+    };
+    return res;
+  }
+
+  it('calls next() when no proxy context is found', () => {
+    const repo = makeRepo();
+    const middleware = createPreviewCatchAll(repo);
+    const req = makeReq({ headers: {} });
+    const res = makeRes();
+    const next = vi.fn();
+
+    middleware(req, res, next);
+
+    expect(next).toHaveBeenCalled();
+    expect(res.redirect).not.toHaveBeenCalled();
+  });
+
+  it('calls next() when session is not found', () => {
+    const repo = makeRepo(); // no sessions
+    const middleware = createPreviewCatchAll(repo);
+    const req = makeReq({
+      headers: {
+        referer: 'http://localhost:4000/api/sessions/abc-123/proxy/3000/page',
+      },
+    });
+    const res = makeRes();
+    const next = vi.fn();
+
+    middleware(req, res, next);
+
+    expect(next).toHaveBeenCalled();
+    expect(res.redirect).not.toHaveBeenCalled();
+  });
+
+  it('redirects navigation request with 302 for GET', () => {
+    const repo = makeRepo({
+      'abc-123': { id: 'abc-123', workerId: null },
+    });
+    const middleware = createPreviewCatchAll(repo);
+    const req = makeReq({
+      method: 'GET',
+      url: '/page',
+      headers: {
+        referer: 'http://localhost:4000/api/sessions/abc-123/proxy/3000/other',
+        'sec-fetch-mode': 'navigate',
+        accept: 'text/html',
+      },
+    });
+    const res = makeRes();
+    const next = vi.fn();
+
+    middleware(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.redirect).toHaveBeenCalledWith(302, '/api/sessions/abc-123/proxy/3000/page');
+  });
+
+  it('redirects POST navigation with 307', () => {
+    const repo = makeRepo({
+      'abc-123': { id: 'abc-123', workerId: null },
+    });
+    const middleware = createPreviewCatchAll(repo);
+    const req = makeReq({
+      method: 'POST',
+      url: '/submit',
+      headers: {
+        referer: 'http://localhost:4000/api/sessions/abc-123/proxy/3000/form',
+        'sec-fetch-mode': 'navigate',
+      },
+    });
+    const res = makeRes();
+    const next = vi.fn();
+
+    middleware(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.redirect).toHaveBeenCalledWith(307, '/api/sessions/abc-123/proxy/3000/submit');
+  });
+
+  it('remote session always redirects, even for sub-resources', () => {
+    const repo = makeRepo(
+      { 'abc-123': { id: 'abc-123', workerId: 'w1' } },
+      { 'w1': { id: 'w1', type: 'remote' } },
+    );
+    const middleware = createPreviewCatchAll(repo);
+    // Sub-resource request (not navigation)
+    const req = makeReq({
+      method: 'GET',
+      url: '/style.css',
+      headers: {
+        referer: 'http://localhost:4000/api/sessions/abc-123/proxy/3000/page',
+        'sec-fetch-mode': 'no-cors',
+      },
+    });
+    const res = makeRes();
+    const next = vi.fn();
+
+    middleware(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.redirect).toHaveBeenCalledWith(302, '/api/sessions/abc-123/proxy/3000/style.css');
+  });
+
+  it('remote session uses 307 for non-GET/HEAD methods', () => {
+    const repo = makeRepo(
+      { 'abc-123': { id: 'abc-123', workerId: 'w1' } },
+      { 'w1': { id: 'w1', type: 'remote' } },
+    );
+    const middleware = createPreviewCatchAll(repo);
+    const req = makeReq({
+      method: 'PUT',
+      url: '/api/data',
+      headers: {
+        referer: 'http://localhost:4000/api/sessions/abc-123/proxy/3000/page',
+      },
+    });
+    const res = makeRes();
+    const next = vi.fn();
+
+    middleware(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.redirect).toHaveBeenCalledWith(307, '/api/sessions/abc-123/proxy/3000/api/data');
+  });
+
+  it('local session sub-resource does NOT redirect (transparent proxy path)', () => {
+    const repo = makeRepo({
+      'abc-123': { id: 'abc-123', workerId: null },
+    });
+    const middleware = createPreviewCatchAll(repo);
+    // Sub-resource request: sec-fetch-mode is not navigate
+    const req = makeReq({
+      method: 'GET',
+      url: '/style.css',
+      headers: {
+        referer: 'http://localhost:4000/api/sessions/abc-123/proxy/3000/page',
+        'sec-fetch-mode': 'no-cors',
+      },
+      // Need pipe method for proxy.web
+      pipe: vi.fn(),
+    });
+    const res = makeRes();
+    const next = vi.fn();
+
+    // The transparent proxy path calls proxy.web() which would fail in unit tests.
+    // We just verify it does NOT call next() or redirect.
+    // It will throw because proxy.web can't actually connect, so we catch.
+    try {
+      middleware(req, res, next);
+    } catch {
+      // Expected: proxy.web can't connect in unit test
+    }
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.redirect).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleProxyWsUpgrade
+// ---------------------------------------------------------------------------
+describe('handleProxyWsUpgrade', () => {
+  function makeRepo(sessions: Record<string, any> = {}, workers: Record<string, any> = {}): ProxyRepo {
+    return {
+      getSession: (id: string) => sessions[id] || null,
+      getWorker: (id: string) => workers[id] || null,
+    };
+  }
+
+  it('destroys socket when neither URL match nor Referer context found', () => {
+    const repo = makeRepo();
+    const socket = { destroy: vi.fn() } as any;
+    const req = { url: '/some/random/path', headers: {} } as any;
+
+    handleProxyWsUpgrade(req, socket, Buffer.alloc(0), repo);
+
+    expect(socket.destroy).toHaveBeenCalled();
+  });
+
+  it('does not destroy socket when URL matches proxy pattern', () => {
+    const repo = makeRepo({
+      'abc-123': { id: 'abc-123', workerId: null },
+    });
+    const socket = { destroy: vi.fn() } as any;
+    const req = {
+      url: '/api/sessions/abc-123/proxy/3000/ws',
+      headers: {},
+    } as any;
+
+    // proxy.ws will fail in tests since there's no real server, but we can
+    // verify socket.destroy is NOT called (the proxy path was entered)
+    try {
+      handleProxyWsUpgrade(req, socket, Buffer.alloc(0), repo);
+    } catch {
+      // Expected: proxy.ws fails in unit tests
+    }
+
+    expect(socket.destroy).not.toHaveBeenCalled();
   });
 });

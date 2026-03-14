@@ -1,4 +1,10 @@
-import type { IncomingMessage } from 'node:http';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { Socket } from 'node:net';
+import zlib from 'node:zlib';
+import { createProxyServer } from 'http-proxy-3';
+import type { Request, Response, NextFunction } from 'express';
+import { decompressBuffer, injectBridgeScript } from './proxy-utils.js';
+import { logger } from '../services/logger.js';
 
 /**
  * Proxy context extracted from a request — identifies which session & port
@@ -218,4 +224,404 @@ report()
 })()</script>`;
 
   return proxyBaseScript + iife;
+}
+
+// ---------------------------------------------------------------------------
+// Shared proxy instance & cookie jar
+// ---------------------------------------------------------------------------
+
+const proxy = createProxyServer({});
+
+/** Shared cookie jar used by the proxy handler and catch-all middleware. */
+export const cookieJar = new PreviewCookieJar();
+
+// ---------------------------------------------------------------------------
+// Types for repo & agentTunnel parameters
+// ---------------------------------------------------------------------------
+
+export interface ProxyRepo {
+  getSession(id: string): any;
+  getWorker(id: string): any;
+}
+
+export interface ProxyAgentTunnel {
+  getLocalPort(workerId: string): number | null;
+}
+
+// ---------------------------------------------------------------------------
+// Task 6: Proxy Route Handler
+// ---------------------------------------------------------------------------
+
+/**
+ * Proxy an HTTP request to the target dev server.
+ *
+ * @param req       Express/Node request
+ * @param res       Express/Node response
+ * @param sessionId The session owning this preview
+ * @param port      Target port on localhost
+ * @param targetPath  Path portion (after stripping proxy prefix)
+ * @param target    Full target origin, e.g. "http://127.0.0.1:3000"
+ */
+export function handleProxyRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  sessionId: string,
+  port: number,
+  targetPath: string,
+  target: string,
+): void {
+  const proxyBase = `/api/sessions/${sessionId}/proxy/${port}`;
+  const queryString = (req.url || '').includes('?')
+    ? (req.url || '').substring((req.url || '').indexOf('?'))
+    : '';
+
+  // Set host header to target host
+  const targetUrl = new URL(target);
+  req.headers['host'] = targetUrl.host;
+
+  // Strip proxy prefix from Referer so upstream sees real paths
+  if (req.headers['referer'] && typeof req.headers['referer'] === 'string') {
+    req.headers['referer'] = req.headers['referer'].replace(proxyBase, '');
+  }
+
+  // Strip proxy prefix from Next.js Next-URL header
+  if (req.headers['next-url'] && typeof req.headers['next-url'] === 'string') {
+    const nextUrl = req.headers['next-url'] as string;
+    if (nextUrl.startsWith(proxyBase + '/')) {
+      req.headers['next-url'] = nextUrl.slice(proxyBase.length);
+    } else if (nextUrl === proxyBase) {
+      req.headers['next-url'] = '/';
+    }
+  }
+
+  // Attach cookie jar cookies to outgoing request
+  const jarCookies = cookieJar.get(sessionId, port);
+  if (jarCookies) {
+    const existing = typeof req.headers['cookie'] === 'string' ? req.headers['cookie'] : '';
+    // Merge: jar cookies take priority over browser cookies
+    const merged = new Map<string, string>();
+    for (const pair of existing.split(';').map(s => s.trim()).filter(Boolean)) {
+      const eqIdx = pair.indexOf('=');
+      if (eqIdx > 0) merged.set(pair.substring(0, eqIdx), pair);
+    }
+    for (const pair of jarCookies.split(';').map(s => s.trim()).filter(Boolean)) {
+      const eqIdx = pair.indexOf('=');
+      if (eqIdx > 0) merged.set(pair.substring(0, eqIdx), pair);
+    }
+    if (merged.size > 0) {
+      req.headers['cookie'] = Array.from(merged.values()).join('; ');
+    } else {
+      delete req.headers['cookie'];
+    }
+  }
+
+  // Stash context on req for the proxyRes handler
+  (req as any).__c3SessionId = sessionId;
+  (req as any).__c3Port = port;
+
+  const isNav = isNavigationRequest(req);
+  const selfHandleResponse = isNav;
+
+  if (selfHandleResponse) {
+    (req as any).__c3ProxyBase = proxyBase;
+  }
+
+  // Rewrite req.url to the target path
+  req.url = targetPath + queryString;
+
+  proxy.web(req, res, {
+    target,
+    selfHandleResponse,
+    // Don't change origin — we already set host manually
+    changeOrigin: false,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// proxyRes handler — single handler for both selfHandle and non-selfHandle
+// ---------------------------------------------------------------------------
+
+proxy.on('proxyRes', (proxyRes: IncomingMessage, req: IncomingMessage, res: ServerResponse) => {
+  const sessionId = (req as any).__c3SessionId as string | undefined;
+  const port = (req as any).__c3Port as number | undefined;
+  const proxyBase = (req as any).__c3ProxyBase as string | undefined;
+  const isSelfHandle = !!proxyBase;
+
+  // --- Common header modifications (runs for all requests) ---
+
+  // Strip restrictive headers
+  delete proxyRes.headers['x-frame-options'];
+  delete proxyRes.headers['content-security-policy'];
+
+  // Allow cross-origin access for fonts/scripts loaded by the iframe
+  proxyRes.headers['access-control-allow-origin'] = '*';
+
+  // Store upstream Set-Cookie in jar and strip from response
+  if (sessionId && port) {
+    cookieJar.store(sessionId, port, proxyRes.headers['set-cookie']);
+  }
+  delete proxyRes.headers['set-cookie'];
+
+  // Rewrite Location headers for redirects
+  if (proxyRes.headers['location'] && sessionId && proxyBase) {
+    proxyRes.headers['location'] = rewriteLocationHeader(
+      proxyRes.headers['location'] as string,
+      proxyBase,
+      sessionId,
+    );
+  } else if (proxyRes.headers['location'] && sessionId && port) {
+    // Non-navigation: still rewrite Location with a computed proxyBase
+    const pb = `/api/sessions/${sessionId}/proxy/${port}`;
+    proxyRes.headers['location'] = rewriteLocationHeader(
+      proxyRes.headers['location'] as string,
+      pb,
+      sessionId,
+    );
+  }
+
+  // --- Non-selfHandle path: return and let http-proxy-3 pipe automatically ---
+  if (!isSelfHandle) {
+    return;
+  }
+
+  // --- selfHandle path (HTML navigation): buffer, decompress, inject, send ---
+
+  // Strip link headers (preload hints that contain absolute paths)
+  delete proxyRes.headers['link'];
+
+  const chunks: Buffer[] = [];
+  proxyRes.on('data', (chunk: Buffer) => chunks.push(chunk));
+  proxyRes.on('end', () => {
+    try {
+      let raw: Buffer = Buffer.concat(chunks);
+
+      // Decompress if needed
+      const encoding = (proxyRes.headers['content-encoding'] || '').toLowerCase();
+      if (encoding) {
+        raw = decompressBuffer(raw, encoding) as Buffer;
+        delete proxyRes.headers['content-encoding'];
+      }
+
+      let body = raw.toString('utf-8');
+
+      // Strip <meta> CSP tags
+      body = body.replace(
+        /<meta[^>]*http-equiv\s*=\s*["']Content-Security-Policy["'][^>]*>/gi,
+        '',
+      );
+
+      // Inject proxy injection HTML after <head>
+      const injectionHtml = buildProxyInjectionHtml(proxyBase);
+      if (body.includes('<head>')) {
+        body = body.replace('<head>', '<head>' + injectionHtml);
+      } else if (body.includes('<head ')) {
+        body = body.replace(/<head\s[^>]*>/, '$&' + injectionHtml);
+      } else {
+        body = injectionHtml + body;
+      }
+
+      // Inject bridge script
+      body = injectBridgeScript(body);
+
+      // Gzip if client accepts
+      const clientAcceptsGzip = ((req.headers['accept-encoding'] || '') as string).includes('gzip');
+      const bodyBuf = Buffer.from(body);
+
+      delete proxyRes.headers['content-length'];
+
+      if (clientAcceptsGzip) {
+        const compressed = zlib.gzipSync(bodyBuf);
+        proxyRes.headers['content-encoding'] = 'gzip';
+        proxyRes.headers['content-length'] = String(compressed.length);
+        res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
+        res.end(compressed);
+      } else {
+        proxyRes.headers['content-length'] = String(bodyBuf.length);
+        res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
+        res.end(bodyBuf);
+      }
+    } catch (err) {
+      // Error fallback: send raw buffered data
+      logger.warn({ error: (err as Error).message }, 'Failed to inject into proxied HTML');
+      const raw = Buffer.concat(chunks);
+      delete proxyRes.headers['content-length'];
+      proxyRes.headers['content-length'] = String(raw.length);
+      res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
+      res.end(raw);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Proxy error handler
+// ---------------------------------------------------------------------------
+
+proxy.on('error', (err: Error, req: IncomingMessage, res: ServerResponse | Socket) => {
+  const port = (req as any).__c3Port;
+  logger.warn({ port, error: (err as Error).message }, 'proxy connection failed');
+  // If res is a ServerResponse (not a Socket from WS upgrade), send 502
+  if ('writeHead' in res && !res.headersSent) {
+    (res as ServerResponse).writeHead(502, { 'content-type': 'text/plain' });
+    (res as ServerResponse).end(
+      `Cannot connect to localhost:${port || 'unknown'} — is the dev server running?`,
+    );
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Task 7: Catch-All Middleware
+// ---------------------------------------------------------------------------
+
+/**
+ * Creates Express middleware that catches requests which should be proxied
+ * to a preview dev server based on Referer/cookie context.
+ *
+ * - Remote sessions: always redirect to proxy prefix path
+ * - Local sessions + navigation: redirect to proxy prefix path
+ * - Local sessions + sub-resource: transparent proxy
+ */
+export function createPreviewCatchAll(
+  repo: ProxyRepo,
+  agentTunnel?: ProxyAgentTunnel,
+): (req: Request, res: Response, next: NextFunction) => void {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const ctx = extractProxyContext(req);
+    if (!ctx) {
+      next();
+      return;
+    }
+
+    const session = repo.getSession(ctx.sessionId);
+    if (!session) {
+      next();
+      return;
+    }
+
+    const proxyBase = `/api/sessions/${ctx.sessionId}/proxy/${ctx.port}`;
+    const redirectPath = proxyBase + (req.url || '/');
+
+    // Check if this is a remote session
+    const isRemote = session.workerId && (() => {
+      const worker = repo.getWorker(session.workerId);
+      return worker && worker.type === 'remote';
+    })();
+
+    if (isRemote) {
+      // Remote sessions: ALWAYS redirect to proxy prefix path
+      const method = req.method?.toUpperCase();
+      const statusCode = (method === 'GET' || method === 'HEAD') ? 302 : 307;
+      res.redirect(statusCode, redirectPath);
+      return;
+    }
+
+    // Local session
+    const isNav = isNavigationRequest(req);
+
+    if (isNav) {
+      // Navigation: redirect to proxy prefix path
+      const method = req.method?.toUpperCase();
+      const statusCode = (method === 'GET' || method === 'HEAD') ? 302 : 307;
+      res.redirect(statusCode, redirectPath);
+      return;
+    }
+
+    // Sub-resource: transparent proxy
+    const target = `http://127.0.0.1:${ctx.port}`;
+
+    // Attach jar cookies
+    const jarCookies = cookieJar.get(ctx.sessionId, ctx.port);
+    if (jarCookies) {
+      const existing = typeof req.headers['cookie'] === 'string' ? req.headers['cookie'] : '';
+      const merged = new Map<string, string>();
+      for (const pair of existing.split(';').map(s => s.trim()).filter(Boolean)) {
+        const eqIdx = pair.indexOf('=');
+        if (eqIdx > 0) merged.set(pair.substring(0, eqIdx), pair);
+      }
+      for (const pair of jarCookies.split(';').map(s => s.trim()).filter(Boolean)) {
+        const eqIdx = pair.indexOf('=');
+        if (eqIdx > 0) merged.set(pair.substring(0, eqIdx), pair);
+      }
+      if (merged.size > 0) {
+        req.headers['cookie'] = Array.from(merged.values()).join('; ');
+      }
+    }
+
+    // Stash context on req for the proxyRes handler
+    (req as any).__c3SessionId = ctx.sessionId;
+    (req as any).__c3Port = ctx.port;
+
+    proxy.web(req, res, { target });
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Task 8: WebSocket Upgrade Fallback
+// ---------------------------------------------------------------------------
+
+const WS_PROXY_PATH_RE = /^\/api\/sessions\/([a-f0-9-]+)\/proxy\/(\d+)(\/.*)?$/;
+
+/**
+ * Handle WebSocket upgrade requests for preview proxying.
+ *
+ * Check 1: URL matches /api/sessions/{id}/proxy/{port}/... -> direct proxy
+ * Check 2: Referer-based context -> transparent proxy
+ * Neither: destroy socket
+ */
+export function handleProxyWsUpgrade(
+  req: IncomingMessage,
+  socket: Socket,
+  head: Buffer,
+  repo: ProxyRepo,
+  agentTunnel?: ProxyAgentTunnel,
+): void {
+  const url = req.url || '';
+
+  // Check 1: URL matches proxy path pattern
+  const pathMatch = WS_PROXY_PATH_RE.exec(url);
+  if (pathMatch) {
+    const sessionId = pathMatch[1];
+    const port = Number(pathMatch[2]);
+    const restPath = pathMatch[3] || '/';
+
+    // Check for remote session
+    const session = repo.getSession(sessionId);
+    if (session && session.workerId && agentTunnel) {
+      const worker = repo.getWorker(session.workerId);
+      if (worker && worker.type === 'remote') {
+        const localPort = agentTunnel.getLocalPort(worker.id);
+        if (localPort) {
+          req.url = restPath;
+          proxy.ws(req, socket, head, { target: `http://127.0.0.1:${localPort}` });
+          return;
+        }
+      }
+    }
+
+    // Local session: strip prefix and proxy
+    req.url = restPath;
+    proxy.ws(req, socket, head, { target: `http://127.0.0.1:${port}` });
+    return;
+  }
+
+  // Check 2: Extract proxy context from Referer
+  const ctx = extractProxyContext(req);
+  if (ctx) {
+    const session = repo.getSession(ctx.sessionId);
+    if (session && session.workerId && agentTunnel) {
+      const worker = repo.getWorker(session.workerId);
+      if (worker && worker.type === 'remote') {
+        const localPort = agentTunnel.getLocalPort(worker.id);
+        if (localPort) {
+          proxy.ws(req, socket, head, { target: `http://127.0.0.1:${localPort}` });
+          return;
+        }
+      }
+    }
+
+    proxy.ws(req, socket, head, { target: `http://127.0.0.1:${ctx.port}` });
+    return;
+  }
+
+  // Neither matches -> destroy socket
+  socket.destroy();
 }
