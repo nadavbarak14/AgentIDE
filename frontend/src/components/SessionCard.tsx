@@ -127,6 +127,11 @@ export function SessionCard({
 
   // Port detection — managed internally from WebSocket events
   const [detectedPort, setDetectedPort] = useState<{ port: number; localPort: number } | null>(null);
+  // Track if preview was ever shown in the right panel — once true, LivePreview stays
+  // mounted (hidden via display:none) so the iframe is preserved across panel switches.
+  const previewMountedRef = useRef(false);
+  if (panel.rightPanel === 'preview') previewMountedRef.current = true;
+  const previewMounted = previewMountedRef.current;
   // Connection status for remote sessions
   const [connectionLost, setConnectionLost] = useState(false);
 
@@ -866,6 +871,9 @@ export function SessionCard({
           />
         );
       case 'preview': {
+        // Right panel preview is rendered outside this switch (always-mounted for iframe persistence)
+        if (slot === 'right') return null;
+        // Left panel preview — render normally (rare case)
         const worker = session.workerId && workers
           ? workers.find((w) => w.id === session.workerId)
           : null;
@@ -875,7 +883,7 @@ export function SessionCard({
             sessionId={session.id}
             port={detectedPort?.port || 0}
             localPort={detectedPort?.localPort || 0}
-            onClose={slot === 'left' ? closeLeftPanel : closeRightPanel}
+            onClose={closeLeftPanel}
             refreshKey={fileChangeVersion}
             viewportMode={panel.previewViewport}
             onViewportChange={(mode) => panel.setPreviewViewport(mode)}
@@ -1353,19 +1361,60 @@ export function SessionCard({
             />
           )}
 
-          {/* Right Panel — hidden on mobile unless showing preview */}
-          {showRightPanel && (
+          {/* Right Panel — always rendered when preview was shown to preserve iframe */}
+          {(showRightPanel || previewMounted) && (
             <div
-              className={`border-l border-gray-700 flex flex-col overflow-hidden min-w-0 ${panel.rightPanel !== 'preview' ? 'hidden md:flex' : ''}`}
-              style={{ width: `${effectiveRightWidth}%` }}
+              className={`border-l border-gray-700 flex flex-col overflow-hidden min-w-0 ${
+                !showRightPanel ? '' :
+                panel.rightPanel !== 'preview' ? 'hidden md:flex' : ''
+              }`}
+              style={showRightPanel ? { width: `${effectiveRightWidth}%` } : { display: 'none' }}
             >
-              {renderPanelHeader(
+              {showRightPanel && renderPanelHeader(
                 panel.rightPanel as string,
                 (type) => panel.setRightPanel(type as typeof panel.rightPanel),
                 closeRightPanel,
               )}
               <div className="flex-1 min-h-0">
-                {renderPanelContent(panel.rightPanel as string, 'right')}
+                {/* LivePreview — always mounted once shown, hidden when not the active panel.
+                    This preserves the iframe (auth state, scroll position, in-page navigation)
+                    across panel switches. */}
+                {previewMounted && (
+                  <div className="flex flex-col h-full" style={{ display: (showRightPanel && panel.rightPanel === 'preview') ? undefined : 'none' }}>
+                    {(() => {
+                      const worker = session.workerId && workers
+                        ? workers.find((w) => w.id === session.workerId)
+                        : null;
+                      const isLocalSession = !worker || worker.type === 'local';
+                      return (
+                        <LivePreview
+                          sessionId={session.id}
+                          port={detectedPort?.port || 0}
+                          localPort={detectedPort?.localPort || 0}
+                          onClose={closeRightPanel}
+                          refreshKey={fileChangeVersion}
+                          viewportMode={panel.previewViewport}
+                          onViewportChange={(mode) => panel.setPreviewViewport(mode)}
+                          customViewportWidth={panel.customViewportWidth}
+                          customViewportHeight={panel.customViewportHeight}
+                          onCustomViewport={(w, h) => panel.setCustomViewport(w, h)}
+                          selectedDeviceId={panel.mobileDeviceId}
+                          onDevicePresetSelect={(id) => panel.setMobileDeviceId(id)}
+                          selectedDesktopId={panel.desktopDeviceId}
+                          onDesktopPresetSelect={(id) => panel.setDesktopDeviceId(id)}
+                          bridgeRef={previewBridgeRef}
+                          requestedUrl={panel.previewUrl}
+                          navCounter={panel.previewNavCounter}
+                          onUrlChange={handleUrlChange}
+                          isLocalSession={isLocalSession}
+                          isMobile={isMobile}
+                        />
+                      );
+                    })()}
+                  </div>
+                )}
+                {/* Other panel types — conditionally rendered */}
+                {showRightPanel && panel.rightPanel !== 'none' && panel.rightPanel !== 'preview' && renderPanelContent(panel.rightPanel as string, 'right')}
               </div>
             </div>
           )}
