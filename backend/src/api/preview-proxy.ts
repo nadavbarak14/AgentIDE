@@ -16,6 +16,15 @@ export interface ProxyContext {
 }
 
 const PROXY_PATH_RE = /\/api\/sessions\/([a-f0-9-]+)\/proxy\/(\d+)/;
+const PROXY_URL_RE = /\/api\/sessions\/([a-f0-9-]+)\/proxy-url\/([^/\s]+)/;
+
+/**
+ * Context for proxy-url (external URL) requests.
+ */
+export interface ProxyUrlContext {
+  sessionId: string;
+  targetOrigin: string;
+}
 
 /**
  * Extract proxy context (sessionId + port) from a request.
@@ -42,6 +51,23 @@ export function extractProxyContext(req: IncomingMessage): ProxyContext | null {
   // (no Referer) or new tab opens. The Referer header is reliable for
   // virtually all browser requests (scripts, CSS, fetch, XHR, navigation).
   return null;
+}
+
+/**
+ * Extract proxy-url context (sessionId + targetOrigin) from a request Referer.
+ * Used by the catch-all to redirect escaped navigations back through proxy-url.
+ */
+export function extractProxyUrlContext(req: IncomingMessage): ProxyUrlContext | null {
+  const referer = req.headers.referer || req.headers['referer'];
+  if (!referer) return null;
+  const match = PROXY_URL_RE.exec(referer);
+  if (!match) return null;
+  try {
+    const targetUrl = new URL(decodeURIComponent(match[2]));
+    return { sessionId: match[1], targetOrigin: targetUrl.origin };
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -490,6 +516,21 @@ export function createPreviewCatchAll(
   return (req: Request, res: Response, next: NextFunction) => {
     const ctx = extractProxyContext(req);
     if (!ctx) {
+      // Check for proxy-url Referer — redirect escaped requests back through proxy-url
+      // Handles both navigation (location.href) and sub-resource (Next.js RSC) requests
+      const urlCtx = extractProxyUrlContext(req);
+      if (urlCtx) {
+        const session = repo.getSession(urlCtx.sessionId);
+        if (session) {
+          const targetUrl = urlCtx.targetOrigin + (req.url || '/');
+          const isNav = isNavigationRequest(req);
+          const method = req.method?.toUpperCase();
+          const statusCode = isNav ? ((method === 'GET' || method === 'HEAD') ? 302 : 307) : 302;
+          const redirectPath = `/api/sessions/${urlCtx.sessionId}/proxy-url/${encodeURIComponent(targetUrl)}`;
+          res.redirect(statusCode, redirectPath);
+          return;
+        }
+      }
       next();
       return;
     }
