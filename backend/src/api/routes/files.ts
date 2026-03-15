@@ -13,6 +13,7 @@ import { getDiff } from '../../worker/git-operations.js';
 import { logger } from '../../services/logger.js';
 import {
   injectBridgeScript,
+  BRIDGE_SCRIPT_TAG,
   cleanSetCookieHeaders,
   isPrivateIp,
   MIME_TYPES,
@@ -622,13 +623,14 @@ var OWS=window.WebSocket;window.WebSocket=function(url){
 var r=typeof url==="string"?url.replace(/^(https?:\\/\\/)localhost(:[0-9]+)?(\\/|$)/i,"$1${remoteHost}$2$3").replace(/^(wss?:\\/\\/)localhost(:[0-9]+)?(\\/|$)/i,"$1${remoteHost}$2$3"):url;
 try{return new OWS(r)}catch(e){return null}};
 })()</script>`;
-            body = body.replace(/<head[^>]*>/i, (match) => `${match}\n${interceptorScript}`);
-
-            const modified = injectBridgeScript(body);
+            // Inject bridge BEFORE the interceptor so its fetch() call uses the
+            // original window.fetch, not the interceptor's rewritten version
+            // which would route /api/inspect-bridge.js through the remote server.
+            body = body.replace(/<head[^>]*>/i, (match) => `${match}\n${BRIDGE_SCRIPT_TAG}\n${interceptorScript}`);
             delete responseHeaders['content-length'];
-            responseHeaders['content-length'] = String(Buffer.byteLength(modified));
+            responseHeaders['content-length'] = String(Buffer.byteLength(body));
             res.writeHead(proxyRes.statusCode || 200, responseHeaders);
-            res.end(modified);
+            res.end(body);
           });
         } else {
           res.writeHead(proxyRes.statusCode || 200, responseHeaders);
