@@ -909,5 +909,11 @@
   });
 
   // --- Notify parent that bridge is ready ---
+  // Send ready immediately and re-announce a few times to handle race conditions
+  // where the parent's message listener isn't set up yet (e.g. dynamic script loading
+  // via createElement in proxy-url pages where <base> tag prevents static src).
   postToParent({ type: 'c3:bridge:ready' });
+  setTimeout(function () { postToParent({ type: 'c3:bridge:ready' }); }, 100);
+  setTimeout(function () { postToParent({ type: 'c3:bridge:ready' }); }, 500);
+  setTimeout(function () { postToParent({ type: 'c3:bridge:ready' }); }, 1500);
 })();

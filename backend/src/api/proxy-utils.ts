@@ -1,8 +1,13 @@
 import net from 'node:net';
 import zlib from 'node:zlib';
 
-const BRIDGE_VERSION = '6';
-export const BRIDGE_SCRIPT_TAG = `<script src="/api/inspect-bridge.js?v=${BRIDGE_VERSION}" data-c3-bridge></script>`;
+const BRIDGE_VERSION = '7';
+// Use a fetch-and-eval loader instead of a static src attribute so the script
+// resolves against location.origin, not the <base href> tag which
+// proxy-url pages set to the remote origin. Using fetch+eval instead of
+// createElement('script')+src because async-loaded scripts via src can
+// silently fail to initialize their event listeners in some proxy contexts.
+export const BRIDGE_SCRIPT_TAG = `<script data-c3-bridge>(function(){fetch(location.origin+'/api/inspect-bridge.js?v=${BRIDGE_VERSION}').then(function(r){return r.text()}).then(function(t){var s=document.createElement('script');s.textContent=t;document.head.appendChild(s)}).catch(function(){})})()</script>`;
 
 /** Decompress a buffer based on content-encoding */
 export function decompressBuffer(buf: Buffer, encoding: string): Buffer {

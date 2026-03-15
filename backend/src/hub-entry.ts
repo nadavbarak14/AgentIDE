@@ -953,10 +953,15 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
   // Serve static frontend in production
   const frontendDist = path.join(import.meta.dirname, '../../frontend/dist');
   if (fs.existsSync(frontendDist)) {
-    // Cache hashed assets forever, never cache index.html
+    // Hashed assets (e.g. index-Dt79MJ_j.js) can be cached long-term.
+    // Non-hashed assets and HTML are never cached to ensure rebuilds take effect immediately.
     app.use(express.static(frontendDist, {
       setHeaders: (res, filePath) => {
-        if (filePath.endsWith('.html')) {
+        // Vite hashes asset filenames — safe to cache indefinitely
+        const isHashed = /[-\.][a-zA-Z0-9]{8,}\.(js|css|woff2?)$/.test(filePath);
+        if (isHashed) {
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        } else {
           res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
         }
       },
