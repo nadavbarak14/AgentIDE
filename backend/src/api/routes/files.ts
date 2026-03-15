@@ -13,10 +13,38 @@ import { getDiff } from '../../worker/git-operations.js';
 import { logger } from '../../services/logger.js';
 import {
   injectBridgeScript,
+  cleanSetCookieHeaders,
   isPrivateIp,
   MIME_TYPES,
 } from '../proxy-utils.js';
 import { handleProxyRequest } from '../preview-proxy.js';
+
+/**
+ * Simple cookie jar for proxy-url external proxying.
+ * Keyed by `sessionId:origin` (e.g. "abc-123:https://bstat.vercel.app").
+ */
+const proxyUrlCookieStore = new Map<string, Map<string, string>>();
+
+function storeProxyUrlCookies(sessionId: string, origin: string, setCookieHeaders: string | string[] | undefined): void {
+  if (!setCookieHeaders) return;
+  const headers = Array.isArray(setCookieHeaders) ? setCookieHeaders : [setCookieHeaders];
+  const key = `${sessionId}:${origin}`;
+  if (!proxyUrlCookieStore.has(key)) proxyUrlCookieStore.set(key, new Map());
+  const cookies = proxyUrlCookieStore.get(key)!;
+  for (const header of headers) {
+    const semi = header.indexOf(';');
+    const nv = (semi === -1 ? header : header.slice(0, semi)).trim();
+    const eq = nv.indexOf('=');
+    if (eq > 0) cookies.set(nv.slice(0, eq), nv);
+  }
+}
+
+function getProxyUrlCookies(sessionId: string, origin: string): string {
+  const key = `${sessionId}:${origin}`;
+  const cookies = proxyUrlCookieStore.get(key);
+  if (!cookies || cookies.size === 0) return '';
+  return Array.from(cookies.values()).join('; ');
+}
 
 /**
  * Proxy an HTTP request to the remote agent via the SSH tunnel.
@@ -451,12 +479,43 @@ export function createFilesRouter(repo: Repository, agentTunnelManager?: AgentTu
       // DNS resolution failure — let the actual request handle the error
     }
 
+    // Handle CORS preflight for proxied requests
+    if (req.method === 'OPTIONS') {
+      res.removeHeader('x-frame-options');
+      res.removeHeader('content-security-policy');
+      res.set({
+        'access-control-allow-origin': '*',
+        'access-control-allow-methods': 'GET, POST, PUT, DELETE, PATCH, OPTIONS, HEAD',
+        'access-control-allow-headers': req.headers['access-control-request-headers'] || '*',
+        'access-control-allow-credentials': 'true',
+        'access-control-max-age': '86400',
+      });
+      res.status(204).end();
+      return;
+    }
+
     const isHttps = targetUrl.protocol === 'https:';
     const transport = isHttps ? https : http;
 
     const proxyHeaders = { ...req.headers, host: targetUrl.host };
-    // Don't forward the dashboard's cookies to external sites
-    delete proxyHeaders.cookie;
+    // Merge browser cookies (which include proxied site's cookies set with rewritten Path)
+    // with jar cookies. This ensures auth tokens (e.g., Supabase) are forwarded.
+    const browserCookies = typeof req.headers.cookie === 'string' ? req.headers.cookie : '';
+    const jarCookies = getProxyUrlCookies(sessionId, targetUrl.origin);
+    const mergedCookies = new Map<string, string>();
+    for (const pair of browserCookies.split(';').map((s: string) => s.trim()).filter(Boolean)) {
+      const eq = pair.indexOf('=');
+      if (eq > 0) mergedCookies.set(pair.slice(0, eq), pair);
+    }
+    for (const pair of jarCookies.split(';').map((s: string) => s.trim()).filter(Boolean)) {
+      const eq = pair.indexOf('=');
+      if (eq > 0) mergedCookies.set(pair.slice(0, eq), pair);
+    }
+    if (mergedCookies.size > 0) {
+      proxyHeaders.cookie = Array.from(mergedCookies.values()).join('; ');
+    } else {
+      delete proxyHeaders.cookie;
+    }
     // Remove encoding header so responses aren't compressed (we pipe them directly)
     delete proxyHeaders['accept-encoding'];
 
@@ -476,8 +535,17 @@ export function createFilesRouter(repo: Repository, agentTunnelManager?: AgentTu
         delete responseHeaders['x-frame-options'];
         delete responseHeaders['content-security-policy'];
         delete responseHeaders['content-security-policy-report-only'];
-        // Don't leak external cookies back to the dashboard
-        delete responseHeaders['set-cookie'];
+        // Store cookies in jar and forward cleaned to browser (with rewritten path)
+        const proxyUrlBase = `/api/sessions/${sessionId}/proxy-url`;
+        if (proxyRes.headers['set-cookie']) {
+          storeProxyUrlCookies(sessionId, targetUrl.origin, proxyRes.headers['set-cookie']);
+          const cleaned = cleanSetCookieHeaders(proxyRes.headers['set-cookie'], proxyUrlBase);
+          if (cleaned.length > 0) {
+            responseHeaders['set-cookie'] = cleaned;
+          } else {
+            delete responseHeaders['set-cookie'];
+          }
+        }
         responseHeaders['access-control-allow-origin'] = '*';
 
         // Rewrite redirect Location headers to route back through proxy
@@ -511,46 +579,49 @@ export function createFilesRouter(repo: Repository, agentTunnelManager?: AgentTu
             const baseTag = `<base href="${targetUrl.href}">`;
             body = body.replace(/<head[^>]*>/i, (match) => `${match}\n${baseTag}`);
 
-            // Inject script to fix localhost references and prevent cross-origin errors
+            // Strip <meta> CSP tags that would block our injected scripts
+            body = body.replace(/<meta[^>]*http-equiv\s*=\s*["']Content-Security-Policy["'][^>]*>/gi, '');
+
+            // Inject comprehensive interceptor that routes navigation through the proxy.
+            // IMPORTANT: All rewritten URLs must be FULL absolute URLs (with origin)
+            // because the <base> tag makes the browser resolve relative/path-absolute
+            // URLs against the remote server instead of localhost.
             const remoteHost = targetUrl.hostname;
-            const interceptorScript = `<script>
-// Rewrite localhost URLs to use remote server's IP/hostname
-function rewriteLocalhostUrl(url) {
-  if (typeof url !== 'string') return url;
-  return url.replace(/^(https?:\\/\\/)localhost(:[0-9]+)?(\\/|$)/i, '$1${remoteHost}$2$3')
-            .replace(/^(wss?:\\/\\/)localhost(:[0-9]+)?(\\/|$)/i, '$1${remoteHost}$2$3');
-}
-
-// Intercept WebSocket to rewrite localhost URLs
-var OriginalWebSocket = window.WebSocket;
-window.WebSocket = function(url) {
-  var rewritten = rewriteLocalhostUrl(url);
-  try { return new OriginalWebSocket(rewritten); }
-  catch(e) { console.warn('[Proxy] WebSocket failed:', url); return null; }
-};
-
-// Intercept fetch to rewrite localhost URLs
-var OriginalFetch = window.fetch;
-window.fetch = function() {
-  if (arguments.length > 0 && typeof arguments[0] === 'string') {
-    arguments[0] = rewriteLocalhostUrl(arguments[0]);
-  }
-  return OriginalFetch.apply(this, arguments);
-};
-
-// Intercept XMLHttpRequest.open to rewrite localhost URLs
-var OriginalXHROpen = XMLHttpRequest.prototype.open;
-XMLHttpRequest.prototype.open = function(method, url) {
-  if (typeof url === 'string') {
-    url = rewriteLocalhostUrl(url);
-  }
-  return OriginalXHROpen.apply(this, [method, url].concat(Array.prototype.slice.call(arguments, 2)));
-};
-
-// Stub out history API to prevent cross-origin errors
-window.history.replaceState = function() { return null; };
-window.history.pushState = function() { return null; };
-</script>`;
+            const tgtOrigin = targetUrl.origin;
+            const interceptorScript = `<script>(function(){
+var PUB="/api/sessions/${sessionId}/proxy-url/";
+var TO="${tgtOrigin}";
+var O=window.location.origin;
+function rw(u){if(typeof u!=="string")return u;
+if(u.startsWith(O+"/api/sessions/"))return u;
+if(u.startsWith(O)){var p=u.slice(O.length)||"/";return O+PUB+encodeURIComponent(TO+p)}
+if(u.startsWith(TO+"/"))return O+PUB+encodeURIComponent(u);
+if(u===TO)return O+PUB+encodeURIComponent(u+"/");
+if(u.startsWith("/")&&!u.startsWith("//"))return O+PUB+encodeURIComponent(TO+u);
+var lm=u.match(/^https?:\\/\\/(?:localhost|127\\.0\\.0\\.1):(\\d+)(\\/.*)?$/i);
+if(lm)return O+"/api/sessions/${sessionId}/proxy/"+lm[1]+(lm[2]||"/");
+if(u.startsWith("http://")||u.startsWith("https://"))return O+PUB+encodeURIComponent(u);
+return u}
+var oF=window.fetch;window.fetch=function(u,o){
+if(typeof u==="string")u=rw(u);
+else if(u&&typeof u==="object"&&u.url)u=new Request(rw(u.url),u);
+return oF.call(this,u,o)};
+var oX=XMLHttpRequest.prototype.open;
+XMLHttpRequest.prototype.open=function(m,u){
+return oX.apply(this,[m,typeof u==="string"?rw(u):u].concat([].slice.call(arguments,2)))};
+document.addEventListener("submit",function(e){var f=e.target;if(!f||!f.action)return;
+var a=f.action;if(a.startsWith(TO)){f.action=O+PUB+encodeURIComponent(a)}},true);
+document.addEventListener("click",function(e){if(e.defaultPrevented)return;
+var a=e.target&&e.target.closest?e.target.closest("a[href]"):null;if(!a)return;
+var h=a.href;if(h&&h.startsWith(TO)){e.preventDefault();window.location.href=O+PUB+encodeURIComponent(h)}},true);
+try{var oLA=location.assign.bind(location);location.assign=function(u){return oLA(rw(u))}}catch(e){}
+try{var oLR=location.replace.bind(location);location.replace=function(u){return oLR(rw(u))}}catch(e){}
+window.history.replaceState=function(){return null};
+window.history.pushState=function(){return null};
+var OWS=window.WebSocket;window.WebSocket=function(url){
+var r=typeof url==="string"?url.replace(/^(https?:\\/\\/)localhost(:[0-9]+)?(\\/|$)/i,"$1${remoteHost}$2$3").replace(/^(wss?:\\/\\/)localhost(:[0-9]+)?(\\/|$)/i,"$1${remoteHost}$2$3"):url;
+try{return new OWS(r)}catch(e){return null}};
+})()</script>`;
             body = body.replace(/<head[^>]*>/i, (match) => `${match}\n${interceptorScript}`);
 
             const modified = injectBridgeScript(body);

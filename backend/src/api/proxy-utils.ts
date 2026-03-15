@@ -84,7 +84,7 @@ export function rewriteHtmlForProxy(html: string, proxyBase: string): string {
   // location.assign/replace, navigation, and dynamic elements
   const urlRewriter = `<script>(function(){
 var b="${proxyBase}";
-function rw(u){if(typeof u!=="string")return u;if(u.startsWith("/")&&!u.startsWith(b)&&!u.startsWith("//"))return b+u;var o=window.location.origin;if(u.length>o.length+1&&u.startsWith(o+"/")&&!u.startsWith(o+b))return o+b+u.slice(o.length);return u}
+function rw(u){if(typeof u!=="string")return u;if(u.startsWith("/")&&!u.startsWith(b)&&!u.startsWith("//"))return b+u;var o=window.location.origin;if(u.startsWith(o)&&!u.startsWith(o+b)){var p=u.slice(o.length);if(p===""||p.startsWith("/")||p.startsWith("?"))return o+b+(p.startsWith("?")?"/"+p:p||"/")}return u}
 // Helper: strip proxy prefix from a path (for headers sent to the server)
 function stripProxy(u){if(typeof u!=="string")return u;if(u.startsWith(b+"/"))return u.slice(b.length);if(u===b)return"/";return u}
 try{var OU=window.URL;var proxyRe=/\\/api\\/sessions\\/[^\\/]+\\/proxy\\/\\d+/;
