@@ -171,6 +171,8 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
     function handleMessage(event: MessageEvent) {
       if (event.origin !== window.location.origin) return;
       if (event.data?.type !== 'c3:proxy:urlchange') return;
+      // Scope to this iframe — ignore messages from other sessions' previews
+      if (event.source !== iframeRef.current?.contentWindow) return;
       const path = event.data.path as string;
       if (!path) return;
 
@@ -181,10 +183,15 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
 
       setDisplayUrl((prev) => prev === realUrl ? prev : realUrl);
       setAddressInput((prev) => prev === realUrl ? prev : realUrl);
+      // Persist to panel state so URL survives panel switches.
+      // Also update lastRequestedUrlRef so the requestedUrl effect
+      // doesn't re-navigate (the iframe already shows the new page).
+      lastRequestedUrlRef.current = realUrl;
+      onUrlChange?.(realUrl);
     }
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [port]);
+  }, [port, onUrlChange]);
 
   // displayUrl is what the user sees. Empty string = no content loaded yet.
   const currentHost = window.location.hostname;
@@ -250,8 +257,20 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
         if (iframeLoc) {
           const realUrl = iframeLoc.href;
           if (realUrl && realUrl !== 'about:blank') {
-            setDisplayUrl((prev) => prev === realUrl ? prev : realUrl);
-            setAddressInput((prev) => prev === realUrl ? prev : realUrl);
+            // Skip proxy URLs — these are internal routes (proxy-url/, proxy/)
+            // that should not overwrite the user-facing display URL.
+            // URL sync for proxied content is handled by postMessage instead.
+            const isProxyUrl = realUrl.includes('/api/sessions/') &&
+              (realUrl.includes('/proxy-url/') || realUrl.includes('/proxy/'));
+            if (!isProxyUrl) {
+              setDisplayUrl((prev) => prev === realUrl ? prev : realUrl);
+              setAddressInput((prev) => prev === realUrl ? prev : realUrl);
+              // Persist to panel state so URL survives panel switches.
+              // Update lastRequestedUrlRef to prevent the requestedUrl effect
+              // from re-navigating — the iframe already shows this page.
+              lastRequestedUrlRef.current = realUrl;
+              onUrlChange?.(realUrl);
+            }
           }
         }
       } catch (_e) {
@@ -259,7 +278,7 @@ export function LivePreview({ sessionId, port, localPort, detectedPorts, onClose
       }
     }
     // For proxy mode: URL sync handled by postMessage from injected client script
-  }, [isLocalDirect]);
+  }, [isLocalDirect, onUrlChange]);
 
   const handleReload = useCallback(() => {
     const url = iframeUrlRef.current;
