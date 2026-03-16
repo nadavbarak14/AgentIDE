@@ -140,7 +140,7 @@ export function SessionGrid({
       {/* Focus Area: Main visible sessions (frozen order) */}
       <div
         data-testid="session-grid"
-        className={`flex-1 grid ${activeSessions.length === 1 ? 'p-0' : 'gap-3 p-3 auto-rows-fr'} ${activeSessions.length > 1 ? 'overflow-auto' : 'overflow-hidden'}`}
+        className={`flex-1 grid ${activeSessions.length === 1 ? 'p-0' : 'gap-3 p-3 auto-rows-fr'} overflow-hidden`}
         style={{
           gridTemplateColumns: `repeat(${Math.min(activeSessions.length, 3) || 1}, 1fr)`,
           transition: 'grid-template-columns 200ms ease-in-out',
