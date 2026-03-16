@@ -44,9 +44,7 @@ describe('Memory cleanup integration: full session lifecycle', () => {
     db.prepare('INSERT INTO video_recordings (id, session_id, video_path, status) VALUES (?, ?, ?, ?)').run(
       'vid1', sessionId, '/tmp/rec1.json', 'pending',
     );
-    db.prepare('INSERT INTO panel_states (session_id, state_json) VALUES (?, ?)').run(
-      sessionId, '{"layout": "split"}',
-    );
+    db.prepare('INSERT INTO panel_states (session_id) VALUES (?)').run(sessionId);
 
     // 2. Simulate in-memory stores (widgetStore and cookieJar)
     const widgetStore = new Map<string, Map<string, { html: string }>>();
