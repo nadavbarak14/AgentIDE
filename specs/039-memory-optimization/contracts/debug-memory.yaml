@@ -1,0 +1,66 @@
+openapi: 3.0.3
+info:
+  title: Debug Memory Endpoint
+  version: 1.0.0
+  description: Minimal debug endpoint for observing memory-related resource counts
+
+paths:
+  /api/debug/memory:
+    get:
+      summary: Get current memory resource counts
+      description: |
+        Returns counts of active in-memory resources for debugging memory leaks.
+        Protected by existing auth middleware.
+      operationId: getMemoryDebug
+      tags:
+        - debug
+      responses:
+        '200':
+          description: Current resource counts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  process:
+                    type: object
+                    description: Node.js process.memoryUsage() output
+                    properties:
+                      rss:
+                        type: integer
+                        description: Resident Set Size in bytes
+                      heapTotal:
+                        type: integer
+                        description: Total heap allocated in bytes
+                      heapUsed:
+                        type: integer
+                        description: Heap actually used in bytes
+                      external:
+                        type: integer
+                        description: External memory (C++ objects bound to JS) in bytes
+                  resources:
+                    type: object
+                    properties:
+                      widgetSessions:
+                        type: integer
+                        description: Number of sessions with active widgets
+                      totalWidgets:
+                        type: integer
+                        description: Total widget count across all sessions
+                      cookieEntries:
+                        type: integer
+                        description: Number of session-port cookie jar entries
+                      pendingCommands:
+                        type: integer
+                        description: Number of pending board commands
+                      agentConnections:
+                        type: integer
+                        description: Number of active agent WebSocket connections
+                      activePtys:
+                        type: integer
+                        description: Number of active PTY processes
+                required:
+                  - process
+                  - resources
+        '401':
+          description: Unauthorized
