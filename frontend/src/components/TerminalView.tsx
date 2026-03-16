@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useImperativeHandle, forwardRef } from 'react';
+import { useState, useEffect, useRef, useCallback, useImperativeHandle, forwardRef } from 'react';
 import { useTerminal } from '../hooks/useTerminal';
 import { useWebSocket } from '../hooks/useWebSocket';
 
@@ -129,6 +129,38 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(fu
   }, [fontSize, setFontSize]);
 
 
+  // tmux copy-mode scroll state
+  const [inCopyMode, setInCopyMode] = useState(false);
+
+  const enterCopyMode = useCallback(() => {
+    sendInput('\x02['); // Ctrl+B [ → tmux copy mode
+    setInCopyMode(true);
+  }, [sendInput]);
+
+  const scrollUp = useCallback(() => {
+    if (!inCopyMode) {
+      sendInput('\x02['); // enter copy mode first
+      setInCopyMode(true);
+      // Small delay to let tmux process the mode switch before sending PageUp
+      setTimeout(() => sendInput('\x1b[5~'), 50); // PageUp
+    } else {
+      sendInput('\x1b[5~'); // PageUp
+    }
+  }, [sendInput, inCopyMode]);
+
+  const scrollDown = useCallback(() => {
+    if (inCopyMode) {
+      sendInput('\x1b[6~'); // PageDown
+    }
+  }, [sendInput, inCopyMode]);
+
+  const exitCopyMode = useCallback(() => {
+    if (inCopyMode) {
+      sendInput('q'); // exit tmux copy mode
+      setInCopyMode(false);
+    }
+  }, [sendInput, inCopyMode]);
+
   return (
     <div className="relative w-full h-full">
       <div
@@ -136,18 +168,60 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(fu
         className="w-full h-full overscroll-contain"
         style={{ backgroundColor: '#1a1b26' }}
       />
-      <button
-        onClick={() => nudge()}
-        title="Refresh terminal view"
-        className="absolute top-1 right-1 z-10 p-1 rounded bg-gray-800/70 hover:bg-gray-700 text-gray-400 hover:text-gray-200 transition-colors"
-      >
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M14 2v4h-4" />
-          <path d="M2 14v-4h4" />
-          <path d="M13.5 6A6 6 0 0 0 3.8 3.8L2 6" />
-          <path d="M2.5 10a6 6 0 0 0 9.7 2.2L14 10" />
-        </svg>
-      </button>
+      {/* Scroll controls — tmux copy-mode based */}
+      <div className="absolute top-1 right-1 z-10 flex gap-0.5">
+        {inCopyMode ? (
+          <>
+            <button
+              onClick={scrollUp}
+              title="Scroll up (Page Up)"
+              className="p-1 rounded bg-blue-600/80 hover:bg-blue-500 text-white transition-colors"
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M8 3v10M4 7l4-4 4 4" />
+              </svg>
+            </button>
+            <button
+              onClick={scrollDown}
+              title="Scroll down (Page Down)"
+              className="p-1 rounded bg-blue-600/80 hover:bg-blue-500 text-white transition-colors"
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M8 13V3M4 9l4 4 4-4" />
+              </svg>
+            </button>
+            <button
+              onClick={exitCopyMode}
+              title="Exit scroll mode"
+              className="p-1 rounded bg-amber-600/80 hover:bg-amber-500 text-white text-xs font-bold transition-colors"
+            >
+              ×
+            </button>
+          </>
+        ) : (
+          <button
+            onClick={scrollUp}
+            title="Scroll history (tmux copy mode)"
+            className="p-1 rounded bg-gray-800/70 hover:bg-gray-700 text-gray-400 hover:text-gray-200 transition-colors"
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M8 3v10M4 7l4-4 4 4" />
+            </svg>
+          </button>
+        )}
+        <button
+          onClick={() => nudge()}
+          title="Refresh terminal view"
+          className="p-1 rounded bg-gray-800/70 hover:bg-gray-700 text-gray-400 hover:text-gray-200 transition-colors"
+        >
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M14 2v4h-4" />
+            <path d="M2 14v-4h4" />
+            <path d="M13.5 6A6 6 0 0 0 3.8 3.8L2 6" />
+            <path d="M2.5 10a6 6 0 0 0 9.7 2.2L14 10" />
+          </svg>
+        </button>
+      </div>
     </div>
   );
 });
