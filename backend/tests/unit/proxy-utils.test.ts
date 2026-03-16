@@ -16,7 +16,7 @@ import {
 describe('BRIDGE_SCRIPT_TAG', () => {
   it('is a script tag pointing to the inspect-bridge.js endpoint', () => {
     expect(BRIDGE_SCRIPT_TAG).toContain('<script');
-    expect(BRIDGE_SCRIPT_TAG).toContain('inspect-bridge.js');
+    expect(BRIDGE_SCRIPT_TAG).toContain('src="/api/inspect-bridge.js');
     expect(BRIDGE_SCRIPT_TAG).toContain('data-c3-bridge');
     expect(BRIDGE_SCRIPT_TAG).toContain('</script>');
   });
