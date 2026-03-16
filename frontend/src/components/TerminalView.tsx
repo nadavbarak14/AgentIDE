@@ -130,7 +130,7 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(fu
 
 
   return (
-    <div className="relative w-full h-full min-h-0">
+    <div className="relative w-full h-full">
       <div
         ref={containerRef}
         className="w-full h-full overscroll-contain"
