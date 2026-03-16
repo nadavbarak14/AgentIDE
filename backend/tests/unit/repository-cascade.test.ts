@@ -27,10 +27,10 @@ describe('Repository.deleteSession cascade', () => {
 
     // Insert related data using raw SQL for simplicity
     db.prepare('INSERT INTO comments (id, session_id, file_path, start_line, end_line, code_snippet, comment_text, status, side) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-      'c1', sessionId, '/file.ts', 1, 5, 'code', 'a comment', 'open', 'new',
+      'c1', sessionId, '/file.ts', 1, 5, 'code', 'a comment', 'pending', 'new',
     );
-    db.prepare('INSERT INTO preview_comments (id, session_id, comment_text, page_url) VALUES (?, ?, ?, ?)').run(
-      'pc1', sessionId, 'preview comment', 'http://localhost:3000',
+    db.prepare('INSERT INTO preview_comments (id, session_id, comment_text, page_url, pin_x, pin_y) VALUES (?, ?, ?, ?, ?, ?)').run(
+      'pc1', sessionId, 'preview comment', 'http://localhost:3000', 0.5, 0.5,
     );
     db.prepare('INSERT INTO uploaded_images (id, session_id, original_filename, stored_path, mime_type, file_size) VALUES (?, ?, ?, ?, ?, ?)').run(
       'img1', sessionId, 'screenshot.png', '/tmp/img.png', 'image/png', 1024,
@@ -103,7 +103,7 @@ describe('Repository.deleteSession cascade', () => {
       title: 'Active',
     });
     db.prepare('INSERT INTO comments (id, session_id, file_path, start_line, end_line, code_snippet, comment_text, status, side) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-      'c-active', session.id, '/file.ts', 1, 1, '', 'comment', 'open', 'new',
+      'c-active', session.id, '/file.ts', 1, 1, '', 'comment', 'pending', 'new',
     );
 
     const deleted = repo.deleteSession(session.id);
