@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
+import path from 'node:path';
 import type { Repository } from '../models/repository.js';
 import type { Session, CreateSessionInput, ShellInfo } from '../models/types.js';
 import type { PtySpawner, PtyProcess } from '../worker/pty-spawner.js';
@@ -366,6 +367,7 @@ export class SessionManager extends EventEmitter {
       if (exitCode === 0) {
         this.continueSessions.delete(sessionId);
         log.info({ claudeSessionId }, 'session completed');
+        this.cleanupWorkReport(sessionId, log);
         this.repo.completeSession(sessionId, claudeSessionId);
         this.emit('session_completed', sessionId, claudeSessionId);
       } else {
@@ -388,6 +390,7 @@ export class SessionManager extends EventEmitter {
           }
         }
         log.warn({ exitCode }, 'session failed');
+        this.cleanupWorkReport(sessionId, log);
         this.repo.failSession(sessionId);
         this.emit('session_failed', sessionId);
       }
@@ -457,10 +460,12 @@ export class SessionManager extends EventEmitter {
 
       if (exitCode === 0) {
         log.info({ claudeSessionId }, 'remote session completed');
+        this.cleanupWorkReport(sessionId, log);
         this.repo.completeSession(sessionId, claudeSessionId);
         this.emit('session_completed', sessionId, claudeSessionId);
       } else {
         log.warn({ exitCode }, 'remote session failed');
+        this.cleanupWorkReport(sessionId, log);
         this.repo.failSession(sessionId);
         this.emit('session_failed', sessionId);
       }
@@ -612,6 +617,32 @@ export class SessionManager extends EventEmitter {
    * Clean up scrollback files for a session after deletion.
    * Wrapped in try/catch so failures don't block session removal.
    */
+  /**
+   * Remove work report artifacts (report.html + .report-assets/) from the session's working directory.
+   */
+  private cleanupWorkReport(sessionId: string, log: ReturnType<typeof createSessionLogger>): void {
+    const session = this.repo.getSession(sessionId);
+    if (!session?.workingDirectory) return;
+    const reportPath = path.join(session.workingDirectory, 'report.html');
+    const assetsPath = path.join(session.workingDirectory, '.report-assets');
+    try {
+      if (fs.existsSync(reportPath)) {
+        fs.unlinkSync(reportPath);
+        log.info('cleaned up work report file');
+      }
+    } catch (err) {
+      log.warn({ err }, 'failed to delete report.html');
+    }
+    try {
+      if (fs.existsSync(assetsPath)) {
+        fs.rmSync(assetsPath, { recursive: true, force: true });
+        log.info('cleaned up work report assets');
+      }
+    } catch (err) {
+      log.warn({ err }, 'failed to delete .report-assets');
+    }
+  }
+
   private cleanupScrollback(sessionId: string, log: ReturnType<typeof createSessionLogger>): void {
     try {
       this._shellSpawner?.deleteScrollback(sessionId);

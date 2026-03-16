@@ -175,6 +175,14 @@ export function SessionCard({
       fileChangeDebounceRef.current = setTimeout(() => {
         setFileChangeVersion((v) => v + 1);
       }, 1000);
+      // Forward report.html changes to work-report extension
+      const paths = (msg as { paths?: string[] }).paths ?? [];
+      if (paths.some((p: string) => p.endsWith('report.html') || p.endsWith('/report.html'))) {
+        const ref = extensionPanelRefs.current['work-report'];
+        if (ref) {
+          ref.sendToExtension({ type: 'board-command', command: 'report.file_changed', params: {} });
+        }
+      }
     }
     if (msg.type === 'port_detected') {
       setDetectedPort({ port: msg.port, localPort: msg.localPort });
