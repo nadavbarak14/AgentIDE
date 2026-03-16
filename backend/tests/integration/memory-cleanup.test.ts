@@ -42,7 +42,7 @@ describe('Memory cleanup integration: full session lifecycle', () => {
       'img1', sessionId, 'bug.png', '/tmp/img1.png', 'image/png', 2048,
     );
     db.prepare('INSERT INTO video_recordings (id, session_id, video_path, status) VALUES (?, ?, ?, ?)').run(
-      'vid1', sessionId, '/tmp/rec1.json', 'completed',
+      'vid1', sessionId, '/tmp/rec1.json', 'pending',
     );
     db.prepare('INSERT INTO panel_states (session_id, state_json) VALUES (?, ?)').run(
       sessionId, '{"layout": "split"}',

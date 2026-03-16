@@ -36,7 +36,7 @@ describe('Repository.deleteSession cascade', () => {
       'img1', sessionId, 'screenshot.png', '/tmp/img.png', 'image/png', 1024,
     );
     db.prepare('INSERT INTO video_recordings (id, session_id, video_path, status) VALUES (?, ?, ?, ?)').run(
-      'vid1', sessionId, '/tmp/video.json', 'completed',
+      'vid1', sessionId, '/tmp/video.json', 'pending',
     );
     db.prepare('INSERT INTO panel_states (session_id, state_json) VALUES (?, ?)').run(
       sessionId, '{}',
