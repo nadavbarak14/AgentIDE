@@ -16,6 +16,7 @@ export function useTerminal(options: UseTerminalOptions = {}) {
   // Buffer data that arrives before xterm.js is initialized, so nothing is lost
   const pendingWritesRef = useRef<Array<string | ArrayBuffer | Uint8Array>>([]);
   const [isScrolledUp, setIsScrolledUp] = useState(false);
+  const isScrolledUpRef = useRef(false);
 
   const initTerminal = useCallback((container: HTMLDivElement | null) => {
     if (!container) return;
@@ -61,16 +62,18 @@ export function useTerminal(options: UseTerminalOptions = {}) {
     });
 
     terminal.open(container);
-    terminal.options.scrollSensitivity = 3; // smoother touch scrolling
+    terminal.options.scrollSensitivity = 5;     // lines per mouse wheel tick
+    terminal.options.fastScrollSensitivity = 10; // lines per Alt+wheel tick
     fitAddon.fit();
 
     terminal.onData((data) => options.onData?.(data));
     terminal.onResize(({ cols, rows }) => options.onResize?.(cols, rows));
 
-    // Track scroll position for scroll-to-bottom button
+    // Track scroll position for scroll-to-bottom button and auto-scroll gating
     terminal.onScroll(() => {
       const maxScroll = terminal.buffer.active.length - terminal.rows;
       const atBottom = terminal.buffer.active.viewportY >= maxScroll - 1;
+      isScrolledUpRef.current = !atBottom;
       setIsScrolledUp(!atBottom);
     });
 
@@ -140,10 +143,10 @@ export function useTerminal(options: UseTerminalOptions = {}) {
       pendingWritesRef.current.push(data);
       return;
     }
-    // Use write callback to scroll after data is parsed — xterm.js write() is async
-    const scrollCb = () => {
+    // Only auto-scroll if user hasn't scrolled up — respect their reading position.
+    // Uses a ref (not state) because write() fires rapidly and state would be stale.
+    const scrollCb = isScrolledUpRef.current ? undefined : () => {
       terminal.scrollToBottom();
-      setIsScrolledUp(false);
     };
     if (typeof data === 'string') {
       terminal.write(data, scrollCb);
@@ -189,6 +192,7 @@ export function useTerminal(options: UseTerminalOptions = {}) {
 
   const scrollToBottom = useCallback(() => {
     terminalRef.current?.scrollToBottom();
+    isScrolledUpRef.current = false;
     setIsScrolledUp(false);
   }, []);
 
