@@ -226,6 +226,7 @@ export function buildProxyInjectionHtml(proxyBase: string): string {
 
   const iife = `<script>(function(){
 var b="${proxyBase}";
+window.__c3NativeFetch=window.fetch;
 try{document.cookie="__c3_preview=;path=/;max-age=0"}catch(e){}
 function report(){var p=location.pathname;if(p.startsWith(b))p=p.slice(b.length)||"/";try{parent.postMessage({type:"c3:proxy:urlchange",path:p+location.search+location.hash},location.origin)}catch(e){}}
 function rw(u){if(typeof u!=="string")return u;if(u.startsWith("/")&&!u.startsWith(b)&&!u.startsWith("//"))return b+u;var o=location.origin;if(u.startsWith(o+"/")&&!u.startsWith(o+b))return o+b+u.slice(o.length);return u}

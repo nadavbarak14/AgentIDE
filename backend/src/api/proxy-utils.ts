@@ -7,7 +7,7 @@ const BRIDGE_VERSION = '7';
 // proxy-url pages set to the remote origin. Using fetch+eval instead of
 // createElement('script')+src because async-loaded scripts via src can
 // silently fail to initialize their event listeners in some proxy contexts.
-export const BRIDGE_SCRIPT_TAG = `<script data-c3-bridge>(function(){fetch(location.origin+'/api/inspect-bridge.js?v=${BRIDGE_VERSION}').then(function(r){return r.text()}).then(function(t){var s=document.createElement('script');s.textContent=t;document.head.appendChild(s)}).catch(function(){})})()</script>`;
+export const BRIDGE_SCRIPT_TAG = `<script data-c3-bridge>(function(){var f=window.__c3NativeFetch||window.fetch;f.call(window,location.origin+'/api/inspect-bridge.js?v=${BRIDGE_VERSION}').then(function(r){return r.text()}).then(function(t){var s=document.createElement('script');s.textContent=t;document.head.appendChild(s)}).catch(function(){})})()</script>`;
 
 /** Decompress a buffer based on content-encoding */
 export function decompressBuffer(buf: Buffer, encoding: string): Buffer {
