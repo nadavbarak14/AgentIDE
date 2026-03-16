@@ -168,32 +168,33 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(fu
         className="w-full h-full overscroll-contain"
         style={{ backgroundColor: '#1a1b26' }}
       />
-      {/* Scroll controls — tmux copy-mode based */}
-      <div className="absolute top-1 right-1 z-10 flex gap-0.5">
+      {/* Scroll controls — tmux copy-mode based.
+          Sized for touch on mobile (min 44px tap targets). */}
+      <div className="absolute top-1 right-1 z-10 flex gap-1">
         {inCopyMode ? (
           <>
             <button
               onClick={scrollUp}
               title="Scroll up (Page Up)"
-              className="p-1 rounded bg-blue-600/80 hover:bg-blue-500 text-white transition-colors"
+              className="p-2 md:p-1 rounded-lg md:rounded bg-blue-600/90 hover:bg-blue-500 active:bg-blue-400 text-white transition-colors shadow-lg md:shadow-none"
             >
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M8 3v10M4 7l4-4 4 4" />
               </svg>
             </button>
             <button
               onClick={scrollDown}
               title="Scroll down (Page Down)"
-              className="p-1 rounded bg-blue-600/80 hover:bg-blue-500 text-white transition-colors"
+              className="p-2 md:p-1 rounded-lg md:rounded bg-blue-600/90 hover:bg-blue-500 active:bg-blue-400 text-white transition-colors shadow-lg md:shadow-none"
             >
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M8 13V3M4 9l4 4 4-4" />
               </svg>
             </button>
             <button
               onClick={exitCopyMode}
               title="Exit scroll mode"
-              className="p-1 rounded bg-amber-600/80 hover:bg-amber-500 text-white text-xs font-bold transition-colors"
+              className="p-2 md:p-1 rounded-lg md:rounded bg-amber-600/90 hover:bg-amber-500 active:bg-amber-400 text-white text-sm md:text-xs font-bold transition-colors shadow-lg md:shadow-none"
             >
               ×
             </button>
@@ -202,9 +203,9 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(fu
           <button
             onClick={scrollUp}
             title="Scroll history (tmux copy mode)"
-            className="p-1 rounded bg-gray-800/70 hover:bg-gray-700 text-gray-400 hover:text-gray-200 transition-colors"
+            className="p-2 md:p-1 rounded-lg md:rounded bg-gray-800/80 hover:bg-gray-700 active:bg-gray-600 text-gray-400 hover:text-gray-200 transition-colors"
           >
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M8 3v10M4 7l4-4 4 4" />
             </svg>
           </button>
@@ -212,9 +213,9 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(fu
         <button
           onClick={() => nudge()}
           title="Refresh terminal view"
-          className="p-1 rounded bg-gray-800/70 hover:bg-gray-700 text-gray-400 hover:text-gray-200 transition-colors"
+          className="p-2 md:p-1 rounded-lg md:rounded bg-gray-800/80 hover:bg-gray-700 active:bg-gray-600 text-gray-400 hover:text-gray-200 transition-colors"
         >
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M14 2v4h-4" />
             <path d="M2 14v-4h4" />
             <path d="M13.5 6A6 6 0 0 0 3.8 3.8L2 6" />
