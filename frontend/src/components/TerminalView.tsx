@@ -132,11 +132,6 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(fu
   // tmux copy-mode scroll state
   const [inCopyMode, setInCopyMode] = useState(false);
 
-  const enterCopyMode = useCallback(() => {
-    sendInput('\x02['); // Ctrl+B [ → tmux copy mode
-    setInCopyMode(true);
-  }, [sendInput]);
-
   const scrollUp = useCallback(() => {
     if (!inCopyMode) {
       sendInput('\x02['); // enter copy mode first
