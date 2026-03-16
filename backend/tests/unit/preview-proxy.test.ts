@@ -1,4 +1,14 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+// Mock http-proxy-3 to prevent real network connections in unit tests
+vi.mock('http-proxy-3', () => ({
+  createProxyServer: () => ({
+    on: vi.fn(),
+    web: vi.fn(),
+    ws: vi.fn(),
+  }),
+}));
+
 import {
   extractProxyContext,
   isNavigationRequest,
