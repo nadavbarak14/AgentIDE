@@ -1019,7 +1019,7 @@ export function SessionCard({
               : focused
                 ? 'border-gray-600'
                 : 'border-gray-700'
-      } overflow-hidden flex flex-col`}
+      } overflow-hidden flex flex-col overscroll-contain`}
     >
       {/* Header row — hidden on mobile when keyboard open */}
       <div className={`flex items-center px-2 py-1 border-b border-gray-700 bg-gray-800/50 gap-1 flex-shrink-0 relative${isMobile && keyboardOpen ? ' hidden' : ''}`}>
@@ -1302,7 +1302,7 @@ export function SessionCard({
       {/* Main Content — Vertical split: [Top Zone] / [Bottom Zone (terminal)] */}
       <div
         ref={containerRef}
-        className="flex-1 flex flex-col min-h-[300px]"
+        className="flex-1 flex flex-col min-h-0 overscroll-contain"
         style={{ cursor: resizingVertical ? 'row-resize' : resizingSide ? 'col-resize' : undefined }}
       >
         {/* Top Zone — horizontal layout */}

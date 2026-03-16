@@ -130,10 +130,10 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(fu
 
 
   return (
-    <div className="relative w-full h-full min-h-[200px]">
+    <div className="relative w-full h-full min-h-0">
       <div
         ref={containerRef}
-        className="w-full h-full"
+        className="w-full h-full overscroll-contain"
         style={{ backgroundColor: '#1a1b26' }}
       />
       <button
