@@ -132,6 +132,7 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(fu
   // tmux copy-mode scroll state
   const [inCopyMode, setInCopyMode] = useState(false);
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const enterCopyMode = useCallback(() => {
     sendInput('\x02['); // Ctrl+B [ → tmux copy mode
     setInCopyMode(true);
