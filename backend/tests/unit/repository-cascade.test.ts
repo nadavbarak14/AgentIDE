@@ -25,18 +25,18 @@ describe('Repository.deleteSession cascade', () => {
     // Force the id to our known value and mark as completed
     db.prepare('UPDATE sessions SET id = ?, status = ? WHERE id = ?').run(sessionId, 'completed', session.id);
 
-    // Insert related data using raw SQL for simplicity
+    // Use sessionId as prefix for related data IDs to avoid UNIQUE conflicts
     db.prepare('INSERT INTO comments (id, session_id, file_path, start_line, end_line, code_snippet, comment_text, status, side) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-      'c1', sessionId, '/file.ts', 1, 5, 'code', 'a comment', 'pending', 'new',
+      `c-${sessionId}`, sessionId, '/file.ts', 1, 5, 'code', 'a comment', 'pending', 'new',
     );
     db.prepare('INSERT INTO preview_comments (id, session_id, comment_text, page_url, pin_x, pin_y) VALUES (?, ?, ?, ?, ?, ?)').run(
-      'pc1', sessionId, 'preview comment', 'http://localhost:3000', 0.5, 0.5,
+      `pc-${sessionId}`, sessionId, 'preview comment', 'http://localhost:3000', 0.5, 0.5,
     );
     db.prepare('INSERT INTO uploaded_images (id, session_id, original_filename, stored_path, mime_type, file_size) VALUES (?, ?, ?, ?, ?, ?)').run(
-      'img1', sessionId, 'screenshot.png', '/tmp/img.png', 'image/png', 1024,
+      `img-${sessionId}`, sessionId, 'screenshot.png', '/tmp/img.png', 'image/png', 1024,
     );
     db.prepare('INSERT INTO video_recordings (id, session_id, video_path, status) VALUES (?, ?, ?, ?)').run(
-      'vid1', sessionId, '/tmp/video.json', 'pending',
+      `vid-${sessionId}`, sessionId, '/tmp/video.json', 'pending',
     );
     db.prepare('INSERT INTO panel_states (session_id) VALUES (?)').run(sessionId);
 
