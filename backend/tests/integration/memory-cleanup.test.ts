@@ -30,13 +30,13 @@ describe('Memory cleanup integration: full session lifecycle', () => {
 
     // Populate related DB tables
     db.prepare('INSERT INTO comments (id, session_id, file_path, start_line, end_line, code_snippet, comment_text, status, side) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-      'c1', sessionId, '/src/app.ts', 10, 20, 'function foo() {}', 'refactor this', 'open', 'new',
+      'c1', sessionId, '/src/app.ts', 10, 20, 'function foo() {}', 'refactor this', 'pending', 'new',
     );
     db.prepare('INSERT INTO comments (id, session_id, file_path, start_line, end_line, code_snippet, comment_text, status, side) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-      'c2', sessionId, '/src/bar.ts', 5, 5, 'const x = 1;', 'rename this', 'open', 'new',
+      'c2', sessionId, '/src/bar.ts', 5, 5, 'const x = 1;', 'rename this', 'pending', 'new',
     );
-    db.prepare('INSERT INTO preview_comments (id, session_id, comment_text, page_url) VALUES (?, ?, ?, ?)').run(
-      'pc1', sessionId, 'button is misaligned', 'http://localhost:3000',
+    db.prepare('INSERT INTO preview_comments (id, session_id, comment_text, page_url, pin_x, pin_y) VALUES (?, ?, ?, ?, ?, ?)').run(
+      'pc1', sessionId, 'button is misaligned', 'http://localhost:3000', 0.5, 0.5,
     );
     db.prepare('INSERT INTO uploaded_images (id, session_id, original_filename, stored_path, mime_type, file_size) VALUES (?, ?, ?, ?, ?, ?)').run(
       'img1', sessionId, 'bug.png', '/tmp/img1.png', 'image/png', 2048,
@@ -96,10 +96,10 @@ describe('Memory cleanup integration: full session lifecycle', () => {
 
     // Add data to both sessions
     db.prepare('INSERT INTO comments (id, session_id, file_path, start_line, end_line, code_snippet, comment_text, status, side) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-      'c-s1', s1.id, '/f.ts', 1, 1, '', 'comment', 'open', 'new',
+      'c-s1', s1.id, '/f.ts', 1, 1, '', 'comment', 'pending', 'new',
     );
     db.prepare('INSERT INTO comments (id, session_id, file_path, start_line, end_line, code_snippet, comment_text, status, side) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-      'c-s2', s2.id, '/f.ts', 1, 1, '', 'comment', 'open', 'new',
+      'c-s2', s2.id, '/f.ts', 1, 1, '', 'comment', 'pending', 'new',
     );
 
     const cookieJar = new PreviewCookieJar();
