@@ -217,7 +217,9 @@ export function rewriteLocationHeader(
 export function buildProxyInjectionHtml(proxyBase: string): string {
   // Extract sessionId and port from proxyBase pattern
   const match = PROXY_PATH_RE.exec(proxyBase);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const sessionId = match ? match[1] : '';
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const port = match ? match[2] : '';
 
   const proxyBaseScript = `<script>window.__c3ProxyBase__="${proxyBase}";</script>`;
@@ -246,6 +248,9 @@ report()
 // ---------------------------------------------------------------------------
 
 const proxy = createProxyServer({});
+
+// Prevent unhandled ECONNREFUSED from crashing the process
+proxy.on('error', () => {});
 
 /** Shared cookie jar used by the proxy handler and catch-all middleware. */
 export const cookieJar = new PreviewCookieJar();

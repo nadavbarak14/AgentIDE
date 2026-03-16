@@ -958,7 +958,7 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
     app.use(express.static(frontendDist, {
       setHeaders: (res, filePath) => {
         // Vite hashes asset filenames — safe to cache indefinitely
-        const isHashed = /[-\.][a-zA-Z0-9]{8,}\.(js|css|woff2?)$/.test(filePath);
+        const isHashed = /[-.][a-zA-Z0-9]{8,}\.(js|css|woff2?)$/.test(filePath);
         if (isHashed) {
           res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
         } else {
