@@ -23,7 +23,7 @@ import { createPreviewRouter } from './api/routes/preview.js';
 import { createUploadsRouter } from './api/routes/uploads.js';
 import { PreviewService } from './services/preview-service.js';
 import { setupWebSocket, broadcastToSession } from './api/websocket.js';
-import { createPreviewCatchAll, handleProxyWsUpgrade } from './api/preview-proxy.js';
+import { createPreviewCatchAll, handleProxyWsUpgrade, cookieJar } from './api/preview-proxy.js';
 import { FileWatcher } from './worker/file-watcher.js';
 import { requestLogger, errorHandler } from './api/middleware.js';
 import { logger } from './services/logger.js';
@@ -305,6 +305,9 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
       }
     }
     fileWatcher.stopWatching(sessionId);
+    // Clean up in-memory session data to prevent memory leaks
+    widgetStore.delete(sessionId);
+    cookieJar.clear(sessionId);
     repo.deleteSession(sessionId);
   });
 
@@ -317,6 +320,9 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
       }
     }
     fileWatcher.stopWatching(sessionId);
+    // Clean up in-memory session data to prevent memory leaks
+    widgetStore.delete(sessionId);
+    cookieJar.clear(sessionId);
     repo.deleteSession(sessionId);
   });
 
@@ -949,6 +955,25 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
 
   // Preview proxy catch-all: routes stray sub-resource requests based on Referer
   app.use(createPreviewCatchAll(repo, agentTunnelManager));
+
+  // Debug endpoint for memory observability (must be before static frontend catch-all)
+  app.get('/api/debug/memory', (_req, res) => {
+    let totalWidgets = 0;
+    for (const sessionWidgets of widgetStore.values()) {
+      totalWidgets += sessionWidgets.size;
+    }
+    res.json({
+      process: process.memoryUsage(),
+      resources: {
+        widgetSessions: widgetStore.size,
+        totalWidgets,
+        cookieEntries: cookieJar.size(),
+        pendingCommands: pendingCommands.size,
+        agentConnections: agentWsConnections.size,
+        activePtys: sessionManager.activePtyCount,
+      },
+    });
+  });
 
   // Serve static frontend in production
   const frontendDist = path.join(import.meta.dirname, '../../frontend/dist');

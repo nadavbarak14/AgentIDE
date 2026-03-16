@@ -15,6 +15,9 @@ export class SessionManager extends EventEmitter {
   // Track sessions spawned with --continue and their start time (for retry without -c on failure)
   private continueSessions = new Map<string, number>();
 
+  /** Number of active PTY processes (for debug/memory observability). */
+  get activePtyCount(): number { return this.activePtys.size; }
+
   private _shellSpawner: ShellSpawner | null = null;
   private _remotePtyBridge: RemotePtyBridge | null = null;
   private _tunnelManager: TunnelManager | null = null;

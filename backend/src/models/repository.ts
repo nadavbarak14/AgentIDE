@@ -280,6 +280,11 @@ export class Repository {
     if (result.changes > 0) {
       // Manually cascade: remove panel states (no FK constraint after v7 migration)
       this.db.prepare('DELETE FROM panel_states WHERE session_id = ? OR session_id = ?').run(id, `${id}:zoomed`);
+      // Cascade: remove all session-scoped data from related tables
+      this.db.prepare('DELETE FROM comments WHERE session_id = ?').run(id);
+      this.db.prepare('DELETE FROM preview_comments WHERE session_id = ?').run(id);
+      this.db.prepare('DELETE FROM uploaded_images WHERE session_id = ?').run(id);
+      this.db.prepare('DELETE FROM video_recordings WHERE session_id = ?').run(id);
     }
     return result.changes > 0;
   }

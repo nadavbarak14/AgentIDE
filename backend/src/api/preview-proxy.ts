@@ -159,6 +159,11 @@ export class PreviewCookieJar {
       }
     }
   }
+
+  /** Number of session-port entries in the cookie store. */
+  size(): number {
+    return this.store_.size;
+  }
 }
 
 const LOCALHOST_RE = /^https?:\/\/(?:localhost|127\.0\.0\.1):(\d+)(\/.*)?$/i;
@@ -424,11 +429,33 @@ proxy.on('proxyRes', (proxyRes: IncomingMessage, req: IncomingMessage, res: Serv
   // Strip link headers (preload hints that contain absolute paths)
   delete proxyRes.headers['link'];
 
+  // Cap buffered response size to prevent OOM on huge pages (10 MB)
+  const MAX_INJECT_BYTES = 10 * 1024 * 1024;
+  let bufferedSize = 0;
+  let oversize = false;
   const chunks: Buffer[] = [];
-  proxyRes.on('data', (chunk: Buffer) => chunks.push(chunk));
+
+  proxyRes.on('data', (chunk: Buffer) => {
+    bufferedSize += chunk.length;
+    if (bufferedSize > MAX_INJECT_BYTES) {
+      oversize = true;
+    }
+    chunks.push(chunk);
+  });
+
   proxyRes.on('end', () => {
     try {
       let raw: Buffer = Buffer.concat(chunks);
+      // Free chunk references immediately to reduce peak memory
+      chunks.length = 0;
+
+      // If response is too large or not HTML, skip injection and pipe raw
+      const contentType = (proxyRes.headers['content-type'] || '').toLowerCase();
+      if (oversize || !contentType.includes('text/html')) {
+        res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
+        res.end(raw);
+        return;
+      }
 
       // Decompress if needed
       const encoding = (proxyRes.headers['content-encoding'] || '').toLowerCase();
@@ -438,6 +465,8 @@ proxy.on('proxyRes', (proxyRes: IncomingMessage, req: IncomingMessage, res: Serv
       }
 
       let body = raw.toString('utf-8');
+      // Release raw buffer — body string is the only reference we need now
+      raw = null as unknown as Buffer;
 
       // Strip <meta> CSP tags
       body = body.replace(
@@ -461,6 +490,8 @@ proxy.on('proxyRes', (proxyRes: IncomingMessage, req: IncomingMessage, res: Serv
       // Gzip if client accepts
       const clientAcceptsGzip = ((req.headers['accept-encoding'] || '') as string).includes('gzip');
       const bodyBuf = Buffer.from(body);
+      // Release body string — bodyBuf is the final form
+      body = null as unknown as string;
 
       delete proxyRes.headers['content-length'];
 
@@ -479,6 +510,7 @@ proxy.on('proxyRes', (proxyRes: IncomingMessage, req: IncomingMessage, res: Serv
       // Error fallback: send raw buffered data
       logger.warn({ error: (err as Error).message }, 'Failed to inject into proxied HTML');
       const raw = Buffer.concat(chunks);
+      chunks.length = 0;
       delete proxyRes.headers['content-length'];
       proxyRes.headers['content-length'] = String(raw.length);
       res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
