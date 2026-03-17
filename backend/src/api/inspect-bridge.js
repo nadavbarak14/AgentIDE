@@ -433,21 +433,30 @@
         mediaRecorder.start(1000); // collect data every second
 
         // Capture frames at FPS rate using html2canvas
-        // For recording, skip scale/onclone for perf — use 1x and minimal options
-        var frameOpts = {
-          width: w, height: h, windowWidth: w, windowHeight: h,
-          x: window.scrollX, y: window.scrollY,
-          scale: 1, useCORS: true, allowTaint: true, logging: false,
-        };
+        // Sequential capture: next frame starts only after previous completes,
+        // preventing overlapping html2canvas calls that cause memory pressure.
+        var frameInterval = 1000 / RECORDING_FPS;
+        var capturingFrame = false;
+        function getFrameOpts() {
+          return {
+            width: w, height: h, windowWidth: w, windowHeight: h,
+            x: window.scrollX, y: window.scrollY,
+            scale: 1, useCORS: true, logging: false,
+          };
+        }
         function captureFrame() {
           if (!mediaRecorder || mediaRecorder.state !== 'recording') return;
-          html2canvas(document.body, frameOpts).then(function (frameCanvas) {
+          if (capturingFrame) return; // skip if previous capture still in progress
+          capturingFrame = true;
+          html2canvas(document.body, getFrameOpts()).then(function (frameCanvas) {
             if (recordingCtx && mediaRecorder && mediaRecorder.state === 'recording') {
               recordingCtx.clearRect(0, 0, w, h);
               recordingCtx.drawImage(frameCanvas, 0, 0, w, h);
             }
-          }).catch(function () {
-            // Skip failed frame
+            capturingFrame = false;
+          }).catch(function (err) {
+            console.warn('[c3-inspect-bridge] recording frame failed:', err && err.message);
+            capturingFrame = false;
           });
         }
 
@@ -457,7 +466,7 @@
 
         // Start frame capture loop
         captureFrame();
-        recordingInterval = setInterval(captureFrame, 1000 / RECORDING_FPS);
+        recordingInterval = setInterval(captureFrame, frameInterval);
 
         // Auto-stop after max duration
         recordingMaxTimer = setTimeout(function () {

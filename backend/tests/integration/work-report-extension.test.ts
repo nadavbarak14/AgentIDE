@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { execSync } from 'node:child_process';
 import express from 'express';
 import request from 'supertest';
 
@@ -146,6 +147,146 @@ describe('Work Report Extension', () => {
 
       const res = await request(app).get('/api/sessions/test-id/serve/.report-assets/test.png');
       expect(res.status).toBe(200);
+    });
+  });
+
+  describe('File Change Forwarding', () => {
+    it('report.html path matches the forwarding condition', () => {
+      // The SessionCard forwards file_changed events to the extension when
+      // the path ends with report.html. Verify the matching logic here.
+      const matchFn = (p: string) => p.endsWith('report.html') || p.endsWith('/report.html');
+
+      expect(matchFn('report.html')).toBe(true);
+      expect(matchFn('/home/user/project/report.html')).toBe(true);
+      expect(matchFn('some/path/report.html')).toBe(true);
+      expect(matchFn('other-report.html')).toBe(true); // endsWith matches
+      expect(matchFn('report.html.bak')).toBe(false);
+      expect(matchFn('index.html')).toBe(false);
+      expect(matchFn('report.txt')).toBe(false);
+    });
+
+    it('board command is report.file_changed', () => {
+      // Verify the manifest declares the board command used for forwarding
+      const manifestPath = path.join(extensionsDir, 'work-report', 'manifest.json');
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+      expect(manifest.boardCommands).toContain('report.file_changed');
+    });
+  });
+
+  describe('GitHub Export', () => {
+    /**
+     * Helper: write a temp Node.js script to run the HTML-to-markdown conversion
+     * (same logic as the inline node -e in report.export-github.sh).
+     * Avoids shell escaping issues by writing a .js file.
+     */
+    function runConversion(cwd: string): string {
+      const script = `
+const fs = require('fs');
+const html = fs.readFileSync('report.html', 'utf-8');
+let md = html;
+md = md.replace(/<!DOCTYPE[^>]*>/gi, '');
+md = md.replace(/<html[^>]*>/gi, '');
+md = md.replace(/<\\/html>/gi, '');
+md = md.replace(/<head>[\\s\\S]*?<\\/head>/gi, '');
+md = md.replace(/<body[^>]*>/gi, '');
+md = md.replace(/<\\/body>/gi, '');
+md = md.replace(/<h1[^>]*>([\\s\\S]*?)<\\/h1>/gi, '# $1\\n\\n');
+md = md.replace(/<h2[^>]*>([\\s\\S]*?)<\\/h2>/gi, '## $1\\n\\n');
+md = md.replace(/<h3[^>]*>([\\s\\S]*?)<\\/h3>/gi, '### $1\\n\\n');
+md = md.replace(/<img[^>]*src=["']([^"']*)["'][^>]*alt=["']([^"']*)["'][^>]*\\/?>/gi, '![$2]($1)');
+md = md.replace(/<img[^>]*alt=["']([^"']*)["'][^>]*src=["']([^"']*)["'][^>]*\\/?>/gi, '![$1]($2)');
+md = md.replace(/<img[^>]*src=["']([^"']*)["'][^>]*\\/?>/gi, '![image]($1)');
+md = md.replace(/<video[^>]*src=["']([^"']*)["'][^>]*>[\\s\\S]*?<\\/video>/gi, '$1');
+md = md.replace(/<pre[^>]*><code[^>]*class=["']language-([^"']*)["'][^>]*>([\\s\\S]*?)<\\/code><\\/pre>/gi, '\`\`\`$1\\n$2\\n\`\`\`\\n\\n');
+md = md.replace(/<pre[^>]*><code[^>]*>([\\s\\S]*?)<\\/code><\\/pre>/gi, '\`\`\`\\n$1\\n\`\`\`\\n\\n');
+md = md.replace(/<p[^>]*>([\\s\\S]*?)<\\/p>/gi, '$1\\n\\n');
+md = md.replace(/<strong[^>]*>([\\s\\S]*?)<\\/strong>/gi, '**$1**');
+md = md.replace(/<em[^>]*>([\\s\\S]*?)<\\/em>/gi, '*$1*');
+md = md.replace(/<a[^>]*href=["']([^"']*)["'][^>]*>([\\s\\S]*?)<\\/a>/gi, '[$2]($1)');
+md = md.replace(/<style[^>]*>[\\s\\S]*?<\\/style>/gi, '');
+md = md.replace(/<script[^>]*>[\\s\\S]*?<\\/script>/gi, '');
+md = md.replace(/<[^>]+>/g, '');
+md = md.replace(/&amp;/g, '&');
+md = md.replace(/&lt;/g, '<');
+md = md.replace(/&gt;/g, '>');
+md = md.replace(/\\n{3,}/g, '\\n\\n');
+md = md.trim();
+process.stdout.write(md);
+`;
+      const scriptPath = path.join(cwd, '_convert.js');
+      fs.writeFileSync(scriptPath, script);
+      const result = execSync('node _convert.js', { cwd, encoding: 'utf-8', timeout: 10000 });
+      fs.unlinkSync(scriptPath);
+      return result;
+    }
+
+    /**
+     * Helper: extract local media paths from report.html (same logic as the export script).
+     */
+    function extractMediaPaths(cwd: string): string[] {
+      const script = `
+const fs = require('fs');
+const html = fs.readFileSync('report.html', 'utf-8');
+const paths = new Set();
+const imgRegex = /src=["']([^"']*\\.(png|jpg|jpeg|gif|webp|mp4|webm|mov))["']/gi;
+let match;
+while ((match = imgRegex.exec(html)) !== null) {
+  if (!match[1].startsWith('http')) paths.add(match[1]);
+}
+for (const p of paths) console.log(p);
+`;
+      const scriptPath = path.join(cwd, '_extract.js');
+      fs.writeFileSync(scriptPath, script);
+      const result = execSync('node _extract.js', { cwd, encoding: 'utf-8', timeout: 10000 }).trim();
+      fs.unlinkSync(scriptPath);
+      return result.split('\n').filter(Boolean);
+    }
+
+    it('converts a text-only report to markdown', () => {
+      const reportHtml = `<!DOCTYPE html>
+<html><head><title>Report</title></head>
+<body>
+<h1>Work Report</h1>
+<p>Fixed a critical bug in the authentication module.</p>
+<h2>Changes</h2>
+<pre><code class="language-ts">const fixed = true;</code></pre>
+</body></html>`;
+      fs.writeFileSync(path.join(tmpDir, 'report.html'), reportHtml);
+
+      const result = runConversion(tmpDir);
+
+      expect(result).toContain('# Work Report');
+      expect(result).toContain('Fixed a critical bug');
+      expect(result).toContain('## Changes');
+    });
+
+    it('converts a report with images to markdown image syntax', () => {
+      const reportHtml = `<html><body>
+<h1>Feature Demo</h1>
+<p>Here is a screenshot:</p>
+<img src=".report-assets/1234-screenshot.png" alt="before fix">
+</body></html>`;
+      fs.writeFileSync(path.join(tmpDir, 'report.html'), reportHtml);
+
+      const result = runConversion(tmpDir);
+
+      expect(result).toContain('# Feature Demo');
+      expect(result).toContain('![before fix](.report-assets/1234-screenshot.png)');
+    });
+
+    it('extracts local media paths and excludes remote URLs', () => {
+      const reportHtml = `<html><body>
+        <img src=".report-assets/1234-screenshot.png" alt="before fix">
+        <video src=".report-assets/5678-demo.webm" controls></video>
+        <img src="https://example.com/external.png" alt="external">
+      </body></html>`;
+      fs.writeFileSync(path.join(tmpDir, 'report.html'), reportHtml);
+
+      const paths = extractMediaPaths(tmpDir);
+
+      expect(paths).toContain('.report-assets/1234-screenshot.png');
+      expect(paths).toContain('.report-assets/5678-demo.webm');
+      expect(paths).not.toContain('https://example.com/external.png');
     });
   });
 

@@ -415,7 +415,7 @@ export function usePreviewBridge(
   /** Stop recording and return result as Promise (for board-command relay) */
   const stopRecordingWithResult = useCallback(
     (): Promise<Record<string, unknown>> => {
-      return sendCommandWithResult({ type: 'c3:stopRecording' }, 60000);
+      return sendCommandWithResult({ type: 'c3:stopRecording' }, 120000);
     },
     [sendCommandWithResult],
   );
