@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import http from 'node:http';
 import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
 import type { Repository } from '../../models/repository.js';
 import type { PreviewService } from '../../services/preview-service.js';
 import type { AgentTunnelManager } from '../../hub/agent-tunnel.js';
@@ -345,7 +347,28 @@ export function createPreviewRouter(repo: Repository, previewService: PreviewSer
       return;
     }
 
-    const { events, durationMs, pageUrl, viewportWidth, viewportHeight, thumbnailDataUrl } = req.body;
+    const { events, durationMs, pageUrl, viewportWidth, viewportHeight, thumbnailDataUrl, videoDataUrl } = req.body;
+
+    // Handle WebM video blob from board-command view-record-stop
+    if (typeof videoDataUrl === 'string' && videoDataUrl.startsWith('data:')) {
+      try {
+        const dir = path.join(session.workingDirectory, '.c3-uploads', 'recordings');
+        fs.mkdirSync(dir, { recursive: true });
+        const id = crypto.randomUUID();
+        const videoPath = path.join(dir, `${id}.webm`);
+        logger.info({ sessionId, dataUrlLength: videoDataUrl.length, prefix: videoDataUrl.slice(0, 60) }, 'processing video dataUrl');
+        const base64 = videoDataUrl.replace(/^data:[^,]+,/, '');
+        fs.writeFileSync(videoPath, Buffer.from(base64, 'base64'));
+        logger.info({ sessionId, videoPath, sizeBytes: fs.statSync(videoPath).size }, 'video recording saved');
+        res.status(201).json({ id, videoPath, durationMs: durationMs || null, createdAt: new Date().toISOString() });
+        return;
+      } catch (err) {
+        logger.error({ sessionId, err: err instanceof Error ? err.message : err }, 'failed to save video recording');
+        res.status(500).json({ error: 'Failed to save video recording' });
+        return;
+      }
+    }
+
     if (!Array.isArray(events)) {
       res.status(400).json({ error: 'events must be an array' });
       return;

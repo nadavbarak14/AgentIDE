@@ -596,26 +596,44 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
       }
     }
 
-    // Add skills that should be there but aren't
-    for (const skillName of enabledSkillNames) {
-      const dest = path.join(sessionSkillsDir, skillName);
-      if (fs.existsSync(dest)) continue;
-      // Try to copy from hub skills dir
-      const hubSource = path.join(hubSkillsDir, skillName);
-      if (fs.existsSync(hubSource)) {
-        try {
-          fs.cpSync(hubSource, dest, { recursive: true });
-          // Ensure shell scripts are executable after copy
-          const scriptsDir = path.join(dest, 'scripts');
-          if (fs.existsSync(scriptsDir)) {
-            for (const f of fs.readdirSync(scriptsDir)) {
-              if (f.endsWith('.sh')) {
-                fs.chmodSync(path.join(scriptsDir, f), 0o755);
-              }
+    // Add skills that should be there but aren't (or are broken stubs)
+    const copySkillDir = (source: string, dest: string): boolean => {
+      try {
+        if (!fs.existsSync(source) || !fs.statSync(source).isDirectory()) return false;
+        fs.cpSync(source, dest, { recursive: true });
+        // Ensure shell scripts are executable after copy
+        const scriptsDir = path.join(dest, 'scripts');
+        if (fs.existsSync(scriptsDir)) {
+          for (const f of fs.readdirSync(scriptsDir)) {
+            if (f.endsWith('.sh')) {
+              fs.chmodSync(path.join(scriptsDir, f), 0o755);
             }
           }
-          added++;
-        } catch { /* ignore */ }
+        }
+        return true;
+      } catch { return false; }
+    };
+
+    for (const skillName of enabledSkillNames) {
+      const dest = path.join(sessionSkillsDir, skillName);
+      // Skip if already a valid directory with SKILL.md or scripts/
+      if (fs.existsSync(dest) && fs.statSync(dest).isDirectory()) continue;
+      // Remove broken stub (file instead of directory — e.g. stale symlink target)
+      if (fs.existsSync(dest) && !fs.statSync(dest).isDirectory()) {
+        try { fs.rmSync(dest); } catch { /* ignore */ }
+      }
+      // Try hub skills dir first, then extension directories
+      if (copySkillDir(path.join(hubSkillsDir, skillName), dest)) {
+        added++;
+      } else {
+        // Search all installed extension skill directories
+        for (const extName of allExtensions) {
+          const extSkillSource = path.join(extensionsDir, extName, 'skills', skillName);
+          if (copySkillDir(extSkillSource, dest)) {
+            added++;
+            break;
+          }
+        }
       }
     }
 
@@ -693,7 +711,7 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
   const staleCleanupInterval = setInterval(() => {
     const now = Date.now();
     for (const [reqId, cmd] of pendingCommands.entries()) {
-      if (now - cmd.createdAt > 60_000) {
+      if (now - cmd.createdAt > 120_000) {
         logger.warn({ requestId: reqId, action: cmd.action, sessionId: cmd.sessionId }, 'Cleaning up stale pending board command');
         cmd.resolve({ error: 'Timeout — command expired' });
         clearTimeout(cmd.timeout);
@@ -729,9 +747,9 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
       const timeoutHandle = setTimeout(() => {
         if (pendingCommands.has(requestId)) {
           pendingCommands.delete(requestId);
-          logger.warn({ requestId, action: command }, 'Board command timed out (60s)');
+          logger.warn({ requestId, action: command }, 'Board command timed out (120s)');
         }
-      }, 60_000);
+      }, 120_000);
       timeoutHandle.unref();
 
       pendingCommands.set(requestId, {

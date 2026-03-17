@@ -16,8 +16,8 @@ curl -s -X POST "http://localhost:${C3_HUB_PORT}/api/sessions/${C3_SESSION_ID}/b
   -H 'Content-Type: application/json' \
   -d "{\"command\":\"view-record-stop\",\"params\":{},\"requestId\":\"${REQ_ID}\",\"waitForResult\":true}" > /dev/null
 
-# Poll for result (up to 65s — recording stop can take a moment to finalize video)
-for i in $(seq 1 130); do
+# Poll for result (up to 120s — recording stop can take a moment to finalize video)
+for i in $(seq 1 240); do
   RESULT=$(curl -s "http://localhost:${C3_HUB_PORT}/api/sessions/${C3_SESSION_ID}/board-command-result/${REQ_ID}")
 
   # Check if result is ready (has "result" field, not "status":"pending")

@@ -1,6 +1,7 @@
 {
   "extensions": [
     "adyx-core",
-    "frontend-design"
+    "frontend-design",
+    "work-report"
   ]
 }
