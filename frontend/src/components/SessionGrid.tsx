@@ -164,6 +164,27 @@ export function SessionGrid({
           />
         ))}
       </div>
+
+      {/* Hidden SessionCards for overflow sessions — keeps WebSocket connections
+          and preview iframes alive so board commands (screenshots, recordings,
+          navigate) continue working for background sessions. */}
+      {overflowSessions.map((session) => (
+        <div key={session.id} style={{ display: 'none' }} aria-hidden="true">
+          <SessionCard
+            session={session}
+            workers={workers}
+            focused={false}
+            isCurrent={false}
+            isSingleView={false}
+            onKill={onKill}
+            onToggleLock={onToggleLock}
+            onDelete={onDelete}
+            onSetCurrent={onSetCurrent}
+            isZoomed={false}
+            sessionNumber={sessionNumbers?.[session.id]}
+          />
+        </div>
+      ))}
     </div>
   );
 }
