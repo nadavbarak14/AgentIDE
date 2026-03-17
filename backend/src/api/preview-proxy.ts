@@ -494,6 +494,7 @@ proxy.on('proxyRes', (proxyRes: IncomingMessage, req: IncomingMessage, res: Serv
       body = null as unknown as string;
 
       delete proxyRes.headers['content-length'];
+      delete proxyRes.headers['transfer-encoding'];
 
       if (clientAcceptsGzip) {
         const compressed = zlib.gzipSync(bodyBuf);
