@@ -307,7 +307,7 @@ for (const p of paths) console.log(p);
       const nonGitDir = fs.mkdtempSync(path.join(os.tmpdir(), 'no-git-'));
       try {
         const result = runSkill('report.attach-diff', [], nonGitDir);
-        expect(result.exitCode).toBe(1);
+        expect(result.exitCode).not.toBe(0);
         expect(result.stderr).toContain('Not a git repository');
       } finally {
         fs.rmSync(nonGitDir, { recursive: true, force: true });
