@@ -415,3 +415,20 @@ function broadcastShellJson(sessionId: string, message: Record<string, unknown>)
 export function broadcastToSession(sessionId: string, message: Record<string, unknown>): void {
   broadcastJson(sessionId, message);
 }
+
+/** Broadcast a message to ALL connected WebSocket clients across every session */
+function broadcastToAll(message: Record<string, unknown>): void {
+  const json = JSON.stringify(message);
+  for (const clients of sessionClients.values()) {
+    for (const ws of clients) {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(json);
+      }
+    }
+  }
+}
+
+/** Broadcast session state changes to all connected clients (not just per-session) */
+export function broadcastSessionStateChanged(sessionId: string, changes: Record<string, unknown>): void {
+  broadcastToAll({ type: 'session_state_changed', sessionId, changes });
+}

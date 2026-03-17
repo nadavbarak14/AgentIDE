@@ -72,28 +72,21 @@ export function SessionCard({
   const [enabledExtensions, setEnabledExtensions] = useState<string[]>([]);
   const [showExtPicker, setShowExtPicker] = useState(false);
 
-  // Load canvas state from server on mount (covers page refresh & completed sessions)
+  // Load widgets + extensions from server in a single request (batched metadata)
   useEffect(() => {
-    fetch(`/api/sessions/${session.id}/widgets`)
+    fetch(`/api/sessions/${session.id}/metadata`)
       .then(r => r.json())
       .then(data => {
+        // Restore widgets
         if (Array.isArray(data.widgets) && data.widgets.length > 0) {
           const w = data.widgets[0];
           if (w.name && w.html) addWidget(w.name, w.html);
         }
+        // Restore enabled extensions
+        if (Array.isArray(data.extensions)) setEnabledExtensions(data.extensions);
       })
       .catch(() => {});
   }, [session.id, addWidget]);
-
-  // Load enabled extensions from server on mount
-  useEffect(() => {
-    fetch(`/api/sessions/${session.id}/extensions`)
-      .then(r => r.json())
-      .then(data => {
-        if (Array.isArray(data.enabled)) setEnabledExtensions(data.enabled);
-      })
-      .catch(() => {});
-  }, [session.id]);
 
   // Only show extensions the user has enabled for this session
   const activeExtensions = useMemo(

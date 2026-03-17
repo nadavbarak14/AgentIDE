@@ -376,6 +376,40 @@ export class Repository {
     return result.changes;
   }
 
+  cleanupStaleSessions(maxAgeDays: number): number {
+    // Only delete completed/failed sessions older than maxAgeDays.
+    // Active and crashed sessions are never cleaned up by this method.
+    const rows = this.db
+      .prepare(
+        `SELECT id FROM sessions
+         WHERE status IN ('completed', 'failed')
+         AND completed_at < datetime('now', '-' || ? || ' days')`,
+      )
+      .all(maxAgeDays) as { id: string }[];
+
+    if (rows.length === 0) return 0;
+
+    // Delete the sessions
+    const result = this.db
+      .prepare(
+        `DELETE FROM sessions
+         WHERE status IN ('completed', 'failed')
+         AND completed_at < datetime('now', '-' || ? || ' days')`,
+      )
+      .run(maxAgeDays);
+
+    // Manually cascade: remove panel_states and related data for deleted sessions
+    for (const row of rows) {
+      this.db.prepare('DELETE FROM panel_states WHERE session_id = ? OR session_id = ?').run(row.id, `${row.id}:zoomed`);
+      this.db.prepare('DELETE FROM comments WHERE session_id = ?').run(row.id);
+      this.db.prepare('DELETE FROM preview_comments WHERE session_id = ?').run(row.id);
+      this.db.prepare('DELETE FROM uploaded_images WHERE session_id = ?').run(row.id);
+      this.db.prepare('DELETE FROM video_recordings WHERE session_id = ?').run(row.id);
+    }
+
+    return result.changes;
+  }
+
   setSessionScrollback(id: string, scrollbackPath: string): void {
     this.db
       .prepare("UPDATE sessions SET terminal_scrollback = ?, updated_at = datetime('now') WHERE id = ?")

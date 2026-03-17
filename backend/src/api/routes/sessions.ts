@@ -12,7 +12,7 @@ import { logger } from '../../services/logger.js';
 
 import type { TunnelManager } from '../../hub/tunnel.js';
 
-export function createSessionsRouter(repo: Repository, sessionManager: SessionManager, projectService?: ProjectService, tunnelManager?: TunnelManager): Router {
+export function createSessionsRouter(repo: Repository, sessionManager: SessionManager, projectService?: ProjectService, tunnelManager?: TunnelManager, widgetStore?: Map<string, Map<string, { name: string; html: string; createdAt: number; result: Record<string, unknown> | null }>>): Router {
   const router = Router();
 
   // GET /api/sessions — list all sessions
@@ -689,6 +689,32 @@ export function createSessionsRouter(repo: Repository, sessionManager: SessionMa
       logger.error({ sessionId: id, err }, 'failed to deliver batch comments');
       res.status(500).json({ error: 'Failed to deliver comments to session' });
     }
+  });
+
+  // GET /api/sessions/:id/metadata — combined widget and extension data
+  router.get('/:id/metadata', validateUuid('id'), (req, res) => {
+    const id = String(req.params.id);
+    const session = repo.getSession(id);
+    if (!session) {
+      res.status(404).json({ error: 'Session not found' });
+      return;
+    }
+
+    // Get widgets from in-memory widget store
+    const sessionWidgets = widgetStore?.get(id);
+    const widgets = sessionWidgets && sessionWidgets.size > 0
+      ? Array.from(sessionWidgets.values()).map(w => ({
+          name: w.name,
+          html: w.html,
+          createdAt: w.createdAt,
+          hasResult: w.result !== null,
+        }))
+      : [];
+
+    // Get enabled extensions from panel_states table
+    const extensions = repo.getSessionExtensions(id);
+
+    res.json({ widgets, extensions });
   });
 
   return router;

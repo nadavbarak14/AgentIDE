@@ -142,6 +142,9 @@ export function Dashboard() {
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
 
+  // Debounce timer for handleFocusSession — only the last call within 100ms fires.
+  const focusDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Rebuild displayed list from current priority order.
   // Pinned sessions that are currently displayed AND still active keep their slots.
   // Remaining slots are filled from the priority queue.
@@ -333,52 +336,61 @@ export function Dashboard() {
   // Falls back to last non-pinned slot if focused session is pinned or not in view.
   const handleFocusSession = useCallback(
     (id: string) => {
-      // Capture the previously focused session BEFORE updating currentSessionId
-      const previousFocusedId = currentSessionIdRef.current;
-      console.log('[handleFocusSession] switching to:', id, '| previously focused:', previousFocusedId);
+      // Debounce: if called again within 100ms, cancel the previous call
+      // so only the final target session gets focused.
+      if (focusDebounceRef.current) {
+        clearTimeout(focusDebounceRef.current);
+      }
+      focusDebounceRef.current = setTimeout(() => {
+        focusDebounceRef.current = null;
 
-      handleSetCurrentSession(id);
-      markManualSwitch();
-      setDisplayedIds((prev) => {
-        if (prev.includes(id)) {
-          console.log('[handleFocusSession] target already displayed, no swap needed. displayed:', prev);
-          return prev;
-        }
-        const next = [...prev];
-        if (next.length >= maxVisible) {
-          // First: try to replace the previously focused session's slot
-          let replaceIdx = previousFocusedId ? next.indexOf(previousFocusedId) : -1;
-          console.log('[handleFocusSession] focused slot index:', replaceIdx, '| displayed:', next);
+        // Capture the previously focused session BEFORE updating currentSessionId
+        const previousFocusedId = currentSessionIdRef.current;
+        console.log('[handleFocusSession] switching to:', id, '| previously focused:', previousFocusedId);
 
-          // Don't replace a pinned session — fall back instead
-          if (replaceIdx !== -1) {
-            const sess = sessionsRef.current.find((s) => s.id === next[replaceIdx]);
-            if (sess?.lock) {
-              console.log('[handleFocusSession] focused slot is pinned, falling back');
-              replaceIdx = -1;
-            }
+        handleSetCurrentSession(id);
+        markManualSwitch();
+        setDisplayedIds((prev) => {
+          if (prev.includes(id)) {
+            console.log('[handleFocusSession] target already displayed, no swap needed. displayed:', prev);
+            return prev;
           }
+          const next = [...prev];
+          if (next.length >= maxVisible) {
+            // First: try to replace the previously focused session's slot
+            let replaceIdx = previousFocusedId ? next.indexOf(previousFocusedId) : -1;
+            console.log('[handleFocusSession] focused slot index:', replaceIdx, '| displayed:', next);
 
-          // Fallback: last non-pinned slot (original behavior)
-          if (replaceIdx === -1) {
-            for (let i = next.length - 1; i >= 0; i--) {
-              const sess = sessionsRef.current.find((s) => s.id === next[i]);
-              if (!sess?.lock) { replaceIdx = i; break; }
+            // Don't replace a pinned session — fall back instead
+            if (replaceIdx !== -1) {
+              const sess = sessionsRef.current.find((s) => s.id === next[replaceIdx]);
+              if (sess?.lock) {
+                console.log('[handleFocusSession] focused slot is pinned, falling back');
+                replaceIdx = -1;
+              }
             }
-            console.log('[handleFocusSession] fallback to last non-pinned slot:', replaceIdx);
-          }
 
-          if (replaceIdx === -1) replaceIdx = next.length - 1;
-          console.log('[handleFocusSession] replacing slot', replaceIdx, '(was:', next[replaceIdx], ') with:', id);
-          next[replaceIdx] = id;
-        } else {
-          console.log('[handleFocusSession] slots available, appending. displayed:', next);
-          next.push(id);
-        }
-        console.log('[handleFocusSession] new displayed:', next);
-        return next;
-      });
-      focusTerminalInSession(id);
+            // Fallback: last non-pinned slot (original behavior)
+            if (replaceIdx === -1) {
+              for (let i = next.length - 1; i >= 0; i--) {
+                const sess = sessionsRef.current.find((s) => s.id === next[i]);
+                if (!sess?.lock) { replaceIdx = i; break; }
+              }
+              console.log('[handleFocusSession] fallback to last non-pinned slot:', replaceIdx);
+            }
+
+            if (replaceIdx === -1) replaceIdx = next.length - 1;
+            console.log('[handleFocusSession] replacing slot', replaceIdx, '(was:', next[replaceIdx], ') with:', id);
+            next[replaceIdx] = id;
+          } else {
+            console.log('[handleFocusSession] slots available, appending. displayed:', next);
+            next.push(id);
+          }
+          console.log('[handleFocusSession] new displayed:', next);
+          return next;
+        });
+        focusTerminalInSession(id);
+      }, 100);
     },
     [maxVisible, focusTerminalInSession, markManualSwitch, handleSetCurrentSession],
   );
