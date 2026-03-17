@@ -22,7 +22,7 @@ import { createGitHubRouter } from './api/routes/github.js';
 import { createPreviewRouter } from './api/routes/preview.js';
 import { createUploadsRouter } from './api/routes/uploads.js';
 import { PreviewService } from './services/preview-service.js';
-import { setupWebSocket, broadcastToSession } from './api/websocket.js';
+import { setupWebSocket, broadcastToSession, broadcastSessionStateChanged } from './api/websocket.js';
 import { createPreviewCatchAll, handleProxyWsUpgrade, cookieJar } from './api/preview-proxy.js';
 import { FileWatcher } from './worker/file-watcher.js';
 import { requestLogger, errorHandler } from './api/middleware.js';
@@ -106,10 +106,11 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
     logger.warn('crash detected: hub_status was "running" from previous session');
   }
 
-  // Clean up stale completed/failed sessions from previous runs
-  const cleanedUp = repo.deleteNonActiveSessions();
+  // Clean up sessions that completed/failed more than 7 days ago.
+  // Recent completed/failed sessions are preserved for user reference.
+  const cleanedUp = repo.cleanupStaleSessions(7);
   if (cleanedUp > 0) {
-    logger.info({ count: cleanedUp }, 'cleaned up stale sessions on startup');
+    logger.info({ count: cleanedUp }, 'cleaned up sessions older than 7 days on startup');
   }
 
   // Set hub_status to 'running' before processing sessions
@@ -287,13 +288,13 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
     if (session.workerId) {
       const worker = repo.getWorker(session.workerId);
       if (worker?.type === 'remote' && worker.remoteAgentPort && agentTunnelManager.isConnected(worker.id)) {
-        // Remote session with agent — register with agent (agent handles watching + port scanning)
         registerWithAgent(session.id, session.workingDirectory, session.pid, worker.id);
+        broadcastSessionStateChanged(session.id, { status: 'active' });
         return;
       }
     }
-    // Local session — use local file watcher
     fileWatcher.startWatching(session.id, session.workingDirectory, session.pid || undefined);
+    broadcastSessionStateChanged(session.id, { status: 'active' });
   });
 
   sessionManager.on('session_completed', (sessionId: string) => {
@@ -305,10 +306,9 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
       }
     }
     fileWatcher.stopWatching(sessionId);
-    // Clean up in-memory session data to prevent memory leaks
     widgetStore.delete(sessionId);
     cookieJar.clear(sessionId);
-    repo.deleteSession(sessionId);
+    broadcastSessionStateChanged(sessionId, { status: 'completed' });
   });
 
   sessionManager.on('session_failed', (sessionId: string) => {
@@ -320,10 +320,9 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
       }
     }
     fileWatcher.stopWatching(sessionId);
-    // Clean up in-memory session data to prevent memory leaks
     widgetStore.delete(sessionId);
     cookieJar.clear(sessionId);
-    repo.deleteSession(sessionId);
+    broadcastSessionStateChanged(sessionId, { status: 'failed' });
   });
 
   sessionManager.on('session_recovering', (sessionId: string, workerId: string) => {
@@ -333,6 +332,10 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
       workerId,
       message: 'Reconnecting to remote session...',
     });
+  });
+
+  sessionManager.on('needs_input_changed', (sessionId: string, needsInput: boolean) => {
+    broadcastSessionStateChanged(sessionId, { needsInput });
   });
 
   // Resume sessions that were active before restart
@@ -444,7 +447,7 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
   // API routes
   app.use('/api/settings', createSettingsRouter(repo));
   app.use('/api/sessions', createFilesRouter(repo, agentTunnelManager));
-  app.use('/api/sessions', createSessionsRouter(repo, sessionManager, projectService, tunnelManager));
+  app.use('/api/sessions', createSessionsRouter(repo, sessionManager, projectService, tunnelManager, widgetStore));
   app.use('/api/workers', createWorkersRouter(repo, workerManager, tunnelManager));
   app.use('/api/directories', createDirectoriesRouter());
   app.use('/api/projects', createProjectsRouter(repo, projectService));

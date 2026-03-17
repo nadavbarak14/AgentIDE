@@ -41,6 +41,21 @@ export interface PanelStateValues {
   panelWidthPercent: number; // legacy — kept for backward compat
 }
 
+// Module-level LRU panel state cache (max 5 entries)
+const PANEL_CACHE_MAX = 5;
+const panelStateCache = new Map<string, PanelStateValues>();
+
+/** Evict the oldest cache entry when the cache exceeds the max size */
+function evictOldestCacheEntry(): void {
+  if (panelStateCache.size > PANEL_CACHE_MAX) {
+    // Map iteration order is insertion order; first key is the oldest
+    const oldestKey = panelStateCache.keys().next().value;
+    if (oldestKey !== undefined) {
+      panelStateCache.delete(oldestKey);
+    }
+  }
+}
+
 export const DEFAULT_STATE: PanelStateValues = {
   leftPanel: 'none',
   rightPanel: 'none',
@@ -214,6 +229,11 @@ export function usePanel(sessionId: string | null, viewMode: ViewMode = 'grid') 
 
   // Debounced save to backend
   const scheduleSave = useCallback((sid: string, state: PanelStateValues) => {
+    // Update the LRU cache immediately (before debounced API call)
+    panelStateCache.delete(sid);   // re-insert to refresh LRU order
+    panelStateCache.set(sid, state);
+    evictOldestCacheEntry();
+
     if (saveTimerRef.current) {
       clearTimeout(saveTimerRef.current);
     }
@@ -265,20 +285,34 @@ export function usePanel(sessionId: string | null, viewMode: ViewMode = 'grid') 
     currentSessionRef.current = sessionId;
     storageKeyRef.current = storageKey;
 
-    // Load layout for the new key
-    panelStateApi.get(storageKey).then((loaded) => {
-      if (storageKeyRef.current === storageKey) {
-        restoreState(loaded as unknown as PanelStateValues);
-        // Enable auto-save after a tick (let React batch the restoreState renders)
-        requestAnimationFrame(() => { saveReadyRef.current = true; });
-      }
-    }).catch(() => {
-      // No saved state for this view mode — use defaults
-      if (storageKeyRef.current === storageKey) {
-        resetToDefaults();
-        requestAnimationFrame(() => { saveReadyRef.current = true; });
-      }
-    });
+    // Check LRU cache first before hitting the API
+    const cached = panelStateCache.get(storageKey);
+    if (cached) {
+      // Re-insert to mark as most recently used
+      panelStateCache.delete(storageKey);
+      panelStateCache.set(storageKey, cached);
+      restoreState(cached);
+      requestAnimationFrame(() => { saveReadyRef.current = true; });
+    } else {
+      // Load layout for the new key from API
+      panelStateApi.get(storageKey).then((loaded) => {
+        if (storageKeyRef.current === storageKey) {
+          const state = loaded as unknown as PanelStateValues;
+          restoreState(state);
+          // Store in cache
+          panelStateCache.set(storageKey, state);
+          evictOldestCacheEntry();
+          // Enable auto-save after a tick (let React batch the restoreState renders)
+          requestAnimationFrame(() => { saveReadyRef.current = true; });
+        }
+      }).catch(() => {
+        // No saved state for this view mode — use defaults
+        if (storageKeyRef.current === storageKey) {
+          resetToDefaults();
+          requestAnimationFrame(() => { saveReadyRef.current = true; });
+        }
+      });
+    }
 
     return () => {
       if (saveTimerRef.current) {
@@ -416,6 +450,22 @@ export function usePanel(sessionId: string | null, viewMode: ViewMode = 'grid') 
       });
     }
   }, [leftPanel, rightPanel, sessionId, viewModeKey]); // eslint-disable-line -- intentionally track panel changes
+
+  // Flush panel state to backend immediately when tab becomes hidden (crash resilience)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden && storageKeyRef.current && saveReadyRef.current) {
+        // Flush any pending debounced save immediately
+        if (saveTimerRef.current) {
+          clearTimeout(saveTimerRef.current);
+          saveTimerRef.current = null;
+        }
+        panelStateApi.save(storageKeyRef.current, stateRef.current).catch(() => {});
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
 
   // Disable auto-save when storageKey changes (will re-enable after load completes)
   useEffect(() => {

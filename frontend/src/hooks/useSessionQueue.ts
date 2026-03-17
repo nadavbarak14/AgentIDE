@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { sessions as sessionsApi, type Session } from '../services/api';
 
-export function useSessionQueue(pollInterval = 1000) {
+export function useSessionQueue(pollInterval = 5000) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

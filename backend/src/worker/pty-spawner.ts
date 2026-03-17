@@ -219,19 +219,31 @@ export class PtySpawner extends EventEmitter {
             } catch { /* skip bad manifest */ }
           }
 
-          // Copy each skill: built-in skills always, extension skills only if enabled
+          // Symlink each skill dir for speed; fall back to copy if symlinks fail
           for (const entry of fs.readdirSync(bundledSkillsDir, { withFileTypes: true })) {
             if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
             const isExtensionSkill = this.isExtensionSkill(entry.name, extensionsDir);
             if (isExtensionSkill && !extSkillNames.has(entry.name)) continue;
             const src = path.join(bundledSkillsDir, entry.name);
             const dest = path.join(sessionSkillsDir, entry.name);
-            fs.cpSync(src, dest, { recursive: true, dereference: true });
+            try {
+              // Use 'junction' on Windows (no elevated privileges needed), 'dir' on Linux/macOS
+              fs.symlinkSync(src, dest, process.platform === 'win32' ? 'junction' : 'dir');
+            } catch {
+              // Symlink failed (e.g. permissions) — fall back to copy
+              fs.cpSync(src, dest, { recursive: true, dereference: true });
+            }
           }
           log.info({ sessionSkillsDir, enabledExtensions, skillCount: fs.readdirSync(sessionSkillsDir).length }, 'injected filtered skills into session');
         } else {
-          // No filter — copy all skills
-          fs.cpSync(bundledSkillsDir, sessionSkillsDir, { recursive: true });
+          // No filter — symlink entire skills dir; fall back to copy
+          // Remove the empty dir we just created so symlink target doesn't exist
+          fs.rmSync(sessionSkillsDir, { recursive: true, force: true });
+          try {
+            fs.symlinkSync(bundledSkillsDir, sessionSkillsDir, process.platform === 'win32' ? 'junction' : 'dir');
+          } catch {
+            fs.cpSync(bundledSkillsDir, sessionSkillsDir, { recursive: true });
+          }
           log.info({ sessionSkillsDir }, 'injected all skills into session working directory');
         }
       }
@@ -459,7 +471,7 @@ export class PtySpawner extends EventEmitter {
     const pending = this.scrollbackPending.get(sessionId) || '';
     this.scrollbackPending.set(sessionId, pending + data);
 
-    // Throttle disk writes to every 2 seconds — but never drop data
+    // Throttle disk writes to every 500ms — reduces worst-case data loss on crash
     if (this.scrollbackWriters.has(sessionId)) return;
 
     const timer = setTimeout(() => {
@@ -473,7 +485,7 @@ export class PtySpawner extends EventEmitter {
       } catch {
         // Ignore write errors
       }
-    }, 2000);
+    }, 500);
 
     this.scrollbackWriters.set(sessionId, timer);
   }
