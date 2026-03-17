@@ -122,6 +122,9 @@ export class PtySpawner extends EventEmitter {
       fs.mkdirSync(settingsDir, { recursive: true });
     }
 
+    // Ensure hook script is executable (Git on Windows may strip execute bit)
+    try { fs.chmodSync(hookScript, 0o755); } catch { /* ignore */ }
+
     const settingsPath = path.join(settingsDir, 'settings.json');
     const settings = {
       permissions: {

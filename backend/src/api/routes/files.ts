@@ -15,6 +15,7 @@ import {
   injectBridgeScript,
   BRIDGE_SCRIPT_TAG,
   cleanSetCookieHeaders,
+  decompressBuffer,
   isPrivateIp,
   MIME_TYPES,
 } from '../proxy-utils.js';
@@ -575,7 +576,14 @@ export function createFilesRouter(repo: Repository, agentTunnelManager?: AgentTu
           const chunks: Buffer[] = [];
           proxyRes.on('data', (chunk: Buffer) => chunks.push(chunk));
           proxyRes.on('end', () => {
-            let body = Buffer.concat(chunks).toString('utf-8');
+            let raw: Buffer = Buffer.concat(chunks);
+            // Decompress if upstream sent compressed content despite no accept-encoding
+            const encoding = (proxyRes.headers['content-encoding'] || '').toLowerCase();
+            if (encoding) {
+              try { raw = decompressBuffer(raw, encoding) as Buffer; } catch { /* use raw */ }
+              delete responseHeaders['content-encoding'];
+            }
+            let body = raw.toString('utf-8');
             // Inject <base> tag to make relative URLs resolve against the remote server
             const baseTag = `<base href="${targetUrl.href}">`;
             body = body.replace(/<head[^>]*>/i, (match) => `${match}\n${baseTag}`);
@@ -628,6 +636,7 @@ try{return new OWS(r)}catch(e){return null}};
             // which would route /api/inspect-bridge.js through the remote server.
             body = body.replace(/<head[^>]*>/i, (match) => `${match}\n${BRIDGE_SCRIPT_TAG}\n${interceptorScript}`);
             delete responseHeaders['content-length'];
+            delete responseHeaders['transfer-encoding'];
             responseHeaders['content-length'] = String(Buffer.byteLength(body));
             res.writeHead(proxyRes.statusCode || 200, responseHeaders);
             res.end(body);
