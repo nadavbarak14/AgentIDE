@@ -117,6 +117,10 @@ export class StreamTap {
     return null;
   }
 
+  /**
+   * Discover Chrome and return a PAGE-level debugger WebSocket URL.
+   * Page.startScreencast requires a page target, not the browser target.
+   */
   async discoverChrome(): Promise<string | null> {
     const envPort = process.env.CHROME_DEBUG_PORT;
     if (envPort) {
@@ -132,9 +136,21 @@ export class StreamTap {
 
   private async tryPort(port: number): Promise<string | null> {
     try {
-      const resp = await fetch(`http://localhost:${port}/json/version`);
-      if (!resp.ok) return null;
-      const data = await resp.json();
+      // First check if Chrome is listening at all
+      const versionResp = await fetch(`http://localhost:${port}/json/version`);
+      if (!versionResp.ok) return null;
+
+      // Get the first page target — Page.startScreencast needs a page, not the browser
+      const listResp = await fetch(`http://localhost:${port}/json/list`);
+      if (!listResp.ok) return null;
+      const targets = await listResp.json() as Array<{ type: string; webSocketDebuggerUrl: string }>;
+      const page = targets.find(t => t.type === 'page');
+      if (page?.webSocketDebuggerUrl) {
+        return page.webSocketDebuggerUrl;
+      }
+
+      // No page target — fall back to browser-level (won't support screencast but will connect)
+      const data = await versionResp.json();
       return data.webSocketDebuggerUrl || null;
     } catch {
       return null;

@@ -11,41 +11,33 @@ describe('StreamTap', () => {
 
   describe('discoverChrome', () => {
     it('discovers Chrome on default port 9222', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          webSocketDebuggerUrl: 'ws://localhost:9222/devtools/browser/abc123',
-        }),
-      });
+      // tryPort calls /json/version then /json/list
+      mockFetch
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ webSocketDebuggerUrl: 'ws://localhost:9222/devtools/browser/abc123' }) })
+        .mockResolvedValueOnce({ ok: true, json: async () => ([{ type: 'page', webSocketDebuggerUrl: 'ws://localhost:9222/devtools/page/page1' }]) });
       const tap = new StreamTap();
       const url = await tap.discoverChrome();
-      expect(url).toBe('ws://localhost:9222/devtools/browser/abc123');
+      expect(url).toBe('ws://localhost:9222/devtools/page/page1');
       expect(mockFetch).toHaveBeenCalledWith('http://localhost:9222/json/version');
+      expect(mockFetch).toHaveBeenCalledWith('http://localhost:9222/json/list');
     });
 
     it('scans ports 9222-9229 when default fails', async () => {
       mockFetch
-        .mockRejectedValueOnce(new Error('ECONNREFUSED'))
-        .mockRejectedValueOnce(new Error('ECONNREFUSED'))
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => ({
-            webSocketDebuggerUrl: 'ws://localhost:9224/devtools/browser/def456',
-          }),
-        });
+        .mockRejectedValueOnce(new Error('ECONNREFUSED'))  // 9222 version
+        .mockRejectedValueOnce(new Error('ECONNREFUSED'))  // 9223 version
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ webSocketDebuggerUrl: 'ws://localhost:9224/devtools/browser/def456' }) })  // 9224 version
+        .mockResolvedValueOnce({ ok: true, json: async () => ([{ type: 'page', webSocketDebuggerUrl: 'ws://localhost:9224/devtools/page/page2' }]) });  // 9224 list
       const tap = new StreamTap();
       const url = await tap.discoverChrome();
-      expect(url).toBe('ws://localhost:9224/devtools/browser/def456');
+      expect(url).toBe('ws://localhost:9224/devtools/page/page2');
     });
 
     it('uses CHROME_DEBUG_PORT env var when set', async () => {
       vi.stubEnv('CHROME_DEBUG_PORT', '9333');
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          webSocketDebuggerUrl: 'ws://localhost:9333/devtools/browser/ghi789',
-        }),
-      });
+      mockFetch
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ webSocketDebuggerUrl: 'ws://localhost:9333/devtools/browser/ghi789' }) })
+        .mockResolvedValueOnce({ ok: true, json: async () => ([{ type: 'page', webSocketDebuggerUrl: 'ws://localhost:9333/devtools/page/page3' }]) });
       const tap = new StreamTap();
       const url = await tap.discoverChrome();
       expect(mockFetch).toHaveBeenCalledWith('http://localhost:9333/json/version');
