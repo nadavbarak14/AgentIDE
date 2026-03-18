@@ -23,7 +23,6 @@ import { createPreviewRouter } from './api/routes/preview.js';
 import { createUploadsRouter } from './api/routes/uploads.js';
 import { PreviewService } from './services/preview-service.js';
 import { setupWebSocket, broadcastToSession, broadcastSessionStateChanged } from './api/websocket.js';
-import { createPreviewCatchAll, handleProxyWsUpgrade, cookieJar } from './api/preview-proxy.js';
 import { FileWatcher } from './worker/file-watcher.js';
 import { requestLogger, errorHandler } from './api/middleware.js';
 import { logger } from './services/logger.js';
@@ -307,7 +306,6 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
     }
     fileWatcher.stopWatching(sessionId);
     widgetStore.delete(sessionId);
-    cookieJar.clear(sessionId);
     broadcastSessionStateChanged(sessionId, { status: 'completed' });
   });
 
@@ -321,7 +319,6 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
     }
     fileWatcher.stopWatching(sessionId);
     widgetStore.delete(sessionId);
-    cookieJar.clear(sessionId);
     broadcastSessionStateChanged(sessionId, { status: 'failed' });
   });
 
@@ -385,24 +382,17 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
 
   // Create Express app
   const app = express();
-  // Parse JSON bodies for all routes EXCEPT proxy routes (proxy needs raw stream for piping)
-  app.use((req, res, next) => {
-    if (req.path.includes('/proxy/') || req.path.includes('/proxy-url/')) {
-      next();
-    } else {
-      express.json({ limit: '50mb' })(req, res, next);
-    }
-  });
+  app.use(express.json({ limit: '50mb' }));
 
   // Parse cookies for auth
   app.use(cookieParser());
 
-  // Security headers (skip X-Frame-Options and CSP for proxy/serve routes used by preview iframe)
+  // Security headers (skip X-Frame-Options and CSP for serve routes used by preview iframe)
   app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    const isProxyRoute = req.path.includes('/proxy/') || req.path.includes('/proxy-url/') || req.path.includes('/serve/');
+    const isServeRoute = req.path.includes('/serve/');
     const isExtensionRoute = req.path.startsWith('/extensions/');
-    if (!isProxyRoute && !isExtensionRoute) {
+    if (!isServeRoute && !isExtensionRoute) {
       res.setHeader('X-Frame-Options', 'SAMEORIGIN');
       res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-eval' 'unsafe-inline' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: blob:; media-src 'self' data: blob:; connect-src 'self' ws: wss: https://cdn.jsdelivr.net; font-src 'self' data: https://cdn.jsdelivr.net; frame-src 'self' http://localhost:* http: https:");
     }
@@ -974,9 +964,6 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
     res.json({ widgets });
   });
 
-  // Preview proxy catch-all: routes stray sub-resource requests based on Referer
-  app.use(createPreviewCatchAll(repo, agentTunnelManager));
-
   // Debug endpoint for memory observability (must be before static frontend catch-all)
   app.get('/api/debug/memory', (_req, res) => {
     let totalWidgets = 0;
@@ -988,7 +975,6 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
       resources: {
         widgetSessions: widgetStore.size,
         totalWidgets,
-        cookieEntries: cookieJar.size(),
         pendingCommands: pendingCommands.size,
         agentConnections: agentWsConnections.size,
         activePtys: sessionManager.activePtyCount,
@@ -1023,7 +1009,6 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
   const server = http.createServer(app);
   setupWebSocket(
     server, repo, sessionManager, ptySpawner, fileWatcher, shellSpawner, remotePtyBridge,
-    (req, socket, head) => handleProxyWsUpgrade(req, socket, head, repo, agentTunnelManager),
   );
 
   // Start server

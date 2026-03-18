@@ -10,5 +10,5 @@ Enables text selection mode.
 ## Usage
 
 ```bash
-./adyx.frontend-design.select-text/scripts/adyx.frontend-design.select-text.sh
+./scripts/adyx.frontend-design.select-text.sh
 ```
