@@ -286,10 +286,21 @@ export class StreamTap {
 
   async dispatchKeyEvent(type: string, key: string, text: string, code: string, modifiers?: number): Promise<void> {
     const mods = modifiers || 0;
+    // Map special keys to their Windows virtual key codes
+    const vkeyMap: Record<string, number> = {
+      Backspace: 8, Tab: 9, Enter: 13, Shift: 16, Control: 17, Alt: 18,
+      Escape: 27, ' ': 32, PageUp: 33, PageDown: 34, End: 35, Home: 36,
+      ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40,
+      Insert: 45, Delete: 46,
+      F1: 112, F2: 113, F3: 114, F4: 115, F5: 116, F6: 117,
+      F7: 118, F8: 119, F9: 120, F10: 121, F11: 122, F12: 123,
+    };
+    const vkCode = text ? text.charCodeAt(0) : (vkeyMap[key] || 0);
+
     if (type === 'down') {
       this.fireCdp('Input.dispatchKeyEvent', {
         type: 'keyDown', key, code, modifiers: mods,
-        windowsVirtualKeyCode: text ? text.charCodeAt(0) : 0,
+        windowsVirtualKeyCode: vkCode,
       });
       // Send char event for printable text so input fields receive characters
       if (text) {
@@ -300,6 +311,7 @@ export class StreamTap {
     } else {
       this.fireCdp('Input.dispatchKeyEvent', {
         type: 'keyUp', key, code, modifiers: mods,
+        windowsVirtualKeyCode: vkCode,
       });
     }
   }
