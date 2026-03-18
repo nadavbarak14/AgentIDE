@@ -389,12 +389,12 @@ export function setupWebSocket(
         clients.delete(ws);
         if (clients.size === 0) {
           previewClients.delete(sessionId);
-          // Stop screencast and disconnect when last client leaves
+          // Stop screencast but keep Chrome alive for fast reconnect
           const tap = streamTaps.get(sessionId);
           if (tap) {
             tap.stopScreencast().catch(err => log.error({ err }, 'stopScreencast on last-client-close failed'));
             tap.disconnect();
-            streamTaps.delete(sessionId);
+            // Don't delete from streamTaps — reuse on reconnect
           }
           // Close remote agent preview WS if open
           const rws = remotePreviewWs.get(sessionId);
@@ -624,6 +624,12 @@ export function setupWebSocket(
       claudeSessionId,
       pid: null,
     });
+    // Clean up Chrome process for this session
+    const tap = streamTaps.get(sessionId);
+    if (tap) {
+      tap.destroy();
+      streamTaps.delete(sessionId);
+    }
   });
 
   sessionManager.on('session_failed', (sessionId: string) => {
@@ -708,3 +714,89 @@ function broadcastToAll(message: Record<string, unknown>): void {
 export function broadcastSessionStateChanged(sessionId: string, changes: Record<string, unknown>): void {
   broadcastToAll({ type: 'session_state_changed', sessionId, changes });
 }
+
+/**
+ * Handle view-* board commands directly on the backend via StreamTap CDP.
+ * Returns a result string, or null if the command isn't a view command.
+ */
+export async function handleViewCommand(
+  sessionId: string,
+  command: string,
+  params: Record<string, unknown>,
+): Promise<string | null> {
+  const log = createSessionLogger(sessionId);
+
+  // Only handle view-* commands
+  if (!command.startsWith('view-')) return null;
+
+  // Get or create StreamTap for this session
+  let tap = streamTaps.get(sessionId);
+  if (!tap || !tap.isConnected()) {
+    tap = new StreamTap();
+    const connected = await tap.connect({
+      onFrame: () => {},
+      onStatus: () => {},
+      onUrl: () => {},
+    });
+    if (!connected) {
+      return 'Error: Chrome is not available. Launch headless Chrome first.';
+    }
+    streamTaps.set(sessionId, tap);
+  }
+
+  try {
+    switch (command) {
+      case 'view-navigate': {
+        const url = String(params.url || '');
+        if (!url) return 'Error: url parameter required';
+        await tap.navigate(url);
+        // Also broadcast URL to frontend preview
+        broadcastPreviewJson(sessionId, { type: 'preview:url', url });
+        return `Navigated to ${url}`;
+      }
+
+      case 'view-read-page': {
+        const tree = await tap.getAccessibilityTree();
+        return tree;
+      }
+
+      case 'view-click': {
+        const role = String(params.role || '');
+        const name = String(params.name || '');
+        if (!role || !name) return 'Error: role and name parameters required';
+        const clicked = await tap.clickByRoleName(role, name);
+        return clicked ? `Clicked ${role} "${name}"` : `Error: Could not find ${role} "${name}" on the page`;
+      }
+
+      case 'view-type': {
+        const role = String(params.role || '');
+        const name = String(params.name || '');
+        const text = String(params.text || '');
+        if (!role || !name || !text) return 'Error: role, name, and text parameters required';
+        const typed = await tap.typeByRoleName(role, name, text);
+        return typed ? `Typed "${text}" into ${role} "${name}"` : `Error: Could not find ${role} "${name}" on the page`;
+      }
+
+      case 'view-screenshot': {
+        const screenshot = await tap.captureScreenshot();
+        // Save to session's working directory
+        const fs = await import('node:fs');
+        const path = await import('node:path');
+        const uploadsDir = path.join(process.cwd(), '.c3-uploads', 'screenshots');
+        fs.mkdirSync(uploadsDir, { recursive: true });
+        const filename = `screenshot-${sessionId.slice(0, 8)}-${Date.now()}.png`;
+        const filepath = path.join(uploadsDir, filename);
+        fs.writeFileSync(filepath, screenshot);
+        log.info({ filepath }, 'screenshot captured via view-screenshot');
+        return `Screenshot saved to ${filepath}`;
+      }
+
+      default:
+        return null; // Not a recognized view command — let frontend handle
+    }
+  } catch (err) {
+    log.error({ err, command }, 'view command failed');
+    return `Error executing ${command}: ${err instanceof Error ? err.message : String(err)}`;
+  }
+}
+

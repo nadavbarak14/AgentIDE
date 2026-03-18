@@ -360,7 +360,18 @@ export function createPreviewRouter(repo: Repository, previewService: PreviewSer
         const base64 = videoDataUrl.replace(/^data:[^,]+,/, '');
         fs.writeFileSync(videoPath, Buffer.from(base64, 'base64'));
         logger.info({ sessionId, videoPath, sizeBytes: fs.statSync(videoPath).size }, 'video recording saved');
-        res.status(201).json({ id, videoPath, durationMs: durationMs || null, createdAt: new Date().toISOString() });
+
+        // Create database record so deliver endpoint can find it
+        const recording = repo.createVideoRecording({
+          sessionId,
+          videoPath,
+          durationMs: durationMs || undefined,
+          pageUrl: pageUrl || undefined,
+          viewportWidth: viewportWidth || undefined,
+          viewportHeight: viewportHeight || undefined,
+        });
+
+        res.status(201).json({ id: recording.id, videoPath, durationMs: durationMs || null, createdAt: new Date().toISOString() });
         return;
       } catch (err) {
         logger.error({ sessionId, err: err instanceof Error ? err.message : err }, 'failed to save video recording');

@@ -22,6 +22,7 @@ import { WorkerBadge } from './WorkerBadge';
 import { calculatePanelWidths, calculateVerticalSplit, clampResizePercent } from '../utils/panelLayout';
 import { useVisualViewport } from '../hooks/useVisualViewport';
 import { useClaudeMode } from '../hooks/useClaudeMode';
+import { getPresetById } from '../constants/devicePresets';
 
 interface SessionCardProps {
   session: Session;
@@ -145,6 +146,8 @@ export function SessionCard({
 
   // Ref to the active preview's navigate function — updated after StreamPreview hooks are created
   const previewNavigateRef = useRef<((url: string) => void) | null>(null);
+  // Queue a URL to navigate once preview connects (handles race with show_panel + url)
+  const pendingPreviewUrlRef = useRef<string | null>(null);
   // Extension panel refs for forwarding board commands to extension iframes
   const extensionPanelRefs = useRef<Record<string, ExtensionPanelHandle | null>>({});
 
@@ -222,7 +225,28 @@ export function SessionCard({
           if (msg.params.panel === 'preview' && msg.params.url) {
             const url = msg.params.url as string;
             console.log(`[BoardCommand] Navigating Chrome preview to: "${url}"`);
-            previewNavigateRef.current?.(url);
+            if (previewNavigateRef.current) {
+              previewNavigateRef.current(url);
+            } else {
+              // Preview WebSocket not connected yet — queue for when it connects
+              pendingPreviewUrlRef.current = url;
+            }
+          }
+        } else if (msg.command === 'view-navigate' && msg.params.url) {
+          const url = msg.params.url as string;
+          ensurePanelOpen('preview');
+          if (previewNavigateRef.current) {
+            previewNavigateRef.current(url);
+          } else {
+            pendingPreviewUrlRef.current = url;
+          }
+          // Return result so the skill script doesn't timeout
+          if (msg.requestId) {
+            fetch(`/api/sessions/${session.id}/board-command-result/${msg.requestId}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ result: `Navigated to ${url}` }),
+            }).catch(() => {});
           }
         } else if (msg.command === 'show_diff') {
           ensurePanelOpen('git');
@@ -328,8 +352,64 @@ export function SessionCard({
     previewNavigateRef.current = null;
   }
 
+  // Flush pending preview URL once preview connects
+  useEffect(() => {
+    const status = rightPreviewEnabled ? rightPreview.status : leftPreviewEnabled ? leftPreview.status : null;
+    if (status === 'connected' && pendingPreviewUrlRef.current && previewNavigateRef.current) {
+      const url = pendingPreviewUrlRef.current;
+      pendingPreviewUrlRef.current = null;
+      console.log(`[BoardCommand] Flushing pending navigate: "${url}"`);
+      previewNavigateRef.current(url);
+    }
+  }, [rightPreview.status, leftPreview.status, rightPreviewEnabled, leftPreviewEnabled]);
+
   // Detected ports array for StreamPreview port selector
   const detectedPorts = detectedPort ? [detectedPort] : undefined;
+
+  const handleScreenshot = useCallback(async (preview: ReturnType<typeof useStreamPreview>) => {
+    const dataUrl = await preview.takeScreenshot();
+    if (!dataUrl) return;
+    try {
+      // Save screenshot and deliver to the Claude session
+      const saveResp = await fetch(`/api/sessions/${session.id}/screenshots`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dataUrl, pageUrl: preview.currentUrl }),
+      });
+      if (saveResp.ok) {
+        const { id: screenshotId, storedPath } = await saveResp.json();
+        await fetch(`/api/sessions/${session.id}/screenshots/${screenshotId}/deliver`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ screenshotPath: storedPath, message: `Screenshot of ${preview.currentUrl || 'preview'}` }),
+        });
+      }
+    } catch { /* ignore delivery errors */ }
+  }, [session.id]);
+
+  const handleViewportChange = useCallback((viewport: 'desktop' | 'mobile' | 'custom' | null, deviceId?: string) => {
+    panel.setPreviewViewport(viewport);
+    if (viewport === 'mobile' && deviceId) {
+      panel.setMobileDeviceId(deviceId);
+      const preset = getPresetById(deviceId);
+      if (preset) {
+        rightPreview.sendResize(preset.width, preset.height);
+        leftPreview.sendResize(preset.width, preset.height);
+      }
+    } else if (viewport === 'desktop' && deviceId) {
+      panel.setDesktopDeviceId(deviceId);
+      const preset = getPresetById(deviceId);
+      if (preset) {
+        rightPreview.sendResize(preset.width, preset.height);
+        leftPreview.sendResize(preset.width, preset.height);
+      }
+    }
+    if (viewport === null) {
+      // Reset to default desktop viewport
+      rightPreview.sendResize(1280, 720);
+      leftPreview.sendResize(1280, 720);
+    }
+  }, [panel, rightPreview, leftPreview]);
 
   // Drag handle resize logic
   const rafRef = useRef<number | null>(null);
@@ -772,6 +852,10 @@ export function SessionCard({
             onResize={leftPreview.sendResize}
             onClose={closeLeftPanel}
             detectedPorts={detectedPorts}
+            onScreenshot={() => handleScreenshot(leftPreview)}
+            viewport={panel.previewViewport}
+            selectedDeviceId={panel.previewViewport === 'mobile' ? panel.mobileDeviceId : panel.previewViewport === 'desktop' ? panel.desktopDeviceId : null}
+            onViewportChange={handleViewportChange}
           />
         );
       }
@@ -1265,6 +1349,10 @@ export function SessionCard({
                       onResize={rightPreview.sendResize}
                       onClose={closeRightPanel}
                       detectedPorts={detectedPorts}
+                      onScreenshot={() => handleScreenshot(rightPreview)}
+                      viewport={panel.previewViewport}
+                      selectedDeviceId={panel.previewViewport === 'mobile' ? panel.mobileDeviceId : panel.previewViewport === 'desktop' ? panel.desktopDeviceId : null}
+                      onViewportChange={handleViewportChange}
                     />
                   </div>
                 )}

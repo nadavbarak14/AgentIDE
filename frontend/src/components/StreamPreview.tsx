@@ -1,4 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { PHONE_PRESETS, TABLET_PRESETS, DESKTOP_PRESETS, getPresetById, type DevicePreset } from '../constants/devicePresets';
+import { AnnotationCanvas } from './AnnotationCanvas';
 
 interface StreamPreviewProps {
   sessionId: string;
@@ -16,6 +18,9 @@ interface StreamPreviewProps {
   detectedPorts?: { port: number; localPort: number }[];
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
+  viewport?: 'desktop' | 'mobile' | 'custom' | null;
+  selectedDeviceId?: string | null;
+  onViewportChange?: (viewport: 'desktop' | 'mobile' | 'custom' | null, deviceId?: string) => void;
 }
 
 /** Translate a project:// URL to a server-side serve path */
@@ -61,11 +66,22 @@ export function StreamPreview({
   detectedPorts,
   isFullscreen = false,
   onToggleFullscreen,
+  viewport,
+  selectedDeviceId,
+  onViewportChange,
 }: StreamPreviewProps) {
   const [addressInput, setAddressInput] = useState(currentUrl);
+  const [showDeviceMenu, setShowDeviceMenu] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [recordingStartTime, setRecordingStartTime] = useState<number>(0);
+  const [annotating, setAnnotating] = useState(false);
+  const [annotationImage, setAnnotationImage] = useState<string | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const imgRef = useRef<HTMLImageElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const recordingStartRef = useRef<number>(0);
 
   // Keep address bar in sync when currentUrl changes externally
   useEffect(() => {
@@ -85,6 +101,15 @@ export function StreamPreview({
     return () => observer.disconnect();
   }, [onResize]);
 
+  // Close device menu when clicking outside
+  useEffect(() => {
+    if (!showDeviceMenu) return;
+    const handleClick = () => setShowDeviceMenu(false);
+    // Defer so the opening click doesn't immediately close the menu
+    const timer = setTimeout(() => document.addEventListener('click', handleClick), 0);
+    return () => { clearTimeout(timer); document.removeEventListener('click', handleClick); };
+  }, [showDeviceMenu]);
+
   /** Scale img-relative coords to Chrome viewport coords */
   const toViewportCoords = useCallback((clientX: number, clientY: number): { x: number; y: number } => {
     const img = imgRef.current;
@@ -99,8 +124,12 @@ export function StreamPreview({
     return { x, y };
   }, [frame]);
 
+  // Throttle mouse move to avoid flooding the WebSocket
+  const lastMoveRef = useRef(0);
+
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     overlayRef.current?.focus();
     const { x, y } = toViewportCoords(e.clientX, e.clientY);
     onMouse?.(x, y, buttonName(e.button), 'down');
@@ -113,15 +142,18 @@ export function StreamPreview({
   }, [toViewportCoords, onMouse]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    // Throttle to ~30fps to avoid flooding
+    const now = Date.now();
+    if (now - lastMoveRef.current < 33) return;
+    lastMoveRef.current = now;
     const { x, y } = toViewportCoords(e.clientX, e.clientY);
-    onMouse?.(x, y, buttonName(e.button), 'move');
+    onMouse?.(x, y, 'none', 'move');
   }, [toViewportCoords, onMouse]);
 
+  // Don't send separate click — mouseDown+mouseUp already handles it in CDP
   const handleClick = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
-    const { x, y } = toViewportCoords(e.clientX, e.clientY);
-    onMouse?.(x, y, buttonName(e.button), 'click');
-  }, [toViewportCoords, onMouse]);
+  }, []);
 
   const handleWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
@@ -131,14 +163,18 @@ export function StreamPreview({
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     const mods = modifiersBitmask(e);
-    onKey?.(e.key, e.key, e.code, 'down', mods);
+    // CDP text should only be the printable character, empty for special keys
+    const text = e.key.length === 1 ? e.key : '';
+    onKey?.(e.key, text, e.code, 'down', mods);
   }, [onKey]);
 
   const handleKeyUp = useCallback((e: React.KeyboardEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     const mods = modifiersBitmask(e);
-    onKey?.(e.key, e.key, e.code, 'up', mods);
+    onKey?.(e.key, '', e.code, 'up', mods);
   }, [onKey]);
 
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
@@ -164,6 +200,117 @@ export function StreamPreview({
     const { x, y } = toViewportCoords(touch.clientX, touch.clientY);
     onTouch?.(x, y, 'end');
   }, [toViewportCoords, onTouch]);
+
+  // ── Recording ──
+  const startRecording = useCallback(() => {
+    if (!frame) return;
+    const canvas = document.createElement('canvas');
+    canvas.width = frame.width;
+    canvas.height = frame.height;
+    canvasRef.current = canvas;
+    recordingStartRef.current = Date.now();
+    const stream = canvas.captureStream(10);
+    const recorder = new MediaRecorder(stream, { mimeType: 'video/webm; codecs=vp9' });
+    const chunks: Blob[] = [];
+    recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+    recorder.onstop = async () => {
+      const durationMs = Date.now() - recordingStartRef.current;
+      const blob = new Blob(chunks, { type: 'video/webm' });
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const videoDataUrl = reader.result as string;
+        try {
+          const resp = await fetch(`/api/sessions/${sessionId}/recordings`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              videoDataUrl,
+              durationMs,
+              pageUrl: currentUrl,
+              viewportWidth: frame?.width,
+              viewportHeight: frame?.height,
+            }),
+          });
+          if (resp.ok) {
+            const { id: recordingId } = await resp.json();
+            await fetch(`/api/sessions/${sessionId}/recordings/${recordingId}/deliver`, { method: 'POST' });
+          }
+        } catch { /* ignore save errors */ }
+      };
+      reader.readAsDataURL(blob);
+      canvasRef.current = null;
+    };
+    recorder.start(1000);
+    recorderRef.current = recorder;
+    setRecording(true);
+    setRecordingStartTime(Date.now());
+  }, [frame, sessionId, currentUrl]);
+
+  const stopRecording = useCallback(() => {
+    recorderRef.current?.stop();
+    recorderRef.current = null;
+    setRecording(false);
+  }, []);
+
+  // Paint frames to recording canvas continuously via rAF
+  useEffect(() => {
+    if (!recording) return;
+    let rafId: number;
+    const paint = () => {
+      if (!canvasRef.current || !imgRef.current) { rafId = requestAnimationFrame(paint); return; }
+      const ctx = canvasRef.current.getContext('2d');
+      if (ctx) {
+        try { ctx.drawImage(imgRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height); } catch { /* cross-origin */ }
+      }
+      rafId = requestAnimationFrame(paint);
+    };
+    rafId = requestAnimationFrame(paint);
+    return () => cancelAnimationFrame(rafId);
+  }, [recording]);
+
+  // ── Annotation ──
+  const startAnnotation = useCallback(async () => {
+    if (!frame) return;
+    try {
+      const resp = await fetch(frame.objectUrl);
+      const blob = await resp.blob();
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setAnnotationImage(reader.result as string);
+        setAnnotating(true);
+      };
+      reader.readAsDataURL(blob);
+    } catch { /* ignore */ }
+  }, [frame]);
+
+  const handleAnnotationSave = useCallback(async (annotatedDataUrl: string) => {
+    setAnnotating(false);
+    setAnnotationImage(null);
+    try {
+      const resp = await fetch(`/api/sessions/${sessionId}/preview-comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          commentText: 'See this annotated screenshot — please review and address the marked areas.',
+          screenshotDataUrl: annotatedDataUrl,
+          pageUrl: currentUrl,
+          pinX: 0,
+          pinY: 0,
+          viewportWidth: frame?.width,
+          viewportHeight: frame?.height,
+        }),
+      });
+      if (resp.ok) {
+        // Auto-deliver all pending comments to the agent
+        await fetch(`/api/sessions/${sessionId}/preview-comments/deliver`, { method: 'POST' });
+      }
+    } catch { /* ignore */ }
+  }, [sessionId, currentUrl, frame]);
+
+  const handleAnnotationCancel = useCallback(() => {
+    setAnnotating(false);
+    setAnnotationImage(null);
+  }, []);
 
   const handleNavigate = useCallback(() => {
     let url = addressInput.trim();
@@ -245,6 +392,35 @@ export function StreamPreview({
           </button>
         )}
 
+        {/* Record button */}
+        <button
+          onClick={recording ? stopRecording : startRecording}
+          className={`w-6 h-6 flex items-center justify-center rounded text-sm ${
+            recording ? 'text-red-400 bg-red-500/20 animate-pulse' : 'text-gray-400 hover:text-white hover:bg-gray-700'
+          }`}
+          title={recording ? 'Stop recording' : 'Start recording'}
+          disabled={!frame}
+        >
+          {recording ? (
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
+          ) : (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><circle cx="12" cy="12" r="4" fill="currentColor" /></svg>
+          )}
+        </button>
+
+        {/* Annotate button */}
+        <button
+          onClick={startAnnotation}
+          className="w-6 h-6 flex items-center justify-center text-gray-400 hover:text-white hover:bg-gray-700 rounded text-sm"
+          title="Annotate screenshot"
+          disabled={!frame}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 20h9" />
+            <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+          </svg>
+        </button>
+
         {/* Fullscreen toggle */}
         {onToggleFullscreen && (
           <button
@@ -269,6 +445,68 @@ export function StreamPreview({
             )}
           </button>
         )}
+
+        {/* Device selector */}
+        <div className="relative">
+          <button
+            onClick={() => setShowDeviceMenu(!showDeviceMenu)}
+            className={`h-6 flex items-center gap-0.5 px-1 text-xs rounded ${
+              viewport === 'mobile' ? 'text-blue-400 bg-blue-500/20' : 'text-gray-400 hover:text-white hover:bg-gray-700'
+            }`}
+            title="Device viewport"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="5" y="2" width="14" height="20" rx="2" ry="2" />
+              <line x1="12" y1="18" x2="12.01" y2="18" />
+            </svg>
+            {viewport === 'mobile' && selectedDeviceId && (
+              <span className="max-w-[60px] truncate">{getPresetById(selectedDeviceId)?.name?.split(' ').slice(-1)[0] || ''}</span>
+            )}
+          </button>
+          {showDeviceMenu && (
+            <div className="absolute right-0 top-7 z-50 w-52 bg-gray-800 border border-gray-600 rounded-lg shadow-xl py-1 max-h-72 overflow-y-auto">
+              <button
+                onClick={() => { onViewportChange?.(null); setShowDeviceMenu(false); }}
+                className={`w-full text-left px-3 py-1.5 text-xs hover:bg-gray-700 ${!viewport ? 'text-blue-400' : 'text-gray-300'}`}
+              >
+                Responsive (fit)
+              </button>
+              <div className="border-t border-gray-700 my-1" />
+              <div className="px-3 py-1 text-[10px] text-gray-500 uppercase tracking-wider">Phones</div>
+              {PHONE_PRESETS.map((d) => (
+                <button
+                  key={d.id}
+                  onClick={() => { onViewportChange?.('mobile', d.id); setShowDeviceMenu(false); }}
+                  className={`w-full text-left px-3 py-1 text-xs hover:bg-gray-700 ${selectedDeviceId === d.id ? 'text-blue-400' : 'text-gray-300'}`}
+                >
+                  {d.name} <span className="text-gray-500">{d.width}x{d.height}</span>
+                </button>
+              ))}
+              <div className="border-t border-gray-700 my-1" />
+              <div className="px-3 py-1 text-[10px] text-gray-500 uppercase tracking-wider">Tablets</div>
+              {TABLET_PRESETS.map((d) => (
+                <button
+                  key={d.id}
+                  onClick={() => { onViewportChange?.('mobile', d.id); setShowDeviceMenu(false); }}
+                  className={`w-full text-left px-3 py-1 text-xs hover:bg-gray-700 ${selectedDeviceId === d.id ? 'text-blue-400' : 'text-gray-300'}`}
+                >
+                  {d.name} <span className="text-gray-500">{d.width}x{d.height}</span>
+                </button>
+              ))}
+              <div className="border-t border-gray-700 my-1" />
+              <div className="px-3 py-1 text-[10px] text-gray-500 uppercase tracking-wider">Desktop</div>
+              {DESKTOP_PRESETS.map((d) => (
+                <button
+                  key={d.id}
+                  onClick={() => { onViewportChange?.('desktop', d.id); setShowDeviceMenu(false); }}
+                  className={`w-full text-left px-3 py-1 text-xs hover:bg-gray-700 ${selectedDeviceId === d.id ? 'text-blue-400' : 'text-gray-300'}`}
+                >
+                  {d.name} <span className="text-gray-500">{d.width}x{d.height}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* Close button */}
         <button
@@ -331,6 +569,17 @@ export function StreamPreview({
               <p className="text-lg">Browser ready</p>
               <p className="text-sm text-gray-600">Enter a URL in the address bar above to start browsing</p>
             </div>
+          </div>
+        )}
+
+        {/* Annotation overlay */}
+        {annotating && annotationImage && (
+          <div className="absolute inset-0 z-50 bg-gray-950">
+            <AnnotationCanvas
+              imageDataUrl={annotationImage}
+              onSave={handleAnnotationSave}
+              onCancel={handleAnnotationCancel}
+            />
           </div>
         )}
       </div>
