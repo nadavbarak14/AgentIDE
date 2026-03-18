@@ -328,8 +328,8 @@ export function StreamPreview({
           /* Connected but no frame yet */
           <div className="absolute inset-0 flex items-center justify-center text-gray-500">
             <div className="text-center space-y-2">
-              <p className="text-lg">Connecting...</p>
-              <p className="text-sm text-gray-600">Waiting for first frame...</p>
+              <p className="text-lg">Browser ready</p>
+              <p className="text-sm text-gray-600">Enter a URL in the address bar above to start browsing</p>
             </div>
           </div>
         )}
