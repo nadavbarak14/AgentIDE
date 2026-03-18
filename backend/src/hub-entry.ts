@@ -1008,7 +1008,7 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
 
   const server = http.createServer(app);
   setupWebSocket(
-    server, repo, sessionManager, ptySpawner, fileWatcher, shellSpawner, remotePtyBridge,
+    server, repo, sessionManager, ptySpawner, fileWatcher, shellSpawner, remotePtyBridge, agentTunnelManager,
   );
 
   // Start server
