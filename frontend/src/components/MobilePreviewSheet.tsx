@@ -1,13 +1,12 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { LivePreview } from './LivePreview';
-
-type ViewportMode = 'desktop' | 'mobile' | 'custom' | null;
+import { StreamPreview } from './StreamPreview';
+import { useStreamPreview } from '../hooks/useStreamPreview';
 
 interface MobilePreviewSheetProps {
   sessionId: string;
-  port: number;
-  localPort: number;
+  port?: number;
+  localPort?: number;
   detectedPorts?: Array<{ port: number; localPort: number }>;
   isLocalSession?: boolean;
   onClose: () => void;
@@ -15,18 +14,12 @@ interface MobilePreviewSheetProps {
 
 export function MobilePreviewSheet({
   sessionId,
-  port,
-  localPort,
   detectedPorts,
-  isLocalSession,
   onClose,
+  // port, localPort, isLocalSession are no longer used — StreamPreview manages its own connection
 }: MobilePreviewSheetProps) {
   const [visible, setVisible] = useState(false);
-  const [viewportMode, setViewportMode] = useState<ViewportMode>(null);
-  const [customW, setCustomW] = useState(1024);
-  const [customH, setCustomH] = useState(768);
-  const [selectedDeviceId, setSelectedDeviceId] = useState('iphone-15-pro');
-  const [selectedDesktopId, setSelectedDesktopId] = useState('desktop-1080p');
+  const preview = useStreamPreview(sessionId, true);
 
   useEffect(() => {
     requestAnimationFrame(() => setVisible(true));
@@ -37,34 +30,25 @@ export function MobilePreviewSheet({
     setTimeout(onClose, 300);
   };
 
-  const handleCustomViewport = useCallback((w: number, h: number) => {
-    setCustomW(w);
-    setCustomH(h);
-  }, []);
-
   return createPortal(
     <div className="fixed inset-0 z-50 flex flex-col bg-gray-900">
       <div
         className="flex flex-col flex-1 transition-transform duration-300 ease-out overflow-hidden"
         style={{ transform: visible ? 'translateY(0)' : 'translateY(100%)' }}
       >
-        <LivePreview
+        <StreamPreview
           sessionId={sessionId}
-          port={port}
-          localPort={localPort}
-          detectedPorts={detectedPorts}
+          status={preview.status}
+          frame={preview.frame}
+          currentUrl={preview.currentUrl}
+          onNavigate={preview.navigate}
+          onMouse={preview.sendMouse}
+          onKey={preview.sendKey}
+          onScroll={preview.sendScroll}
+          onTouch={preview.sendTouch}
+          onResize={preview.sendResize}
           onClose={handleClose}
-          isMobile={true}
-          isLocalSession={isLocalSession}
-          viewportMode={viewportMode}
-          onViewportChange={setViewportMode}
-          customViewportWidth={customW}
-          customViewportHeight={customH}
-          onCustomViewport={handleCustomViewport}
-          selectedDeviceId={selectedDeviceId}
-          onDevicePresetSelect={setSelectedDeviceId}
-          selectedDesktopId={selectedDesktopId}
-          onDesktopPresetSelect={setSelectedDesktopId}
+          detectedPorts={detectedPorts}
         />
       </div>
     </div>,
