@@ -43,7 +43,9 @@ export function useSessionQueue(pollInterval = 5000) {
   }, []);
 
   const killSession = useCallback(async (id: string) => {
-    return sessionsApi.kill(id);
+    const result = await sessionsApi.kill(id);
+    setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, status: 'completed' as const } : s)));
+    return result;
   }, []);
 
   const toggleLock = useCallback(async (id: string, lock: boolean) => {

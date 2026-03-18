@@ -79,5 +79,20 @@ export function useStreamPreview(sessionId: string, enabled: boolean) {
     wsRef.current?.sendJson({ type: 'preview:touch', x, y, action });
   }, []);
 
-  return { frame, status, currentUrl, navigate, sendMouse, sendKey, sendScroll, sendResize, sendTouch };
+  const takeScreenshot = useCallback(async (): Promise<string | null> => {
+    if (!frame) return null;
+    try {
+      const response = await fetch(frame.objectUrl);
+      const blob = await response.blob();
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.readAsDataURL(blob);
+      });
+    } catch {
+      return null;
+    }
+  }, [frame]);
+
+  return { frame, status, currentUrl, navigate, sendMouse, sendKey, sendScroll, sendResize, sendTouch, takeScreenshot };
 }

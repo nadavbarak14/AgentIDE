@@ -22,7 +22,7 @@ import { createGitHubRouter } from './api/routes/github.js';
 import { createPreviewRouter } from './api/routes/preview.js';
 import { createUploadsRouter } from './api/routes/uploads.js';
 import { PreviewService } from './services/preview-service.js';
-import { setupWebSocket, broadcastToSession, broadcastSessionStateChanged } from './api/websocket.js';
+import { setupWebSocket, broadcastToSession, broadcastSessionStateChanged, handleViewCommand } from './api/websocket.js';
 import { FileWatcher } from './worker/file-watcher.js';
 import { requestLogger, errorHandler } from './api/middleware.js';
 import { logger } from './services/logger.js';
@@ -394,7 +394,7 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
     const isExtensionRoute = req.path.startsWith('/extensions/');
     if (!isServeRoute && !isExtensionRoute) {
       res.setHeader('X-Frame-Options', 'SAMEORIGIN');
-      res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-eval' 'unsafe-inline' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: blob:; media-src 'self' data: blob:; connect-src 'self' ws: wss: https://cdn.jsdelivr.net; font-src 'self' data: https://cdn.jsdelivr.net; frame-src 'self' http://localhost:* http: https:");
+      res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-eval' 'unsafe-inline' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: blob:; media-src 'self' data: blob:; connect-src 'self' ws: wss: https://cdn.jsdelivr.net blob:; font-src 'self' data: https://cdn.jsdelivr.net; frame-src 'self' http://localhost:* http: https:");
     }
     next();
   });
@@ -716,12 +716,49 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
   staleCleanupInterval.unref();
 
   // Board command endpoint — skills POST here via curl to control the IDE view
-  app.post('/api/sessions/:id/board-command', (req, res) => {
+  app.post('/api/sessions/:id/board-command', async (req, res) => {
     const sessionId = req.params.id;
     const { command, params, requestId, waitForResult } = req.body;
     if (!command) {
       res.status(400).json({ error: 'Missing command' });
       return;
+    }
+
+    // Try to handle view-* commands directly on the backend via CDP
+    if (command.startsWith('view-') && waitForResult && requestId) {
+      logger.info({ requestId, action: command, sessionId }, 'Handling view command via backend CDP');
+
+      // Also broadcast to frontend for UI updates (e.g., open preview panel)
+      broadcastToSession(sessionId, {
+        type: 'board_command',
+        sessionId,
+        command,
+        params: params || {},
+        requestId,
+      });
+
+      try {
+        const result = await handleViewCommand(sessionId, command, params || {});
+        if (result !== null) {
+          // Store result for the polling GET endpoint
+          const timeoutHandle = setTimeout(() => { pendingCommands.delete(requestId); }, 30_000);
+          timeoutHandle.unref();
+          pendingCommands.set(requestId, {
+            resolve: () => {},
+            timeout: timeoutHandle,
+            sessionId,
+            action: command,
+            createdAt: Date.now(),
+          });
+          (pendingCommands.get(requestId) as Record<string, unknown>).result = result;
+          (pendingCommands.get(requestId) as Record<string, unknown>).resolvedAt = Date.now();
+          res.status(202).json({ ok: true, requestId });
+          return;
+        }
+      } catch (err) {
+        logger.error({ err, command, sessionId }, 'view command handler failed');
+      }
+      // Fall through to normal flow if handler returned null
     }
 
     // Broadcast to frontend via WebSocket

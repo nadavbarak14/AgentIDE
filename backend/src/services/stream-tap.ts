@@ -276,20 +276,32 @@ export class StreamTap {
   }
 
   async dispatchMouseEvent(type: string, x: number, y: number, button?: string, clickCount?: number): Promise<void> {
-    const cdpButton = button === 'right' ? 'right' : button === 'middle' ? 'middle' : 'left';
+    const cdpButton = button === 'right' ? 'right' : button === 'middle' ? 'middle' : button === 'none' ? 'none' : 'left';
     this.fireCdp('Input.dispatchMouseEvent', {
       type, x, y,
       button: cdpButton,
-      clickCount: clickCount || (type === 'mousePressed' ? 1 : 0),
+      clickCount: clickCount ?? (type === 'mousePressed' ? 1 : 0),
     });
   }
 
   async dispatchKeyEvent(type: string, key: string, text: string, code: string, modifiers?: number): Promise<void> {
-    this.fireCdp('Input.dispatchKeyEvent', {
-      type: type === 'down' ? 'keyDown' : 'keyUp',
-      key, text, code,
-      modifiers: modifiers || 0,
-    });
+    const mods = modifiers || 0;
+    if (type === 'down') {
+      this.fireCdp('Input.dispatchKeyEvent', {
+        type: 'keyDown', key, code, modifiers: mods,
+        windowsVirtualKeyCode: text ? text.charCodeAt(0) : 0,
+      });
+      // Send char event for printable text so input fields receive characters
+      if (text) {
+        this.fireCdp('Input.dispatchKeyEvent', {
+          type: 'char', text, key, code, modifiers: mods,
+        });
+      }
+    } else {
+      this.fireCdp('Input.dispatchKeyEvent', {
+        type: 'keyUp', key, code, modifiers: mods,
+      });
+    }
   }
 
   async dispatchScroll(x: number, y: number, deltaX: number, deltaY: number): Promise<void> {
@@ -321,6 +333,77 @@ export class StreamTap {
     return Buffer.from(result.data, 'base64');
   }
 
+  /** Get the accessibility tree as a text snapshot for the agent */
+  async getAccessibilityTree(): Promise<string> {
+    await this.sendCdp('Accessibility.enable');
+    const { nodes } = await this.sendCdp('Accessibility.getFullAXTree');
+    const lines: string[] = [];
+    for (const node of nodes || []) {
+      const role = node.role?.value || '';
+      const name = node.name?.value || '';
+      if (!role || role === 'none' || role === 'generic' || role === 'InlineTextBox') continue;
+      const props: string[] = [];
+      if (node.properties) {
+        for (const p of node.properties) {
+          if (p.name === 'focused' && p.value?.value) props.push('focused');
+          if (p.name === 'disabled' && p.value?.value) props.push('disabled');
+          if (p.name === 'checked' && p.value?.value) props.push('checked');
+          if (p.name === 'selected' && p.value?.value) props.push('selected');
+        }
+      }
+      const value = node.value?.value ? ` value="${node.value.value}"` : '';
+      const propsStr = props.length ? ` [${props.join(', ')}]` : '';
+      lines.push(`${role}: ${name}${value}${propsStr}`);
+    }
+    return lines.join('\n') || 'Empty page';
+  }
+
+  /** Find an element by role and name, return its center coordinates */
+  async findElementByRoleName(role: string, name: string): Promise<{ x: number; y: number } | null> {
+    // Use DOM + JS to find element by accessibility role/name
+    const result = await this.sendCdp('Runtime.evaluate', {
+      expression: `(() => {
+        const roles = {'button':'button','link':'a','textbox':'input,textarea','checkbox':'input[type=checkbox]','heading':'h1,h2,h3,h4,h5,h6','img':'img','combobox':'select'};
+        const selectors = roles['${role}'] || '${role}';
+        const els = document.querySelectorAll(selectors);
+        for (const el of els) {
+          const text = el.textContent?.trim() || el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.getAttribute('alt') || el.getAttribute('title') || el.getAttribute('name') || '';
+          if (text.toLowerCase().includes('${name.toLowerCase().replace(/'/g, "\\'")}')) {
+            const r = el.getBoundingClientRect();
+            return JSON.stringify({ x: Math.round(r.x + r.width/2), y: Math.round(r.y + r.height/2), found: true });
+          }
+        }
+        return JSON.stringify({ found: false });
+      })()`,
+      returnByValue: true,
+    });
+    try {
+      const parsed = JSON.parse(result.result.value);
+      return parsed.found ? { x: parsed.x, y: parsed.y } : null;
+    } catch { return null; }
+  }
+
+  /** Click an element by role and name */
+  async clickByRoleName(role: string, name: string): Promise<boolean> {
+    const pos = await this.findElementByRoleName(role, name);
+    if (!pos) return false;
+    await this.dispatchMouseEvent('mousePressed', pos.x, pos.y, 'left', 1);
+    await this.dispatchMouseEvent('mouseReleased', pos.x, pos.y, 'left', 1);
+    return true;
+  }
+
+  /** Type text into an element by role and name */
+  async typeByRoleName(role: string, name: string, text: string): Promise<boolean> {
+    const clicked = await this.clickByRoleName(role, name);
+    if (!clicked) return false;
+    // Small delay for focus
+    await new Promise(r => setTimeout(r, 100));
+    for (const char of text) {
+      await this.dispatchKeyEvent('down', char, char, `Key${char.toUpperCase()}`);
+    }
+    return true;
+  }
+
   disconnect(): void {
     this.streaming = false;
     this.pendingCallbacks.clear();
@@ -328,6 +411,13 @@ export class StreamTap {
       this.cdpWs.close();
       this.cdpWs = null;
     }
+    // Don't kill Chrome — it's reused across preview reconnections.
+    // Call destroy() to fully tear down including the Chrome process.
+  }
+
+  /** Fully tear down including killing the Chrome process. */
+  destroy(): void {
+    this.disconnect();
     if (this.chromeProcess) {
       this.chromeProcess.kill();
       this.chromeProcess = null;

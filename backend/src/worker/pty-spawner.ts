@@ -203,7 +203,7 @@ export class PtySpawner extends EventEmitter {
         if (fs.existsSync(sessionSkillsDir)) fs.rmSync(sessionSkillsDir, { recursive: true, force: true });
         fs.mkdirSync(sessionSkillsDir, { recursive: true });
 
-        if (enabledExtensions && enabledExtensions.length >= 0) {
+        if (enabledExtensions && enabledExtensions.length > 0) {
           // Build set of extension-related skill names to include
           const extSkillNames = new Set<string>();
           for (const extName of enabledExtensions) {
@@ -232,9 +232,13 @@ export class PtySpawner extends EventEmitter {
             try {
               // Use 'junction' on Windows (no elevated privileges needed), 'dir' on Linux/macOS
               fs.symlinkSync(src, dest, process.platform === 'win32' ? 'junction' : 'dir');
-            } catch {
-              // Symlink failed (e.g. permissions) — fall back to copy
-              fs.cpSync(src, dest, { recursive: true, dereference: true });
+            } catch (symlinkErr) {
+              // Symlink failed (e.g. cross-filesystem, permissions) — fall back to copy
+              try {
+                fs.cpSync(src, dest, { recursive: true, dereference: true });
+              } catch (cpErr) {
+                log.warn({ src, dest, symlinkErr, cpErr }, 'failed to inject skill');
+              }
             }
           }
           log.info({ sessionSkillsDir, enabledExtensions, skillCount: fs.readdirSync(sessionSkillsDir).length }, 'injected filtered skills into session');
@@ -279,7 +283,8 @@ export class PtySpawner extends EventEmitter {
     const envPrefix = `C3_SESSION_ID=${escapeShellArg(sessionId)} C3_HUB_PORT=${this.hubPort}`;
     const claudeCmd = `cd ${escapeShellArg(workingDirectory)} && ${envPrefix} claude ${fullArgs.map(a => escapeShellArg(a)).join(' ')}`;
     // `exec` replaces bash with tmux client, so node-pty onExit fires when tmux session ends
-    const tmuxCmd = `tmux new-session -d -s ${escapeShellArg(tmuxName)} ${escapeShellArg(claudeCmd)} && exec tmux attach -t ${escapeShellArg(tmuxName)}\n`;
+    // Use `bash -lc` inside tmux so that login-shell profile is sourced (ensures claude is on PATH)
+    const tmuxCmd = `tmux new-session -d -s ${escapeShellArg(tmuxName)} "bash -lc ${escapeShellArg(claudeCmd)}" && exec tmux attach -t ${escapeShellArg(tmuxName)}\n`;
 
     log.info({ tmuxSession: tmuxName, cmd: tmuxCmd.trim() }, 'sending tmux-wrapped claude command');
     proc.write(tmuxCmd);
