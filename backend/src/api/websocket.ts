@@ -791,6 +791,51 @@ export async function handleViewCommand(
         return `Screenshot saved to ${filepath}`;
       }
 
+      case 'view-set-resolution':
+      case 'view-set-viewport': {
+        const width = Number(params.width || 0);
+        const height = Number(params.height || 0);
+        if (!width || !height) return 'Error: width and height parameters required';
+        await tap.setViewport(width, height);
+        return `Viewport set to ${width}x${height}`;
+      }
+
+      case 'view-set-device':
+      case 'view-set-desktop': {
+        const deviceName = String(params.device || params.name || '');
+        if (!deviceName) return 'Error: device name parameter required';
+        // Common device presets
+        const devices: Record<string, [number, number]> = {
+          'iphone-17-pro-max': [440, 956], 'iphone-17-pro': [402, 874], 'iphone-16-pro-max': [430, 932],
+          'iphone-16-pro': [393, 852], 'iphone-se': [375, 667], 'ipad-pro-13': [1032, 1376],
+          'ipad-pro-11': [834, 1210], 'ipad-air-11': [820, 1180], 'ipad-mini': [744, 1133],
+          'galaxy-s25-ultra': [412, 891], 'pixel-10': [412, 923], 'desktop': [1280, 720],
+          '1080p': [1920, 1080], '1440p': [2560, 1440], '4k': [3840, 2160],
+        };
+        const key = deviceName.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+        const dims = devices[key];
+        if (!dims) return `Error: Unknown device "${deviceName}". Available: ${Object.keys(devices).join(', ')}`;
+        await tap.setViewport(dims[0], dims[1]);
+        return `Viewport set to ${deviceName} (${dims[0]}x${dims[1]})`;
+      }
+
+      case 'view-record-start': {
+        await tap.startScreencast();
+        return 'Recording started. Use view-record-stop to stop and save.';
+      }
+
+      case 'view-record-stop': {
+        const screenshot = await tap.captureScreenshot();
+        const fs = await import('node:fs');
+        const path = await import('node:path');
+        const uploadsDir = path.join(process.cwd(), '.c3-uploads', 'recordings');
+        fs.mkdirSync(uploadsDir, { recursive: true });
+        const filename = `recording-${sessionId.slice(0, 8)}-${Date.now()}.png`;
+        const filepath = path.join(uploadsDir, filename);
+        fs.writeFileSync(filepath, screenshot);
+        return `Recording stopped. Screenshot saved to ${filepath}. (Note: Full video recording is available via the toolbar button in the preview panel.)`;
+      }
+
       default:
         return null; // Not a recognized view command — let frontend handle
     }

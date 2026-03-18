@@ -147,7 +147,9 @@ export function StreamPreview({
     if (now - lastMoveRef.current < 33) return;
     lastMoveRef.current = now;
     const { x, y } = toViewportCoords(e.clientX, e.clientY);
-    onMouse?.(x, y, 'none', 'move');
+    // Send which button is held during drag (needed for text selection)
+    const btn = e.buttons === 1 ? 'left' : e.buttons === 2 ? 'right' : 'none';
+    onMouse?.(x, y, btn, 'move');
   }, [toViewportCoords, onMouse]);
 
   // Don't send separate click — mouseDown+mouseUp already handles it in CDP
@@ -559,7 +561,13 @@ export function StreamPreview({
               onTouchStart={handleTouchStart}
               onTouchMove={handleTouchMove}
               onTouchEnd={handleTouchEnd}
-              onContextMenu={(e) => e.preventDefault()}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                // Forward right-click to Chrome
+                const { x, y } = toViewportCoords(e.clientX, e.clientY);
+                onMouse?.(x, y, 'right', 'down');
+                onMouse?.(x, y, 'right', 'up');
+              }}
             />
           </div>
         ) : (
