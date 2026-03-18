@@ -7,7 +7,8 @@ import { ShellTerminal } from './ShellTerminal';
 import { FileTree } from './FileTree';
 import { FileViewer } from './FileViewer';
 import { DiffViewer } from './DiffViewer';
-import { LivePreview } from './LivePreview';
+import { StreamPreview } from './StreamPreview';
+import { useStreamPreview } from '../hooks/useStreamPreview';
 import { ProjectSearch } from './ProjectSearch';
 import { GitHubIssues } from './GitHubIssues';
 import { ExtensionPanel, type ExtensionPanelHandle } from './ExtensionPanel';
@@ -62,11 +63,6 @@ export function SessionCard({
   const panel = usePanel(session.id, isZoomed ? 'zoomed' : 'grid');
   const { extensionsWithPanel, getExtension, refresh: refreshExtensions } = useExtensions();
   const { widgets, activeWidget, addWidget, removeWidget, widgetCount } = useWidgets();
-
-  // Memoize the onUrlChange callback to prevent infinite loops in LivePreview effects
-  const handleUrlChange = useCallback((url: string) => {
-    panel.setPreviewUrl(url);
-  }, [panel]);
 
   // Per-session extension opt-in (persisted server-side for real skill isolation)
   const [enabledExtensions, setEnabledExtensions] = useState<string[]>([]);
@@ -447,6 +443,14 @@ export function SessionCard({
   const showToolbar = (session.status === 'active' || session.status === 'completed') && !(isMobile && keyboardOpen);
   const showLeftPanel = showToolbar && panel.leftPanel !== 'none';
   const showRightPanel = showToolbar && panel.rightPanel !== 'none';
+
+  // StreamPreview hooks — one for each possible preview slot
+  const rightPreviewEnabled = showRightPanel && panel.rightPanel === 'preview';
+  const leftPreviewEnabled = showLeftPanel && panel.leftPanel === 'preview';
+  const rightPreview = useStreamPreview(session.id, rightPreviewEnabled);
+  const leftPreview = useStreamPreview(session.id, leftPreviewEnabled);
+  // Detected ports array for StreamPreview port selector
+  const detectedPorts = detectedPort ? [detectedPort] : undefined;
 
   // Drag handle resize logic
   const rafRef = useRef<number | null>(null);
@@ -875,32 +879,20 @@ export function SessionCard({
         // Right panel preview is rendered outside this switch (always-mounted for iframe persistence)
         if (slot === 'right') return null;
         // Left panel preview — render normally (rare case)
-        const worker = session.workerId && workers
-          ? workers.find((w) => w.id === session.workerId)
-          : null;
-        const isLocalSession = !worker || worker.type === 'local';
         return (
-          <LivePreview
+          <StreamPreview
             sessionId={session.id}
-            port={detectedPort?.port || 0}
-            localPort={detectedPort?.localPort || 0}
+            status={leftPreview.status}
+            frame={leftPreview.frame}
+            currentUrl={leftPreview.currentUrl}
+            onNavigate={leftPreview.navigate}
+            onMouse={leftPreview.sendMouse}
+            onKey={leftPreview.sendKey}
+            onScroll={leftPreview.sendScroll}
+            onTouch={leftPreview.sendTouch}
+            onResize={leftPreview.sendResize}
             onClose={closeLeftPanel}
-            refreshKey={fileChangeVersion}
-            viewportMode={panel.previewViewport}
-            onViewportChange={(mode) => panel.setPreviewViewport(mode)}
-            customViewportWidth={panel.customViewportWidth}
-            customViewportHeight={panel.customViewportHeight}
-            onCustomViewport={(w, h) => panel.setCustomViewport(w, h)}
-            selectedDeviceId={panel.mobileDeviceId}
-            onDevicePresetSelect={(id) => panel.setMobileDeviceId(id)}
-            selectedDesktopId={panel.desktopDeviceId}
-            onDesktopPresetSelect={(id) => panel.setDesktopDeviceId(id)}
-            bridgeRef={previewBridgeRef}
-            requestedUrl={panel.previewUrl}
-            navCounter={panel.previewNavCounter}
-            onUrlChange={handleUrlChange}
-            isLocalSession={isLocalSession}
-            isMobile={isMobile}
+            detectedPorts={detectedPorts}
           />
         );
       }
@@ -1377,41 +1369,24 @@ export function SessionCard({
                 closeRightPanel,
               )}
               <div className="flex-1 min-h-0">
-                {/* LivePreview — always mounted once shown, hidden when not the active panel.
-                    This preserves the iframe (auth state, scroll position, in-page navigation)
-                    across panel switches. */}
+                {/* StreamPreview — always mounted once shown, hidden when not the active panel.
+                    The useStreamPreview hook controls connection based on visibility. */}
                 {previewMounted && (
                   <div className="flex flex-col h-full" style={{ display: (showRightPanel && panel.rightPanel === 'preview') ? undefined : 'none' }}>
-                    {(() => {
-                      const worker = session.workerId && workers
-                        ? workers.find((w) => w.id === session.workerId)
-                        : null;
-                      const isLocalSession = !worker || worker.type === 'local';
-                      return (
-                        <LivePreview
-                          sessionId={session.id}
-                          port={detectedPort?.port || 0}
-                          localPort={detectedPort?.localPort || 0}
-                          onClose={closeRightPanel}
-                          refreshKey={fileChangeVersion}
-                          viewportMode={panel.previewViewport}
-                          onViewportChange={(mode) => panel.setPreviewViewport(mode)}
-                          customViewportWidth={panel.customViewportWidth}
-                          customViewportHeight={panel.customViewportHeight}
-                          onCustomViewport={(w, h) => panel.setCustomViewport(w, h)}
-                          selectedDeviceId={panel.mobileDeviceId}
-                          onDevicePresetSelect={(id) => panel.setMobileDeviceId(id)}
-                          selectedDesktopId={panel.desktopDeviceId}
-                          onDesktopPresetSelect={(id) => panel.setDesktopDeviceId(id)}
-                          bridgeRef={previewBridgeRef}
-                          requestedUrl={panel.previewUrl}
-                          navCounter={panel.previewNavCounter}
-                          onUrlChange={handleUrlChange}
-                          isLocalSession={isLocalSession}
-                          isMobile={isMobile}
-                        />
-                      );
-                    })()}
+                    <StreamPreview
+                      sessionId={session.id}
+                      status={rightPreview.status}
+                      frame={rightPreview.frame}
+                      currentUrl={rightPreview.currentUrl}
+                      onNavigate={rightPreview.navigate}
+                      onMouse={rightPreview.sendMouse}
+                      onKey={rightPreview.sendKey}
+                      onScroll={rightPreview.sendScroll}
+                      onTouch={rightPreview.sendTouch}
+                      onResize={rightPreview.sendResize}
+                      onClose={closeRightPanel}
+                      detectedPorts={detectedPorts}
+                    />
                   </div>
                 )}
                 {/* Other panel types — conditionally rendered */}
