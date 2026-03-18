@@ -325,6 +325,23 @@ export interface WsAutoApproveMessage {
   enabled: boolean;
 }
 
+// Preview streaming — messages flow over dedicated /ws/sessions/:id/preview WebSocket
+// Client → Server (JSON text frames)
+export type PreviewClientMessage =
+  | { type: 'preview:start' }
+  | { type: 'preview:stop' }
+  | { type: 'preview:navigate'; url: string }
+  | { type: 'preview:mouse'; x: number; y: number; button: 'left' | 'middle' | 'right'; action: 'click' | 'down' | 'up' | 'move' }
+  | { type: 'preview:key'; key: string; text: string; code: string; action: 'down' | 'up'; modifiers?: number }
+  | { type: 'preview:scroll'; x: number; y: number; deltaX: number; deltaY: number }
+  | { type: 'preview:resize'; width: number; height: number }
+  | { type: 'preview:touch'; x: number; y: number; action: 'tap' | 'start' | 'move' | 'end' };
+
+// Server → Client (JSON text frames — binary frames are raw JPEG with 8-byte header)
+export type PreviewServerMessage =
+  | { type: 'preview:status'; status: 'connected' | 'unavailable'; reason?: string }
+  | { type: 'preview:url'; url: string };
+
 // GitHub Issues (fetched from gh CLI, not persisted)
 export interface GitHubLabel {
   name: string;
