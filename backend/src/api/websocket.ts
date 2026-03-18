@@ -10,6 +10,7 @@ import type { WsClientMessage, BoardCommand, PreviewClientMessage } from '../mod
 import { createSessionLogger, logger } from '../services/logger.js';
 import { validateCookieValue, isLocalhostIp } from '../services/auth-service.js';
 import { StreamTap } from '../services/stream-tap.js';
+import type { AgentTunnelManager } from '../hub/agent-tunnel.js';
 
 // Map of sessionId → Set of connected WebSocket clients
 const sessionClients = new Map<string, Set<WebSocket>>();
@@ -17,8 +18,10 @@ const sessionClients = new Map<string, Set<WebSocket>>();
 const shellClients = new Map<string, Set<WebSocket>>();
 // Map of sessionId → Set of connected preview WebSocket clients
 const previewClients = new Map<string, Set<WebSocket>>();
-// Map of sessionId → StreamTap instance
+// Map of sessionId → StreamTap instance (local sessions)
 const streamTaps = new Map<string, StreamTap>();
+// Map of sessionId → remote agent preview WS (remote sessions)
+const remotePreviewWs = new Map<string, WebSocket>();
 
 export function setupWebSocket(
   server: Server,
@@ -28,7 +31,7 @@ export function setupWebSocket(
   fileWatcher?: FileWatcher,
   shellSpawner?: ShellSpawner,
   remotePtyBridge?: RemotePtyBridge,
-  proxyWsFallback?: (req: import('node:http').IncomingMessage, socket: import('stream').Duplex, head: Buffer) => void,
+  agentTunnelManager?: AgentTunnelManager,
 ): void {
   const wss = new WebSocketServer({ noServer: true });
   const shellWss = new WebSocketServer({ noServer: true });
@@ -67,11 +70,7 @@ export function setupWebSocket(
     const claudeMatch = url.pathname.match(/^\/ws\/sessions\/([a-f0-9-]+)$/);
 
     if (!shellMatch && !previewMatch && !claudeMatch) {
-      if (proxyWsFallback) {
-        proxyWsFallback(request, socket, head);
-      } else {
-        socket.destroy();
-      }
+      socket.destroy();
       return;
     }
 
@@ -317,19 +316,31 @@ export function setupWebSocket(
 
       try {
         const msg = JSON.parse(data.toString()) as PreviewClientMessage;
+        const isRemote = !!getRemoteAgentPort(sessionId);
         const tap = streamTaps.get(sessionId);
+
         switch (msg.type) {
           case 'preview:start':
             handlePreviewStart(sessionId).catch(err => log.error({ err }, 'preview:start failed'));
             break;
           case 'preview:stop':
-            tap?.stopScreencast().catch(err => log.error({ err }, 'preview:stop failed'));
+            if (isRemote) {
+              relayToRemoteAgent(sessionId, 'stop', {}).catch(() => {});
+            } else {
+              tap?.stopScreencast().catch(err => log.error({ err }, 'preview:stop failed'));
+            }
             break;
           case 'preview:navigate':
-            tap?.navigate(msg.url).catch(err => log.error({ err }, 'navigate failed'));
+            if (isRemote) {
+              relayToRemoteAgent(sessionId, 'navigate', { url: msg.url }).catch(() => {});
+            } else {
+              tap?.navigate(msg.url).catch(err => log.error({ err }, 'navigate failed'));
+            }
             break;
           case 'preview:mouse':
-            if (msg.action === 'click') {
+            if (isRemote) {
+              relayToRemoteAgent(sessionId, 'input', { inputType: 'mouse', x: msg.x, y: msg.y, button: msg.button, action: msg.action }).catch(() => {});
+            } else if (msg.action === 'click') {
               tap?.dispatchMouseEvent('mousePressed', msg.x, msg.y, msg.button, 1).catch(err => log.error({ err }, 'mouse press failed'));
               tap?.dispatchMouseEvent('mouseReleased', msg.x, msg.y, msg.button, 1).catch(err => log.error({ err }, 'mouse release failed'));
             } else {
@@ -338,16 +349,32 @@ export function setupWebSocket(
             }
             break;
           case 'preview:key':
-            tap?.dispatchKeyEvent(msg.action, msg.key, msg.text, msg.code, msg.modifiers).catch(err => log.error({ err }, 'key event failed'));
+            if (isRemote) {
+              relayToRemoteAgent(sessionId, 'input', { inputType: 'key', key: msg.key, text: msg.text, code: msg.code, action: msg.action, modifiers: msg.modifiers }).catch(() => {});
+            } else {
+              tap?.dispatchKeyEvent(msg.action, msg.key, msg.text, msg.code, msg.modifiers).catch(err => log.error({ err }, 'key event failed'));
+            }
             break;
           case 'preview:scroll':
-            tap?.dispatchScroll(msg.x, msg.y, msg.deltaX, msg.deltaY).catch(err => log.error({ err }, 'scroll event failed'));
+            if (isRemote) {
+              relayToRemoteAgent(sessionId, 'input', { inputType: 'scroll', x: msg.x, y: msg.y, deltaX: msg.deltaX, deltaY: msg.deltaY }).catch(() => {});
+            } else {
+              tap?.dispatchScroll(msg.x, msg.y, msg.deltaX, msg.deltaY).catch(err => log.error({ err }, 'scroll event failed'));
+            }
             break;
           case 'preview:resize':
-            tap?.setViewport(msg.width, msg.height).catch(err => log.error({ err }, 'resize failed'));
+            if (isRemote) {
+              relayToRemoteAgent(sessionId, 'input', { inputType: 'resize', width: msg.width, height: msg.height }).catch(() => {});
+            } else {
+              tap?.setViewport(msg.width, msg.height).catch(err => log.error({ err }, 'resize failed'));
+            }
             break;
           case 'preview:touch':
-            tap?.dispatchTouch(msg.action, msg.x, msg.y).catch(err => log.error({ err }, 'touch event failed'));
+            if (isRemote) {
+              relayToRemoteAgent(sessionId, 'input', { inputType: 'touch', x: msg.x, y: msg.y, action: msg.action }).catch(() => {});
+            } else {
+              tap?.dispatchTouch(msg.action, msg.x, msg.y).catch(err => log.error({ err }, 'touch event failed'));
+            }
             break;
         }
       } catch {
@@ -362,20 +389,55 @@ export function setupWebSocket(
         clients.delete(ws);
         if (clients.size === 0) {
           previewClients.delete(sessionId);
-          // Stop screencast and disconnect Stream Tap when last client leaves
+          // Stop screencast and disconnect when last client leaves
           const tap = streamTaps.get(sessionId);
           if (tap) {
             tap.stopScreencast().catch(err => log.error({ err }, 'stopScreencast on last-client-close failed'));
             tap.disconnect();
             streamTaps.delete(sessionId);
           }
+          // Close remote agent preview WS if open
+          const rws = remotePreviewWs.get(sessionId);
+          if (rws) {
+            relayToRemoteAgent(sessionId, 'stop', {}).catch(() => {});
+            rws.close();
+            remotePreviewWs.delete(sessionId);
+          }
         }
       }
     });
   });
 
+  /**
+   * Get the remote agent's tunneled local port for a session, or null if local.
+   */
+  function getRemoteAgentPort(sessionId: string): number | null {
+    if (!agentTunnelManager) return null;
+    const session = repo.getSession(sessionId);
+    if (!session?.workerId) return null;
+    const worker = repo.getWorker(session.workerId);
+    if (!worker || worker.type !== 'remote' || !worker.remoteAgentPort) return null;
+    return agentTunnelManager.getLocalPort(worker.id);
+  }
+
+  /**
+   * Start preview: for remote sessions, relay via remote agent HTTP/WS;
+   * for local sessions, use local StreamTap.
+   */
   async function handlePreviewStart(sessionId: string): Promise<void> {
     const log = createSessionLogger(sessionId);
+    const remotePort = getRemoteAgentPort(sessionId);
+
+    if (remotePort) {
+      // Remote session — relay via remote agent
+      await handleRemotePreviewStart(sessionId, remotePort, log);
+    } else {
+      // Local session — use local StreamTap
+      await handleLocalPreviewStart(sessionId, log);
+    }
+  }
+
+  async function handleLocalPreviewStart(sessionId: string, log: ReturnType<typeof createSessionLogger>): Promise<void> {
     let tap = streamTaps.get(sessionId);
     if (!tap) {
       tap = new StreamTap();
@@ -408,6 +470,80 @@ export function setupWebSocket(
     }
 
     await tap.startScreencast();
+  }
+
+  async function handleRemotePreviewStart(sessionId: string, agentPort: number, log: ReturnType<typeof createSessionLogger>): Promise<void> {
+    // Start screencast on remote agent
+    try {
+      const resp = await fetch(`http://127.0.0.1:${agentPort}/api/preview/start`, { method: 'POST' });
+      const result = await resp.json() as { ok: boolean; reason?: string };
+      if (!result.ok) {
+        broadcastPreviewJson(sessionId, { type: 'preview:status', status: 'unavailable', reason: result.reason || 'Remote Chrome not available' });
+        return;
+      }
+    } catch (err) {
+      log.warn({ err }, 'Failed to start remote preview');
+      broadcastPreviewJson(sessionId, { type: 'preview:status', status: 'unavailable', reason: 'Remote agent unreachable' });
+      return;
+    }
+
+    // Connect to remote agent's /ws/events to receive frames
+    if (!remotePreviewWs.has(sessionId)) {
+      const agentWs = new WebSocket(`ws://127.0.0.1:${agentPort}/ws/events`);
+      remotePreviewWs.set(sessionId, agentWs);
+
+      agentWs.on('message', (data, isBinary) => {
+        const clients = previewClients.get(sessionId);
+        if (!clients) return;
+
+        if (isBinary) {
+          // Binary = screencast frame, relay to user
+          for (const ws of clients) {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(data as Buffer, { binary: true });
+            }
+          }
+        } else {
+          // JSON = status/url messages, relay to user
+          try {
+            const msg = JSON.parse(data.toString());
+            if (msg.type === 'preview:status' || msg.type === 'preview:url') {
+              for (const ws of clients) {
+                if (ws.readyState === WebSocket.OPEN) {
+                  ws.send(data.toString());
+                }
+              }
+            }
+          } catch {}
+        }
+      });
+
+      agentWs.on('close', () => {
+        remotePreviewWs.delete(sessionId);
+        broadcastPreviewJson(sessionId, { type: 'preview:status', status: 'unavailable', reason: 'Remote agent disconnected' });
+      });
+
+      agentWs.on('error', () => {
+        remotePreviewWs.delete(sessionId);
+      });
+    }
+
+    broadcastPreviewJson(sessionId, { type: 'preview:status', status: 'connected' });
+  }
+
+  /**
+   * Relay a preview command to the remote agent via HTTP.
+   */
+  async function relayToRemoteAgent(sessionId: string, endpoint: string, body: Record<string, unknown>): Promise<void> {
+    const agentPort = getRemoteAgentPort(sessionId);
+    if (!agentPort) return;
+    try {
+      await fetch(`http://127.0.0.1:${agentPort}/api/preview/${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    } catch {}
   }
 
   // Forward shell PTY output to connected shell WebSocket clients
