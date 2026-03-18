@@ -6,14 +6,19 @@ import type { PtySpawner } from '../worker/pty-spawner.js';
 import type { RemotePtyBridge } from '../worker/remote-pty-bridge.js';
 import type { ShellSpawner } from '../worker/shell-spawner.js';
 import type { FileWatcher } from '../worker/file-watcher.js';
-import type { WsClientMessage, BoardCommand } from '../models/types.js';
+import type { WsClientMessage, BoardCommand, PreviewClientMessage } from '../models/types.js';
 import { createSessionLogger, logger } from '../services/logger.js';
 import { validateCookieValue, isLocalhostIp } from '../services/auth-service.js';
+import { StreamTap } from '../services/stream-tap.js';
 
 // Map of sessionId → Set of connected WebSocket clients
 const sessionClients = new Map<string, Set<WebSocket>>();
 // Map of sessionId → Set of connected shell WebSocket clients
 const shellClients = new Map<string, Set<WebSocket>>();
+// Map of sessionId → Set of connected preview WebSocket clients
+const previewClients = new Map<string, Set<WebSocket>>();
+// Map of sessionId → StreamTap instance
+const streamTaps = new Map<string, StreamTap>();
 
 export function setupWebSocket(
   server: Server,
@@ -27,6 +32,7 @@ export function setupWebSocket(
 ): void {
   const wss = new WebSocketServer({ noServer: true });
   const shellWss = new WebSocketServer({ noServer: true });
+  const previewWss = new WebSocketServer({ noServer: true });
 
   // Handle HTTP upgrade
   server.on('upgrade', async (request, socket, head) => {
@@ -55,10 +61,12 @@ export function setupWebSocket(
 
     // Match shell WebSocket: /ws/sessions/:id/shell
     const shellMatch = url.pathname.match(/^\/ws\/sessions\/([a-f0-9-]+)\/shell$/);
+    // Match preview WebSocket: /ws/sessions/:id/preview
+    const previewMatch = url.pathname.match(/^\/ws\/sessions\/([a-f0-9-]+)\/preview$/);
     // Match Claude terminal WebSocket: /ws/sessions/:id
     const claudeMatch = url.pathname.match(/^\/ws\/sessions\/([a-f0-9-]+)$/);
 
-    if (!shellMatch && !claudeMatch) {
+    if (!shellMatch && !previewMatch && !claudeMatch) {
       if (proxyWsFallback) {
         proxyWsFallback(request, socket, head);
       } else {
@@ -76,6 +84,16 @@ export function setupWebSocket(
       }
       shellWss.handleUpgrade(request, socket, head, (ws) => {
         shellWss.emit('connection', ws, sessionId);
+      });
+    } else if (previewMatch) {
+      const sessionId = previewMatch[1];
+      const session = repo.getSession(sessionId);
+      if (!session) {
+        socket.destroy();
+        return;
+      }
+      previewWss.handleUpgrade(request, socket, head, (ws) => {
+        previewWss.emit('connection', ws, sessionId);
       });
     } else {
       const sessionId = claudeMatch![1];
@@ -281,6 +299,117 @@ export function setupWebSocket(
     });
   });
 
+  // ─── Preview WebSocket ───
+
+  previewWss.on('connection', (ws: WebSocket, sessionId: string) => {
+    const log = createSessionLogger(sessionId);
+    log.info('preview websocket client connected');
+
+    // Register preview client
+    if (!previewClients.has(sessionId)) {
+      previewClients.set(sessionId, new Set());
+    }
+    previewClients.get(sessionId)!.add(ws);
+
+    // Handle incoming messages
+    ws.on('message', (data, isBinary) => {
+      if (isBinary) return; // Only JSON text frames expected
+
+      try {
+        const msg = JSON.parse(data.toString()) as PreviewClientMessage;
+        const tap = streamTaps.get(sessionId);
+        switch (msg.type) {
+          case 'preview:start':
+            handlePreviewStart(sessionId).catch(err => log.error({ err }, 'preview:start failed'));
+            break;
+          case 'preview:stop':
+            tap?.stopScreencast().catch(err => log.error({ err }, 'preview:stop failed'));
+            break;
+          case 'preview:navigate':
+            tap?.navigate(msg.url).catch(err => log.error({ err }, 'navigate failed'));
+            break;
+          case 'preview:mouse':
+            if (msg.action === 'click') {
+              tap?.dispatchMouseEvent('mousePressed', msg.x, msg.y, msg.button, 1).catch(err => log.error({ err }, 'mouse press failed'));
+              tap?.dispatchMouseEvent('mouseReleased', msg.x, msg.y, msg.button, 1).catch(err => log.error({ err }, 'mouse release failed'));
+            } else {
+              const cdpType = msg.action === 'down' ? 'mousePressed' : msg.action === 'up' ? 'mouseReleased' : 'mouseMoved';
+              tap?.dispatchMouseEvent(cdpType, msg.x, msg.y, msg.button, msg.action === 'down' ? 1 : 0).catch(err => log.error({ err }, 'mouse event failed'));
+            }
+            break;
+          case 'preview:key':
+            tap?.dispatchKeyEvent(msg.action, msg.key, msg.text, msg.code, msg.modifiers).catch(err => log.error({ err }, 'key event failed'));
+            break;
+          case 'preview:scroll':
+            tap?.dispatchScroll(msg.x, msg.y, msg.deltaX, msg.deltaY).catch(err => log.error({ err }, 'scroll event failed'));
+            break;
+          case 'preview:resize':
+            tap?.setViewport(msg.width, msg.height).catch(err => log.error({ err }, 'resize failed'));
+            break;
+          case 'preview:touch':
+            tap?.dispatchTouch(msg.action, msg.x, msg.y).catch(err => log.error({ err }, 'touch event failed'));
+            break;
+        }
+      } catch {
+        // Ignore malformed messages
+      }
+    });
+
+    ws.on('close', () => {
+      log.info('preview websocket client disconnected');
+      const clients = previewClients.get(sessionId);
+      if (clients) {
+        clients.delete(ws);
+        if (clients.size === 0) {
+          previewClients.delete(sessionId);
+          // Stop screencast and disconnect Stream Tap when last client leaves
+          const tap = streamTaps.get(sessionId);
+          if (tap) {
+            tap.stopScreencast().catch(err => log.error({ err }, 'stopScreencast on last-client-close failed'));
+            tap.disconnect();
+            streamTaps.delete(sessionId);
+          }
+        }
+      }
+    });
+  });
+
+  async function handlePreviewStart(sessionId: string): Promise<void> {
+    const log = createSessionLogger(sessionId);
+    let tap = streamTaps.get(sessionId);
+    if (!tap) {
+      tap = new StreamTap();
+      streamTaps.set(sessionId, tap);
+    }
+
+    if (!tap.isConnected()) {
+      const connected = await tap.connect({
+        onFrame: (frame: Buffer) => {
+          const clients = previewClients.get(sessionId);
+          if (!clients) return;
+          for (const ws of clients) {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(frame, { binary: true });
+            }
+          }
+        },
+        onStatus: (status: 'connected' | 'unavailable', reason?: string) => {
+          broadcastPreviewJson(sessionId, { type: 'preview:status', status, ...(reason ? { reason } : {}) });
+        },
+        onUrl: (url: string) => {
+          broadcastPreviewJson(sessionId, { type: 'preview:url', url });
+        },
+      });
+
+      if (!connected) {
+        log.warn('StreamTap failed to connect to Chrome');
+        return;
+      }
+    }
+
+    await tap.startScreencast();
+  }
+
   // Forward shell PTY output to connected shell WebSocket clients
   if (shellSpawner) {
     shellSpawner.on('data', (sessionId: string, data: string) => {
@@ -402,6 +531,17 @@ function broadcastJson(sessionId: string, message: Record<string, unknown>): voi
 
 function broadcastShellJson(sessionId: string, message: Record<string, unknown>): void {
   const clients = shellClients.get(sessionId);
+  if (!clients) return;
+  const json = JSON.stringify(message);
+  for (const ws of clients) {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(json);
+    }
+  }
+}
+
+function broadcastPreviewJson(sessionId: string, message: Record<string, unknown>): void {
+  const clients = previewClients.get(sessionId);
   if (!clients) return;
   const json = JSON.stringify(message);
   for (const ws of clients) {
