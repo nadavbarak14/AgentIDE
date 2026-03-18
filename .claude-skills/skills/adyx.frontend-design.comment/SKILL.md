@@ -10,5 +10,5 @@ Opens Frontend Design and enables inspect mode.
 ## Usage
 
 ```bash
-./adyx.frontend-design.comment/scripts/adyx.frontend-design.comment.sh [screen-name]
+./scripts/adyx.frontend-design.comment.sh [screen-name]
 ```

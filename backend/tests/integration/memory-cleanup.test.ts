@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createTestDb, closeDb } from '../../src/models/db.js';
 import { Repository } from '../../src/models/repository.js';
-import { PreviewCookieJar } from '../../src/api/preview-proxy.js';
 import Database from 'better-sqlite3';
 
 describe('Memory cleanup integration: full session lifecycle', () => {
@@ -46,15 +45,11 @@ describe('Memory cleanup integration: full session lifecycle', () => {
     );
     db.prepare('INSERT INTO panel_states (session_id) VALUES (?)').run(sessionId);
 
-    // 2. Simulate in-memory stores (widgetStore and cookieJar)
+    // 2. Simulate in-memory widget store
     const widgetStore = new Map<string, Map<string, { html: string }>>();
     const sessionWidgets = new Map<string, { html: string }>();
     sessionWidgets.set('my-widget', { html: '<div>Widget</div>' });
     widgetStore.set(sessionId, sessionWidgets);
-
-    const cookieJar = new PreviewCookieJar();
-    cookieJar.store(sessionId, 3000, 'token=abc123');
-    cookieJar.store(sessionId, 5173, 'session=xyz');
 
     // 3. Verify everything exists before cleanup
     const countRows = (table: string) =>
@@ -66,11 +61,9 @@ describe('Memory cleanup integration: full session lifecycle', () => {
     expect(countRows('video_recordings')).toBe(1);
     expect(countRows('panel_states')).toBe(1);
     expect(widgetStore.has(sessionId)).toBe(true);
-    expect(cookieJar.size()).toBe(2);
 
     // 4. Simulate session completion cleanup (same as hub-entry.ts handlers)
     widgetStore.delete(sessionId);
-    cookieJar.clear(sessionId);
     repo.deleteSession(sessionId);
 
     // 5. Verify EVERYTHING is cleaned up
@@ -80,7 +73,6 @@ describe('Memory cleanup integration: full session lifecycle', () => {
     expect(countRows('video_recordings')).toBe(0);
     expect(countRows('panel_states')).toBe(0);
     expect(widgetStore.has(sessionId)).toBe(false);
-    expect(cookieJar.size()).toBe(0);
 
     // Session record itself should also be gone
     expect(repo.getSession(sessionId)).toBeNull();
@@ -100,18 +92,11 @@ describe('Memory cleanup integration: full session lifecycle', () => {
       'c-s2', s2.id, '/f.ts', 1, 1, '', 'comment', 'pending', 'new',
     );
 
-    const cookieJar = new PreviewCookieJar();
-    cookieJar.store(s1.id, 3000, 'a=1');
-    cookieJar.store(s2.id, 3000, 'b=2');
-
     // Delete s1
-    cookieJar.clear(s1.id);
     repo.deleteSession(s1.id);
 
     // s2 should be untouched
     const s2Comments = (db.prepare('SELECT COUNT(*) as cnt FROM comments WHERE session_id = ?').get(s2.id) as { cnt: number }).cnt;
     expect(s2Comments).toBe(1);
-    expect(cookieJar.get(s2.id, 3000)).toBe('b=2');
-    expect(cookieJar.size()).toBe(1);
   });
 });

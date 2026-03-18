@@ -1,19 +1,29 @@
 import { Router } from 'express';
-import http from 'node:http';
 import path from 'node:path';
 import fs from 'node:fs';
 import { sanitizePath } from '../middleware.js';
 import { listDirectory, readFile, writeFile, searchFiles } from '../../worker/file-reader.js';
 import { getDiff } from '../../worker/git-operations.js';
 import { logger } from '../../services/logger.js';
-import {
-  decompressBuffer,
-  cleanSetCookieHeaders,
-  rewriteHtmlForProxy,
-  rewriteCssForProxy,
-  injectBridgeScript,
-  MIME_TYPES,
-} from '../proxy-utils.js';
+const BRIDGE_VERSION = '7';
+const BRIDGE_SCRIPT_TAG = `<script data-c3-bridge>(function(){var f=window.__c3NativeFetch||window.fetch;f.call(window,location.origin+'/api/inspect-bridge.js?v=${BRIDGE_VERSION}').then(function(r){return r.text()}).then(function(t){var s=document.createElement('script');s.textContent=t;document.head.appendChild(s)}).catch(function(){})})()</script>`;
+
+function injectBridgeScript(html: string): string {
+  if (html.includes('</head>')) return html.replace('</head>', BRIDGE_SCRIPT_TAG + '</head>');
+  if (html.includes('</body>')) return html.replace('</body>', BRIDGE_SCRIPT_TAG + '</body>');
+  return html + BRIDGE_SCRIPT_TAG;
+}
+
+const MIME_TYPES: Record<string, string> = {
+  '.html': 'text/html', '.htm': 'text/html',
+  '.css': 'text/css', '.js': 'application/javascript', '.mjs': 'application/javascript',
+  '.json': 'application/json', '.xml': 'application/xml',
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.webp': 'image/webp',
+  '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf',
+  '.pdf': 'application/pdf', '.txt': 'text/plain', '.md': 'text/plain',
+  '.ts': 'text/plain', '.tsx': 'text/plain', '.jsx': 'text/plain',
+};
 import type { FileWatcher } from '../../worker/file-watcher.js';
 
 /** In-memory registry of sessions → workingDirectory */
@@ -339,156 +349,6 @@ export function createAgentFilesRouter(fileWatcher: FileWatcher): Router {
       logger.error({ sessionId: req.params.id, err: (err as Error).message }, 'failed to save recording on agent');
       res.status(500).json({ error: 'Failed to save recording' });
     }
-  });
-
-  // ── Preview proxy (US1) ──
-  router.all('/sessions/:id/proxy/:port/*', (req, res) => {
-    const session = sessionRegistry.get(req.params.id);
-    if (!session) {
-      res.status(404).json({ error: 'Session not registered with agent' });
-      return;
-    }
-
-    const targetPort = parseInt(req.params.port as string, 10);
-    if (isNaN(targetPort) || targetPort < 1 || targetPort > 65535) {
-      res.status(400).json({ error: 'Invalid port number' });
-      return;
-    }
-
-    const targetPath = '/' + ((req.params as unknown as Record<string, string>)[0] || '');
-    const queryString = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
-    const proxyBase = `/api/sessions/${req.params.id}/proxy/${targetPort}`;
-
-    const forwardHeaders: Record<string, string | string[] | undefined> = { ...req.headers };
-    delete forwardHeaders['host'];
-    delete forwardHeaders['connection'];
-    delete forwardHeaders['upgrade'];
-    delete forwardHeaders['accept-encoding'];
-    delete forwardHeaders['transfer-encoding']; // Prevent Content-Length + Transfer-Encoding conflict
-    forwardHeaders['host'] = `localhost:${targetPort}`;
-    // Strip proxy prefix from Next.js headers so the server sees real app paths
-    if (forwardHeaders['next-url'] && typeof forwardHeaders['next-url'] === 'string') {
-      const nextUrl = forwardHeaders['next-url'];
-      if (nextUrl.startsWith(proxyBase + '/')) {
-        forwardHeaders['next-url'] = nextUrl.slice(proxyBase.length);
-      } else if (nextUrl === proxyBase) {
-        forwardHeaders['next-url'] = '/';
-      }
-    }
-    if (forwardHeaders['referer'] && typeof forwardHeaders['referer'] === 'string') {
-      forwardHeaders['referer'] = forwardHeaders['referer'].replace(proxyBase, '');
-    }
-
-    const proxyReq = http.request(
-      {
-        hostname: '127.0.0.1',
-        port: targetPort,
-        path: targetPath + queryString,
-        method: req.method,
-        headers: forwardHeaders as http.OutgoingHttpHeaders,
-      },
-      (proxyRes) => {
-        res.removeHeader('x-frame-options');
-        res.removeHeader('content-security-policy');
-
-        const responseHeaders = { ...proxyRes.headers };
-        delete responseHeaders['x-frame-options'];
-        delete responseHeaders['content-security-policy'];
-        const cleanedCookies = cleanSetCookieHeaders(proxyRes.headers['set-cookie'], proxyBase);
-        if (cleanedCookies.length > 0) {
-          responseHeaders['set-cookie'] = cleanedCookies;
-        }
-        responseHeaders['access-control-allow-origin'] = '*';
-
-        // Prevent Content-Length + Transfer-Encoding conflict
-        if (responseHeaders['transfer-encoding'] && responseHeaders['content-length']) {
-          delete responseHeaders['content-length'];
-        }
-
-        if (responseHeaders['location']) {
-          const loc = responseHeaders['location'] as string;
-          if (loc.startsWith('/')) {
-            responseHeaders['location'] = proxyBase + loc;
-          } else if (loc.startsWith('http://localhost:') || loc.startsWith('http://127.0.0.1:')) {
-            try {
-              const locUrl = new URL(loc);
-              responseHeaders['location'] = proxyBase + locUrl.pathname + locUrl.search + locUrl.hash;
-            } catch { /* leave as-is */ }
-          }
-        }
-
-        if (responseHeaders['link']) {
-          const linkVal = responseHeaders['link'] as string;
-          responseHeaders['link'] = linkVal.replace(/<\//g, `<${proxyBase}/`);
-        }
-
-        const contentType = (proxyRes.headers['content-type'] || '').toLowerCase();
-        const isNavigationRequest = req.method === 'GET' && !req.headers['rsc'] && !req.headers['next-action'] &&
-          req.headers['accept']?.includes('text/html') && !req.headers['x-requested-with'];
-        const shouldRewriteHtml = contentType.includes('text/html') && isNavigationRequest;
-        const isJavaScript = contentType.includes('javascript');
-        const isCss = contentType.includes('text/css');
-        const shouldBuffer = shouldRewriteHtml || isJavaScript || isCss;
-
-        if (shouldBuffer) {
-          const chunks: Buffer[] = [];
-          proxyRes.on('data', (chunk: Buffer) => chunks.push(chunk));
-          proxyRes.on('end', () => {
-            try {
-              let raw: Buffer = Buffer.concat(chunks);
-              const encoding = (proxyRes.headers['content-encoding'] || '').toLowerCase();
-              if (encoding) {
-                raw = decompressBuffer(raw, encoding) as Buffer;
-                delete responseHeaders['content-encoding'];
-              }
-              let body = raw.toString('utf-8');
-              if (shouldRewriteHtml) {
-                body = rewriteHtmlForProxy(body, proxyBase);
-              } else if (isJavaScript) {
-                body = body.replaceAll('CHUNK_BASE_PATH = "/_next/"', `CHUNK_BASE_PATH = "${proxyBase}/_next/"`);
-                body = body.replaceAll('RUNTIME_PUBLIC_PATH = "/_next/"', `RUNTIME_PUBLIC_PATH = "${proxyBase}/_next/"`);
-              } else if (isCss) {
-                body = rewriteCssForProxy(body, proxyBase);
-              }
-              delete responseHeaders['content-length'];
-              delete responseHeaders['transfer-encoding'];
-              responseHeaders['content-length'] = String(Buffer.byteLength(body));
-              res.writeHead(proxyRes.statusCode || 200, responseHeaders);
-              res.end(body);
-            } catch (err) {
-              logger.warn({ error: (err as Error).message }, 'Failed to process proxied response');
-              const raw = Buffer.concat(chunks);
-              delete responseHeaders['content-length'];
-              delete responseHeaders['transfer-encoding'];
-              responseHeaders['content-length'] = String(raw.length);
-              res.writeHead(proxyRes.statusCode || 200, responseHeaders);
-              res.end(raw);
-            }
-          });
-        } else {
-          // Prevent Content-Length + Transfer-Encoding conflict (Node HTTP parser rejects it)
-          if (responseHeaders['transfer-encoding'] && responseHeaders['content-length']) {
-            delete responseHeaders['content-length'];
-          }
-          res.writeHead(proxyRes.statusCode || 200, responseHeaders);
-          proxyRes.pipe(res);
-        }
-      },
-    );
-
-    proxyReq.on('error', (err) => {
-      logger.warn({ port: targetPort, error: err.message }, 'agent proxy connection failed');
-      if (!res.headersSent) {
-        res.status(502).send(`Cannot connect to localhost:${targetPort} — is the dev server running?`);
-      }
-    });
-
-    req.pipe(proxyReq);
-  });
-
-  // Handle root proxy path (no trailing path) — redirect to trailing slash
-  router.all('/sessions/:id/proxy/:port', (req, res) => {
-    res.redirect(301, req.originalUrl + '/');
   });
 
   return router;

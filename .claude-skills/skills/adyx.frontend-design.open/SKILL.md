@@ -10,5 +10,5 @@ Opens the Frontend Design panel.
 ## Usage
 
 ```bash
-./adyx.frontend-design.open/scripts/adyx.frontend-design.open.sh
+./scripts/adyx.frontend-design.open.sh
 ```

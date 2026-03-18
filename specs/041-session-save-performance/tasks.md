@@ -130,7 +130,7 @@
 - [x] T032 [P] Verify edge case: rapid session switching debounces correctly and only the final target session renders — manual test with 5+ sessions, clicking through them quickly.
 - [x] T033 Verify all acceptance scenarios from spec.md by running the full test suite (`npm test`) and confirming all new and existing tests pass
 - [x] T034 Run `npm run lint` and fix any linting issues introduced by this feature
-- [ ] T035 Push branch, wait for CI green, rebase-merge to main (Principle V)
+- [x] T035 Push branch, wait for CI green, rebase-merge to main (Principle V)
 
 ---
 
