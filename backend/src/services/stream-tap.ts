@@ -1,8 +1,21 @@
+import { execFile, type ChildProcess } from 'node:child_process';
 import WebSocket from 'ws';
 import { logger } from './logger.js';
 
 const DEFAULT_PORTS = [9222, 9223, 9224, 9225, 9226, 9227, 9228, 9229];
+const DEFAULT_DEBUG_PORT = 9222;
 const SCREENCAST_CONFIG = { format: 'jpeg' as const, quality: 70, everyNthFrame: 2 };
+
+/** Chrome binary names to try, in order */
+const CHROME_BINARIES = [
+  'google-chrome',
+  'google-chrome-stable',
+  'chromium-browser',
+  'chromium',
+  '/usr/bin/google-chrome',
+  '/usr/bin/chromium-browser',
+  '/usr/bin/chromium',
+];
 
 export interface StreamTapCallbacks {
   onFrame: (data: Buffer) => void;
@@ -16,6 +29,93 @@ export class StreamTap {
   private messageId = 1;
   private streaming = false;
   private pendingCallbacks = new Map<number, (result: any) => void>();
+  private chromeProcess: ChildProcess | null = null;
+
+  /**
+   * Find a Chrome/Chromium binary on the system.
+   */
+  private async findChromeBinary(): Promise<string | null> {
+    for (const bin of CHROME_BINARIES) {
+      try {
+        await new Promise<void>((resolve, reject) => {
+          execFile('which', [bin], (err) => err ? reject(err) : resolve());
+        });
+        return bin;
+      } catch {
+        // not found, try next
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Launch headless Chrome with remote debugging enabled.
+   * Returns the debug port, or null if Chrome couldn't be launched.
+   */
+  async launchChrome(): Promise<number | null> {
+    const port = Number(process.env.CHROME_DEBUG_PORT) || DEFAULT_DEBUG_PORT;
+
+    // Already running?
+    const existing = await this.tryPort(port);
+    if (existing) {
+      logger.info({ port }, 'Chrome already running on debug port');
+      return port;
+    }
+
+    const binary = await this.findChromeBinary();
+    if (!binary) {
+      logger.warn('No Chrome/Chromium binary found on this machine');
+      return null;
+    }
+
+    const args = [
+      '--headless=new',
+      `--remote-debugging-port=${port}`,
+      '--disable-gpu',
+      '--disable-software-rasterizer',
+      '--disable-dev-shm-usage',
+      '--no-sandbox',
+      '--no-first-run',
+      '--no-default-browser-check',
+      '--disable-background-networking',
+      '--disable-sync',
+      '--disable-translate',
+      '--metrics-recording-only',
+      '--mute-audio',
+      '--window-size=1280,720',
+      'about:blank',
+    ];
+
+    logger.info({ binary, port }, 'Launching headless Chrome');
+
+    this.chromeProcess = execFile(binary, args, { stdio: 'ignore' } as any);
+
+    // Detach so Chrome doesn't die when the agent stops
+    this.chromeProcess.unref();
+
+    this.chromeProcess.on('error', (err) => {
+      logger.warn({ err, binary }, 'Failed to launch Chrome');
+      this.chromeProcess = null;
+    });
+
+    this.chromeProcess.on('exit', (code) => {
+      logger.info({ code }, 'Chrome process exited');
+      this.chromeProcess = null;
+    });
+
+    // Wait for Chrome to start listening
+    for (let i = 0; i < 30; i++) {
+      await new Promise(r => setTimeout(r, 200));
+      const url = await this.tryPort(port);
+      if (url) {
+        logger.info({ port }, 'Chrome is ready');
+        return port;
+      }
+    }
+
+    logger.warn('Chrome launched but debug port not ready after 6s');
+    return null;
+  }
 
   async discoverChrome(): Promise<string | null> {
     const envPort = process.env.CHROME_DEBUG_PORT;
@@ -43,9 +143,19 @@ export class StreamTap {
 
   async connect(callbacks: StreamTapCallbacks): Promise<boolean> {
     this.callbacks = callbacks;
-    const debugUrl = await this.discoverChrome();
+    let debugUrl = await this.discoverChrome();
+
+    // If Chrome isn't running, try to launch it
     if (!debugUrl) {
-      callbacks.onStatus('unavailable', 'Chrome not found on worker');
+      logger.info('Chrome not found, attempting to launch...');
+      const port = await this.launchChrome();
+      if (port) {
+        debugUrl = await this.tryPort(port);
+      }
+    }
+
+    if (!debugUrl) {
+      callbacks.onStatus('unavailable', 'Chrome not available — install google-chrome or chromium-browser');
       return false;
     }
 
@@ -201,6 +311,10 @@ export class StreamTap {
     if (this.cdpWs) {
       this.cdpWs.close();
       this.cdpWs = null;
+    }
+    if (this.chromeProcess) {
+      this.chromeProcess.kill();
+      this.chromeProcess = null;
     }
   }
 
