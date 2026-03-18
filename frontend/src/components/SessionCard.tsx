@@ -19,7 +19,6 @@ import { useWidgets } from '../hooks/useWidgets';
 import { sessions as sessionsApi, type Session, type Worker } from '../services/api';
 import type { WsServerMessage } from '../services/ws';
 import { WorkerBadge } from './WorkerBadge';
-import type { UsePreviewBridgeReturn } from '../hooks/usePreviewBridge';
 import { calculatePanelWidths, calculateVerticalSplit, clampResizePercent } from '../utils/panelLayout';
 import { useVisualViewport } from '../hooks/useVisualViewport';
 import { useClaudeMode } from '../hooks/useClaudeMode';
@@ -144,8 +143,8 @@ export function SessionCard({
     }
   }, []);
 
-  // Bridge ref for view-* board command relay
-  const previewBridgeRef = useRef<UsePreviewBridgeReturn | null>(null);
+  // Ref to the active preview's navigate function — updated after StreamPreview hooks are created
+  const previewNavigateRef = useRef<((url: string) => void) | null>(null);
   // Extension panel refs for forwarding board commands to extension iframes
   const extensionPanelRefs = useRef<Record<string, ExtensionPanelHandle | null>>({});
 
@@ -219,13 +218,11 @@ export function SessionCard({
           }
         } else if (msg.command === 'show_panel' && msg.params.panel) {
           ensurePanelOpen(msg.params.panel);
-          // If opening preview with a URL, navigate to it once the bridge is ready
+          // If opening preview with a URL, navigate Chrome via the StreamPreview WebSocket
           if (msg.params.panel === 'preview' && msg.params.url) {
-            console.log(`[BoardCommand] Setting preview URL to: "${msg.params.url}"`);
-            panel.setPreviewUrl(msg.params.url);
-            // The LivePreview navigateTo is driven by requestedUrl prop + a counter
-            // Bump a counter to force re-navigation even if URL is same as before
-            panel.bumpPreviewNavCounter();
+            const url = msg.params.url as string;
+            console.log(`[BoardCommand] Navigating Chrome preview to: "${url}"`);
+            previewNavigateRef.current?.(url);
           }
         } else if (msg.command === 'show_diff') {
           ensurePanelOpen('git');
@@ -250,136 +247,6 @@ export function SessionCard({
           }
           panel.setPreviewViewport('desktop');
           ensurePanelOpen('preview');
-        } else if (msg.command && String(msg.command).startsWith('view-')) {
-          // view-* board commands — relay to bridge silently (no panel flashing)
-          const requestId = msg.requestId;
-
-          const sendResult = async (result: Record<string, unknown>) => {
-            if (!requestId) return;
-            try {
-              await fetch(`/api/sessions/${session.id}/board-command-result`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ requestId, result }),
-              });
-            } catch { /* best effort */ }
-          };
-
-          const sendError = async (error: string) => {
-            if (!requestId) return;
-            try {
-              await fetch(`/api/sessions/${session.id}/board-command-result`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ requestId, result: { error } }),
-              });
-            } catch { /* best effort */ }
-          };
-
-          // Only open preview for commands that explicitly need it visible
-          const needsPreviewVisible = msg.command === 'view-navigate' || msg.command === 'view-set-resolution' || msg.command === 'view-screenshot' || msg.command === 'view-read-page' || msg.command === 'view-click' || msg.command === 'view-type';
-          if (needsPreviewVisible) {
-            ensurePanelOpen('preview');
-          }
-
-          // Wait for bridge to be ready (preview might just be opening)
-          const waitForBridge = async (timeoutMs = 10000): Promise<typeof previewBridgeRef.current> => {
-            const start = Date.now();
-            while (Date.now() - start < timeoutMs) {
-              if (previewBridgeRef.current?.isReady) return previewBridgeRef.current;
-              await new Promise(r => setTimeout(r, 200));
-            }
-            // Return null if bridge never became ready — prevents sending commands into the void
-            return previewBridgeRef.current?.isReady ? previewBridgeRef.current : null;
-          };
-
-          (async () => {
-            try {
-              const bridge = previewBridgeRef.current?.isReady
-                ? previewBridgeRef.current
-                : await waitForBridge();
-
-              if (!bridge) {
-                sendError('Preview is not open — open the preview panel first');
-                return;
-              }
-
-              switch (msg.command) {
-                case 'view-screenshot': {
-                  const screenshotMode = msg.params?.mode === 'viewport' ? 'viewport' as const : 'full' as const;
-                  const r = await bridge.captureScreenshotWithResult(screenshotMode);
-                  if (r.dataUrl) {
-                    const saveRes = await fetch(`/api/sessions/${session.id}/screenshots`, {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ dataUrl: r.dataUrl }),
-                    });
-                    const saved = await saveRes.json();
-                    sendResult({ path: saved.storedPath || saved.path });
-                  } else {
-                    sendError('Screenshot capture failed');
-                  }
-                  break;
-                }
-                case 'view-record-start': {
-                  const recordMode = msg.params?.mode === 'viewport' ? 'viewport' as const : 'full' as const;
-                  bridge.startRecording(recordMode);
-                  break;
-                }
-                case 'view-record-stop': {
-                  const r = await bridge.stopRecordingWithResult();
-                  if (r.videoDataUrl) {
-                    const saveRes = await fetch(`/api/sessions/${session.id}/recordings`, {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ videoDataUrl: r.videoDataUrl, durationMs: r.durationMs }),
-                    });
-                    const saved = await saveRes.json();
-                    sendResult({ path: saved.videoPath || saved.eventsPath });
-                  } else {
-                    sendError('Recording stop failed');
-                  }
-                  break;
-                }
-                case 'view-navigate': {
-                  if (msg.params.url) {
-                    const r = await bridge.navigateTo(msg.params.url);
-                    sendResult(r);
-                  } else {
-                    sendError('Missing url parameter');
-                  }
-                  break;
-                }
-                case 'view-click': {
-                  if (msg.params.role) {
-                    const r = await bridge.clickElement(msg.params.role, msg.params.name || '');
-                    sendResult(r);
-                  } else {
-                    sendError('Missing role parameter');
-                  }
-                  break;
-                }
-                case 'view-type': {
-                  if (msg.params.role && msg.params.text !== undefined) {
-                    const r = await bridge.typeElement(msg.params.role, msg.params.name || '', msg.params.text);
-                    sendResult(r);
-                  } else {
-                    sendError('Missing role or text parameter');
-                  }
-                  break;
-                }
-                case 'view-read-page': {
-                  const r = await bridge.readPage();
-                  sendResult(r);
-                  break;
-                }
-                default:
-                  sendError('Unknown view command: ' + msg.command);
-              }
-            } catch (err) {
-              sendError(err instanceof Error ? err.message : 'Bridge command failed');
-            }
-          })();
         }
 
         // Handle auto-skill board commands (ext.comment, ext.select_text)
@@ -449,6 +316,18 @@ export function SessionCard({
   const leftPreviewEnabled = showLeftPanel && panel.leftPanel === 'preview';
   const rightPreview = useStreamPreview(session.id, rightPreviewEnabled);
   const leftPreview = useStreamPreview(session.id, leftPreviewEnabled);
+
+  // Keep previewNavigateRef pointing at whichever preview slot is currently active.
+  // Updated synchronously during render so board commands arriving immediately after
+  // show_panel opens the panel can still call navigate on the same tick.
+  if (rightPreviewEnabled) {
+    previewNavigateRef.current = rightPreview.navigate;
+  } else if (leftPreviewEnabled) {
+    previewNavigateRef.current = leftPreview.navigate;
+  } else {
+    previewNavigateRef.current = null;
+  }
+
   // Detected ports array for StreamPreview port selector
   const detectedPorts = detectedPort ? [detectedPort] : undefined;
 
