@@ -5,6 +5,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { createAgentFilesRouter } from './api/routes/agent-files.js';
 import { FileWatcher, type FileChangeEvent, type PortChangeEvent } from './worker/file-watcher.js';
 import { logger } from './services/logger.js';
+import { StreamTap } from './services/stream-tap.js';
 
 export interface AgentOptions {
   port?: number;
@@ -44,6 +45,78 @@ export async function startAgent(options: AgentOptions = {}): Promise<AgentResul
     res.setHeader('Content-Type', 'application/javascript');
     res.setHeader('Cache-Control', 'no-cache');
     res.sendFile(bridgePath);
+  });
+
+  // Preview streaming endpoints (remote Chrome via Stream Tap)
+  const streamTap = new StreamTap();
+
+  app.post('/api/preview/start', async (_req, res) => {
+    const connected = await streamTap.connect({
+      onFrame: (frameData) => {
+        // Send binary frame to all WS clients
+        wss.clients.forEach((client) => {
+          if (client.readyState === WebSocket.OPEN) {
+            client.send(frameData);
+          }
+        });
+      },
+      onStatus: (status, reason) => {
+        broadcast({ type: 'preview:status', status, reason });
+      },
+      onUrl: (url) => {
+        broadcast({ type: 'preview:url', url });
+      },
+    });
+    if (connected) {
+      await streamTap.startScreencast();
+      res.json({ ok: true });
+    } else {
+      res.json({ ok: false, reason: 'Chrome not available' });
+    }
+  });
+
+  app.post('/api/preview/stop', async (_req, res) => {
+    await streamTap.stopScreencast();
+    res.json({ ok: true });
+  });
+
+  app.post('/api/preview/navigate', async (req, res) => {
+    const { url } = req.body;
+    if (url) await streamTap.navigate(url);
+    res.json({ ok: true });
+  });
+
+  app.post('/api/preview/input', async (req, res) => {
+    const { inputType, ...params } = req.body;
+    try {
+      switch (inputType) {
+        case 'mouse':
+          if (params.action === 'click') {
+            await streamTap.dispatchMouseEvent('mousePressed', params.x, params.y, params.button, 1);
+            await streamTap.dispatchMouseEvent('mouseReleased', params.x, params.y, params.button, 1);
+          } else {
+            const cdpType = params.action === 'down' ? 'mousePressed' :
+                            params.action === 'up' ? 'mouseReleased' : 'mouseMoved';
+            await streamTap.dispatchMouseEvent(cdpType, params.x, params.y, params.button);
+          }
+          break;
+        case 'key':
+          await streamTap.dispatchKeyEvent(params.action, params.key, params.text, params.code, params.modifiers);
+          break;
+        case 'scroll':
+          await streamTap.dispatchScroll(params.x, params.y, params.deltaX, params.deltaY);
+          break;
+        case 'touch':
+          await streamTap.dispatchTouch(params.action, params.x, params.y);
+          break;
+        case 'resize':
+          await streamTap.setViewport(params.width, params.height);
+          break;
+      }
+      res.json({ ok: true });
+    } catch (err) {
+      res.json({ ok: false, error: (err as Error).message });
+    }
   });
 
   // Create HTTP server
