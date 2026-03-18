@@ -1,6 +1,5 @@
 import express from 'express';
 import http from 'node:http';
-import path from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
 import { createAgentFilesRouter } from './api/routes/agent-files.js';
 import { FileWatcher, type FileChangeEvent, type PortChangeEvent } from './worker/file-watcher.js';
@@ -27,25 +26,10 @@ export async function startAgent(options: AgentOptions = {}): Promise<AgentResul
 
   // Create Express app
   const app = express();
-  // Parse JSON bodies for all routes EXCEPT proxy routes (proxy needs raw stream for piping)
-  app.use((req, res, next) => {
-    if (req.path.includes('/proxy/') || req.path.includes('/proxy-url/')) {
-      next();
-    } else {
-      express.json({ limit: '50mb' })(req, res, next);
-    }
-  });
+  app.use(express.json({ limit: '50mb' }));
 
   // Mount agent routes under /api
   app.use('/api', createAgentFilesRouter(fileWatcher));
-
-  // Serve inspect bridge script (US2)
-  app.get('/api/inspect-bridge.js', (_req, res) => {
-    const bridgePath = path.join(import.meta.dirname, 'api/inspect-bridge.js');
-    res.setHeader('Content-Type', 'application/javascript');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.sendFile(bridgePath);
-  });
 
   // Preview streaming endpoints (remote Chrome via Stream Tap)
   const streamTap = new StreamTap();
