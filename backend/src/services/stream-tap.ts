@@ -4,7 +4,7 @@ import { logger } from './logger.js';
 
 const DEFAULT_PORTS = [9222, 9223, 9224, 9225, 9226, 9227, 9228, 9229];
 const DEFAULT_DEBUG_PORT = 9222;
-const SCREENCAST_CONFIG = { format: 'jpeg' as const, quality: 40, everyNthFrame: 3, maxWidth: 1280, maxHeight: 960 };
+const SCREENCAST_CONFIG = { format: 'jpeg' as const, quality: 50, everyNthFrame: 2, maxWidth: 1280, maxHeight: 960 };
 
 /** Chrome binary names to try, in order */
 const CHROME_BINARIES = [
@@ -82,6 +82,14 @@ export class StreamTap {
       '--disable-background-networking',
       '--disable-sync',
       '--disable-translate',
+      '--disable-extensions',
+      '--disable-default-apps',
+      '--disable-popup-blocking',
+      '--disable-hang-monitor',
+      '--disable-prompt-on-repost',
+      '--disable-client-side-phishing-detection',
+      '--disable-component-update',
+      '--disable-domain-reliability',
       '--metrics-recording-only',
       '--mute-audio',
       '--window-size=1280,720',
