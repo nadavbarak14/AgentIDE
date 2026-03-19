@@ -85,7 +85,6 @@ export function StreamPreview({
   const imgRef = useRef<HTMLImageElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const recordingStartRef = useRef<number>(0);
 
   // Keep address bar in sync when currentUrl changes externally
   useEffect(() => {
