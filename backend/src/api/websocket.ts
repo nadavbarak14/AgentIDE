@@ -741,16 +741,40 @@ export async function handleViewCommand(
   // Get or create StreamTap for this session
   let tap = streamTaps.get(sessionId);
   if (!tap || !tap.isConnected()) {
-    tap = new StreamTap();
-    const connected = await tap.connect({
-      onFrame: () => {},
-      onStatus: () => {},
-      onUrl: () => {},
-    });
-    if (!connected) {
-      return 'Error: Chrome is not available. Launch headless Chrome first.';
+    // If existing tap is recording, try to reconnect it instead of replacing
+    if (tap && tap.isRecording()) {
+      const reconnected = await tap.connect({
+        onFrame: (frame: Buffer) => {
+          const clients = previewClients.get(sessionId);
+          if (!clients) return;
+          for (const ws of clients) {
+            if (ws.readyState === WebSocket.OPEN) ws.send(frame, { binary: true });
+          }
+        },
+        onStatus: () => {},
+        onUrl: () => {},
+      });
+      if (!reconnected) {
+        return 'Error: Chrome disconnected during recording and could not reconnect.';
+      }
+    } else {
+      tap = new StreamTap();
+      const connected = await tap.connect({
+        onFrame: (frame: Buffer) => {
+          const clients = previewClients.get(sessionId);
+          if (!clients) return;
+          for (const ws of clients) {
+            if (ws.readyState === WebSocket.OPEN) ws.send(frame, { binary: true });
+          }
+        },
+        onStatus: () => {},
+        onUrl: () => {},
+      });
+      if (!connected) {
+        return 'Error: Chrome is not available. Launch headless Chrome first.';
+      }
+      streamTaps.set(sessionId, tap);
     }
-    streamTaps.set(sessionId, tap);
   }
 
   try {
