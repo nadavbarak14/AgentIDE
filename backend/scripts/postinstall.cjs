@@ -7,7 +7,8 @@
  */
 
 const { execSync, spawnSync } = require('child_process');
-const { readFileSync, createWriteStream } = require('fs');
+const { readFileSync, createWriteStream, existsSync, statSync, chmodSync } = require('fs');
+const path = require('path');
 const readline = require('readline');
 
 const GREEN = '\x1b[32m';
@@ -234,6 +235,27 @@ try {
         warnings.push(`${dep.name} (optional): ${instruction}`);
       }
     }
+  }
+
+  // Fix node-pty spawn-helper permissions (npm strips +x on pack/install)
+  try {
+    const nodePtyDir = require.resolve('node-pty').replace(/[/\\]lib[/\\]index\.js$/, '');
+    const spawnHelperPaths = [
+      path.join(nodePtyDir, 'prebuilds', `${process.platform}-${process.arch}`, 'spawn-helper'),
+      path.join(nodePtyDir, 'build', 'Release', 'spawn-helper'),
+    ];
+    for (const p of spawnHelperPaths) {
+      if (existsSync(p)) {
+        const mode = statSync(p).mode;
+        if (!(mode & 0o111)) {
+          chmodSync(p, 0o755);
+          console.log(`  spawn-helper .......... ${GREEN}fixed permissions${RESET}`);
+        }
+        break;
+      }
+    }
+  } catch (_chmodErr) {
+    // Best effort
   }
 
   // Test node-pty

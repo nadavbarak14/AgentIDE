@@ -80,8 +80,38 @@ export class PtySpawner extends EventEmitter {
       fs.mkdirSync(this.scrollbackDir, { recursive: true });
     }
 
+    // Ensure node-pty spawn-helper is executable (npm pack strips +x)
+    PtySpawner.fixSpawnHelperPermissions();
+
     // Generate hook settings file for spawned claude processes
     this.hookSettingsPath = this.generateHookSettings();
+  }
+
+  /**
+   * Fix node-pty spawn-helper permissions if needed.
+   * npm pack/install strips execute bits from prebuilt binaries,
+   * causing posix_spawnp to fail on macOS/Linux.
+   */
+  private static fixSpawnHelperPermissions(): void {
+    try {
+      const nodePtyDir = path.resolve(import.meta.dirname, '../../../node_modules/node-pty');
+      const candidates = [
+        path.join(nodePtyDir, 'prebuilds', `${process.platform}-${process.arch}`, 'spawn-helper'),
+        path.join(nodePtyDir, 'build', 'Release', 'spawn-helper'),
+      ];
+      for (const helperPath of candidates) {
+        if (fs.existsSync(helperPath)) {
+          const mode = fs.statSync(helperPath).mode;
+          if (!(mode & 0o111)) {
+            fs.chmodSync(helperPath, 0o755);
+            logger.info({ helperPath }, 'fixed node-pty spawn-helper permissions');
+          }
+          break;
+        }
+      }
+    } catch (err) {
+      logger.warn({ err }, 'could not fix spawn-helper permissions');
+    }
   }
 
   /**

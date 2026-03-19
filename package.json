@@ -22,6 +22,9 @@
   "files": [
     "backend/dist/",
     "backend/scripts/",
+    "backend/hooks/",
+    ".claude-skills/skills/",
+    "extensions/",
     "frontend/dist/",
     "package.json",
     "README.md"

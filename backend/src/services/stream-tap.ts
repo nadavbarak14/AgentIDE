@@ -8,6 +8,11 @@ const SCREENCAST_CONFIG = { format: 'jpeg' as const, quality: 50, everyNthFrame:
 
 /** Chrome binary names to try, in order */
 const CHROME_BINARIES = [
+  // macOS
+  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+  '/Applications/Chromium.app/Contents/MacOS/Chromium',
+  '/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary',
+  // Linux
   'google-chrome',
   'google-chrome-stable',
   'chromium-browser',
@@ -71,7 +76,7 @@ export class StreamTap {
     }
 
     const args = [
-      '--headless=new',
+      '--headless=old',
       `--remote-debugging-port=${port}`,
       '--disable-gpu',
       '--disable-software-rasterizer',
@@ -90,6 +95,8 @@ export class StreamTap {
       '--disable-client-side-phishing-detection',
       '--disable-component-update',
       '--disable-domain-reliability',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-renderer-backgrounding',
       '--metrics-recording-only',
       '--mute-audio',
       '--window-size=1280,720',

@@ -91,10 +91,22 @@ function symlinkCustomSkills(manifest) {
     // Check for conflict with built-in or auto-generated skills
     if (fs.existsSync(target)) {
       const isAutoSkill = autoSuffixes.some(s => skillName.endsWith(s));
-      const isSymlink = fs.lstatSync(target).isSymbolicLink();
-      if (!isSymlink || isAutoSkill) {
-        console.warn(`[register] Skipping custom skill "${skillName}" — conflicts with ${isAutoSkill ? 'auto-skill' : 'built-in skill'}`);
+      const stat = fs.lstatSync(target);
+      const isSymlink = stat.isSymbolicLink();
+      const isDirectory = stat.isDirectory();
+      // A small plain file is a stale git symlink artifact — replace it
+      const isStaleArtifact = stat.isFile() && stat.size < 256;
+      if (isAutoSkill) {
+        console.warn(`[register] Skipping custom skill "${skillName}" — conflicts with auto-skill`);
         continue;
+      }
+      if (isDirectory && !isSymlink) {
+        console.warn(`[register] Skipping custom skill "${skillName}" — conflicts with built-in skill`);
+        continue;
+      }
+      // Stale artifacts and old symlinks get replaced below
+      if (isStaleArtifact) {
+        console.info(`[register] Replacing stale artifact: ${skillName}`);
       }
     }
 
@@ -104,9 +116,9 @@ function symlinkCustomSkills(manifest) {
       continue;
     }
 
-    // Create symlink — use lstatSync (not existsSync) so broken symlinks are detected too
+    // Copy skill directory (not symlink) so npm pack includes the content
     try { fs.lstatSync(target); fs.rmSync(target, { recursive: true, force: true }); } catch {}
-    fs.symlinkSync(source, target, 'dir');
+    fs.cpSync(source, target, { recursive: true });
     console.info(`[register] Custom skill: ${skillName} → ${source}`);
   }
 }
