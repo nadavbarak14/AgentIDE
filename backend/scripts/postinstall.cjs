@@ -2,18 +2,20 @@
 
 /**
  * Postinstall script — runs after `npm install -g adyx-ide`.
- * Checks for required system dependencies.
+ * Checks for required system dependencies and offers to auto-install them.
  * Plain JS (no TypeScript) so it works without a build step.
- * Fails the install if critical dependencies are missing (node-pty, tmux).
  */
 
-const { execSync } = require('child_process');
-const { readFileSync } = require('fs');
+const { execSync, spawnSync } = require('child_process');
+const { readFileSync, createWriteStream } = require('fs');
+const readline = require('readline');
 
 const GREEN = '\x1b[32m';
 const RED = '\x1b[31m';
 const YELLOW = '\x1b[33m';
+const CYAN = '\x1b[36m';
 const BOLD = '\x1b[1m';
+const DIM = '\x1b[2m';
 const RESET = '\x1b[0m';
 
 function detectPlatform() {
@@ -28,17 +30,35 @@ function detectPlatform() {
   return 'ubuntu';
 }
 
+function hasSudo() {
+  try {
+    execSync('which sudo', { stdio: 'pipe' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isRoot() {
+  return process.getuid && process.getuid() === 0;
+}
+
 const DEPS = [
   {
     name: 'tmux',
     binary: 'tmux',
     versionFlag: '-V',
     required: true,
-    install: {
-      ubuntu: 'sudo apt install -y tmux',
+    autoInstall: {
+      ubuntu: 'apt-get install -y tmux',
+      rhel: 'dnf install -y tmux',
+      macos: 'brew install tmux',
+    },
+    manualInstall: {
+      ubuntu: 'sudo apt-get install -y tmux',
       rhel: 'sudo dnf install -y tmux',
       macos: 'brew install tmux',
-      windows: 'Please install WSL and run: sudo apt install -y tmux',
+      windows: 'Install WSL then: sudo apt-get install -y tmux',
     },
   },
   {
@@ -46,11 +66,54 @@ const DEPS = [
     binary: 'gh',
     versionFlag: '--version',
     required: false,
-    install: {
-      ubuntu: 'sudo apt install -y gh  (or see https://github.com/cli/cli/blob/trunk/docs/install_linux.md)',
-      rhel: 'sudo dnf install -y gh  (or see https://github.com/cli/cli/blob/trunk/docs/install_linux.md)',
+    autoInstall: {
+      ubuntu: null, // gh requires adding a repo, skip auto
+      rhel: null,
       macos: 'brew install gh',
-      windows: 'Please install WSL and run: sudo apt install -y gh',
+    },
+    manualInstall: {
+      ubuntu: 'See https://github.com/cli/cli/blob/trunk/docs/install_linux.md',
+      rhel: 'See https://github.com/cli/cli/blob/trunk/docs/install_linux.md',
+      macos: 'brew install gh',
+      windows: 'See https://cli.github.com/',
+    },
+  },
+  {
+    name: 'Chrome/Chromium',
+    binary: null, // checked specially
+    versionFlag: '--version',
+    required: false,
+    chromeBinaries: [
+      'google-chrome', 'google-chrome-stable', 'chromium-browser', 'chromium',
+      '/usr/bin/google-chrome', '/usr/bin/chromium-browser', '/usr/bin/chromium',
+    ],
+    autoInstall: {
+      ubuntu: 'apt-get install -y chromium-browser || apt-get install -y chromium',
+      rhel: 'dnf install -y chromium',
+      macos: null, // Use brew cask, complex
+    },
+    manualInstall: {
+      ubuntu: 'sudo apt-get install -y chromium-browser',
+      rhel: 'sudo dnf install -y chromium',
+      macos: 'brew install --cask google-chrome',
+      windows: 'Download from https://www.google.com/chrome/',
+    },
+  },
+  {
+    name: 'ffmpeg',
+    binary: 'ffmpeg',
+    versionFlag: '-version',
+    required: false,
+    autoInstall: {
+      ubuntu: 'apt-get install -y ffmpeg',
+      rhel: 'dnf install -y ffmpeg',
+      macos: 'brew install ffmpeg',
+    },
+    manualInstall: {
+      ubuntu: 'sudo apt-get install -y ffmpeg',
+      rhel: 'sudo dnf install -y ffmpeg',
+      macos: 'brew install ffmpeg',
+      windows: 'Download from https://ffmpeg.org/download.html',
     },
   },
 ];
@@ -71,10 +134,16 @@ function checkBinary(binary, versionFlag) {
   }
 }
 
-/**
- * Test that node-pty can actually spawn a process, not just load.
- * Returns { ok: true } or { ok: false, error: string }.
- */
+function checkChrome(dep) {
+  for (const bin of dep.chromeBinaries) {
+    const result = checkBinary(bin, dep.versionFlag);
+    if (result.installed) {
+      return { installed: true, version: result.version, foundBinary: bin };
+    }
+  }
+  return { installed: false, version: null, foundBinary: null };
+}
+
 function testNodePtySpawn() {
   try {
     const ptyModule = require('node-pty');
@@ -84,7 +153,6 @@ function testNodePtySpawn() {
       cols: 80,
       rows: 24,
     });
-    // Give it a moment then kill — we just need to confirm spawn works
     proc.kill();
     return { ok: true };
   } catch (err) {
@@ -92,29 +160,83 @@ function testNodePtySpawn() {
   }
 }
 
+function tryAutoInstall(dep, platform) {
+  const cmd = dep.autoInstall && dep.autoInstall[platform];
+  if (!cmd) return false;
+
+  const fullCmd = isRoot() ? cmd : (hasSudo() ? `sudo ${cmd}` : null);
+  if (!fullCmd) return false;
+
+  console.log(`  ${CYAN}→ Auto-installing ${dep.name}...${RESET}`);
+  console.log(`    ${DIM}$ ${fullCmd}${RESET}`);
+
+  try {
+    execSync(fullCmd, {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 120_000,
+    });
+    return true;
+  } catch (err) {
+    console.log(`    ${YELLOW}Auto-install failed: ${err.message.split('\n')[0]}${RESET}`);
+    return false;
+  }
+}
+
 try {
   const platform = detectPlatform();
-  const results = DEPS.map((dep) => ({ ...dep, ...checkBinary(dep.binary, dep.versionFlag) }));
   const errors = [];
+  const warnings = [];
 
   console.log('');
   console.log(`${BOLD}Adyx Dependency Check${RESET}`);
   console.log('=====================');
 
-  for (const r of results) {
-    const dots = '.'.repeat(Math.max(1, 20 - r.name.length));
-    if (r.installed) {
-      console.log(`  ${r.name} ${dots} ${GREEN}v${r.version}${RESET} (ok)`);
+  for (const dep of DEPS) {
+    let result;
+    if (dep.chromeBinaries) {
+      result = checkChrome(dep);
+    } else if (dep.binary) {
+      result = checkBinary(dep.binary, dep.versionFlag);
     } else {
-      console.log(`  ${r.name} ${dots} ${RED}MISSING${RESET}`);
-      if (r.required) {
-        const instruction = r.install[platform] || 'See documentation for installation';
-        errors.push(`${r.name} is required. Install with:\n    ${instruction}`);
+      continue;
+    }
+
+    const dots = '.'.repeat(Math.max(1, 20 - dep.name.length));
+
+    if (result.installed) {
+      console.log(`  ${dep.name} ${dots} ${GREEN}v${result.version}${RESET} (ok)`);
+    } else {
+      // Try auto-install for missing deps
+      const autoInstalled = tryAutoInstall(dep, platform);
+
+      if (autoInstalled) {
+        // Re-check after install
+        let recheck;
+        if (dep.chromeBinaries) {
+          recheck = checkChrome(dep);
+        } else {
+          recheck = checkBinary(dep.binary, dep.versionFlag);
+        }
+        if (recheck.installed) {
+          console.log(`  ${dep.name} ${dots} ${GREEN}v${recheck.version}${RESET} (auto-installed)`);
+          continue;
+        }
+      }
+
+      // Still missing
+      if (dep.required) {
+        console.log(`  ${dep.name} ${dots} ${RED}MISSING${RESET}`);
+        const instruction = (dep.manualInstall && dep.manualInstall[platform]) || 'See documentation';
+        errors.push(`${dep.name} is required. Install with:\n    ${instruction}`);
+      } else {
+        console.log(`  ${dep.name} ${dots} ${YELLOW}MISSING (optional)${RESET}`);
+        const instruction = (dep.manualInstall && dep.manualInstall[platform]) || 'See documentation';
+        warnings.push(`${dep.name} (optional): ${instruction}`);
       }
     }
   }
 
-  // Test node-pty — not just loading, but actually spawning
+  // Test node-pty
   const ptyResult = testNodePtySpawn();
   if (ptyResult.ok) {
     console.log(`  node-pty ${'.'.repeat(13)} ${GREEN}working${RESET} (ok)`);
@@ -124,12 +246,43 @@ try {
     if (process.platform === 'darwin') {
       fix = `Install Xcode command-line tools, then reinstall:\n    xcode-select --install\n    npm install -g adyx-ide`;
     } else {
-      fix = `Install build tools, then reinstall:\n    sudo apt-get install -y build-essential python3\n    npm install -g adyx-ide`;
+      // Try auto-installing build tools
+      let autoFixed = false;
+      if (platform === 'ubuntu') {
+        console.log(`  ${CYAN}→ Auto-installing build tools...${RESET}`);
+        const buildCmd = isRoot()
+          ? 'apt-get install -y build-essential python3'
+          : (hasSudo() ? 'sudo apt-get install -y build-essential python3' : null);
+        if (buildCmd) {
+          try {
+            execSync(buildCmd, { stdio: ['pipe', 'pipe', 'pipe'], timeout: 120_000 });
+            // Rebuild node-pty
+            console.log(`  ${CYAN}→ Rebuilding node-pty...${RESET}`);
+            execSync('npm rebuild node-pty', { stdio: ['pipe', 'pipe', 'pipe'], timeout: 120_000 });
+            const recheck = testNodePtySpawn();
+            if (recheck.ok) {
+              console.log(`  node-pty ${'.'.repeat(13)} ${GREEN}working${RESET} (auto-fixed)`);
+              autoFixed = true;
+            }
+          } catch {}
+        }
+      }
+      if (!autoFixed) {
+        fix = `Install build tools, then reinstall:\n    sudo apt-get install -y build-essential python3\n    npm install -g adyx-ide`;
+        errors.push(`node-pty failed to spawn: ${ptyResult.error}\n    ${fix}`);
+      }
     }
-    errors.push(`node-pty failed to spawn a process: ${ptyResult.error}\n    ${fix}`);
   }
 
   console.log('');
+
+  if (warnings.length > 0) {
+    console.log(`${YELLOW}Optional dependencies (some features may be limited):${RESET}`);
+    for (const w of warnings) {
+      console.log(`  ${YELLOW}!${RESET} ${w}`);
+    }
+    console.log('');
+  }
 
   if (errors.length > 0) {
     console.log(`${RED}${BOLD}Installation cannot continue — missing critical dependencies:${RESET}`);

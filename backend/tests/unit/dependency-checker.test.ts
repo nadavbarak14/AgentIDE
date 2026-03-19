@@ -45,12 +45,14 @@ describe('dependency-checker', () => {
   });
 
   describe('checkAllDependencies', () => {
-    it('returns results for all required dependencies', () => {
+    it('returns results for all dependencies', () => {
       const results = checkAllDependencies();
-      expect(results.length).toBeGreaterThanOrEqual(3);
+      expect(results.length).toBeGreaterThanOrEqual(5);
       const names = results.map((r) => r.dependency.name);
       expect(names).toContain('tmux');
       expect(names).toContain('GitHub CLI');
+      expect(names).toContain('Chrome/Chromium');
+      expect(names).toContain('ffmpeg');
       expect(names).toContain('Node.js');
     });
 
@@ -82,7 +84,7 @@ describe('dependency-checker', () => {
       const results = [checkDependency(fakeDep)];
       const report = formatDependencyReport(results);
       expect(report).toContain('MISSING');
-      expect(report).toContain('Missing dependencies');
+      expect(report).toContain('Missing required dependencies');
     });
 
     it('shows "All dependencies satisfied" when all present', () => {
@@ -95,7 +97,7 @@ describe('dependency-checker', () => {
       };
       const results = [checkDependency(nodeDep)];
       const report = formatDependencyReport(results);
-      expect(report).toContain('All dependencies satisfied');
+      expect(report).toContain('All required dependencies satisfied');
     });
   });
 });

@@ -11,6 +11,8 @@ export interface SystemDependency {
   versionFlag: string;
   required: boolean;
   installInstructions: Partial<Record<Platform, string>>;
+  /** Alternative binaries to check (e.g., chromium-browser, chromium) */
+  altBinaries?: string[];
 }
 
 export interface DependencyCheckResult {
@@ -39,16 +41,32 @@ export function detectPlatform(): Platform {
 // --- Dependency checking ---
 
 export function checkDependency(dep: SystemDependency): DependencyCheckResult {
+  // Check primary binary
+  const primary = checkSingleBinary(dep.binary, dep.versionFlag);
+  if (primary.installed) return { dependency: dep, ...primary };
+
+  // Check alternative binaries
+  if (dep.altBinaries) {
+    for (const alt of dep.altBinaries) {
+      const result = checkSingleBinary(alt, dep.versionFlag);
+      if (result.installed) return { dependency: dep, ...result };
+    }
+  }
+
+  return { dependency: dep, installed: false, version: null };
+}
+
+function checkSingleBinary(binary: string, versionFlag: string): { installed: boolean; version: string | null } {
   try {
     const whichCmd = process.platform === 'win32' ? 'where' : 'which';
-    execSync(`${whichCmd} ${dep.binary}`, { stdio: 'pipe' });
+    execSync(`${whichCmd} ${binary}`, { stdio: 'pipe' });
   } catch {
-    return { dependency: dep, installed: false, version: null };
+    return { installed: false, version: null };
   }
 
   let version: string | null = null;
   try {
-    const output = execSync(`${dep.binary} ${dep.versionFlag}`, { stdio: 'pipe', timeout: 5000 }).toString().trim();
+    const output = execSync(`${binary} ${versionFlag}`, { stdio: 'pipe', timeout: 5000 }).toString().trim();
     // Extract version-like pattern from output
     const match = output.match(/(\d+\.\d+[\w.-]*)/);
     version = match ? match[1] : output.split('\n')[0];
@@ -57,7 +75,7 @@ export function checkDependency(dep: SystemDependency): DependencyCheckResult {
     version = 'unknown';
   }
 
-  return { dependency: dep, installed: true, version };
+  return { installed: true, version };
 }
 
 // --- Required dependencies list ---
@@ -69,22 +87,54 @@ const REQUIRED_DEPENDENCIES: SystemDependency[] = [
     versionFlag: '-V',
     required: true,
     installInstructions: {
-      ubuntu: 'sudo apt install -y tmux',
+      ubuntu: 'sudo apt-get install -y tmux',
       rhel: 'sudo dnf install -y tmux',
       macos: 'brew install tmux',
-      windows: 'Please install WSL and run: sudo apt install -y tmux',
+      windows: 'Please install WSL and run: sudo apt-get install -y tmux',
     },
   },
   {
     name: 'GitHub CLI',
     binary: 'gh',
     versionFlag: '--version',
-    required: true,
+    required: false,
     installInstructions: {
-      ubuntu: 'sudo apt install -y gh  (or see https://github.com/cli/cli/blob/trunk/docs/install_linux.md)',
-      rhel: 'sudo dnf install -y gh  (or see https://github.com/cli/cli/blob/trunk/docs/install_linux.md)',
+      ubuntu: 'See https://github.com/cli/cli/blob/trunk/docs/install_linux.md',
+      rhel: 'See https://github.com/cli/cli/blob/trunk/docs/install_linux.md',
       macos: 'brew install gh',
-      windows: 'Please install WSL and run: sudo apt install -y gh',
+      windows: 'See https://cli.github.com/',
+    },
+  },
+  {
+    name: 'Chrome/Chromium',
+    binary: 'google-chrome',
+    versionFlag: '--version',
+    required: false,
+    altBinaries: [
+      'google-chrome-stable',
+      'chromium-browser',
+      'chromium',
+      '/usr/bin/google-chrome',
+      '/usr/bin/chromium-browser',
+      '/usr/bin/chromium',
+    ],
+    installInstructions: {
+      ubuntu: 'sudo apt-get install -y chromium-browser',
+      rhel: 'sudo dnf install -y chromium',
+      macos: 'brew install --cask google-chrome',
+      windows: 'Download from https://www.google.com/chrome/',
+    },
+  },
+  {
+    name: 'ffmpeg',
+    binary: 'ffmpeg',
+    versionFlag: '-version',
+    required: false,
+    installInstructions: {
+      ubuntu: 'sudo apt-get install -y ffmpeg',
+      rhel: 'sudo dnf install -y ffmpeg',
+      macos: 'brew install ffmpeg',
+      windows: 'Download from https://ffmpeg.org/download.html',
     },
   },
   {
@@ -124,22 +174,35 @@ export function formatDependencyReport(results: DependencyCheckResult[]): string
     const dots = '.'.repeat(Math.max(1, 20 - r.dependency.name.length));
     if (r.installed) {
       lines.push(`  ${r.dependency.name} ${dots} ${GREEN}v${r.version}${RESET} (ok)`);
-    } else {
+    } else if (r.dependency.required) {
       lines.push(`  ${r.dependency.name} ${dots} ${RED}MISSING${RESET}`);
+    } else {
+      lines.push(`  ${r.dependency.name} ${dots} ${YELLOW}MISSING (optional)${RESET}`);
     }
   }
 
   const missing = results.filter((r) => !r.installed && r.dependency.required);
+  const optional = results.filter((r) => !r.installed && !r.dependency.required);
+
+  if (optional.length > 0) {
+    lines.push('');
+    lines.push(`${YELLOW}Optional dependencies (some features may be limited):${RESET}`);
+    for (const r of optional) {
+      const instruction = r.dependency.installInstructions[platform] || 'See documentation for installation';
+      lines.push(`  ${r.dependency.name}: ${instruction}`);
+    }
+  }
+
   if (missing.length > 0) {
     lines.push('');
-    lines.push(`${YELLOW}Missing dependencies:${RESET}`);
+    lines.push(`${RED}Missing required dependencies:${RESET}`);
     for (const r of missing) {
       const instruction = r.dependency.installInstructions[platform] || 'See documentation for installation';
       lines.push(`  ${r.dependency.name}: ${instruction}`);
     }
   } else {
     lines.push('');
-    lines.push(`${GREEN}All dependencies satisfied!${RESET}`);
+    lines.push(`${GREEN}All required dependencies satisfied!${RESET}`);
   }
 
   return lines.join('\n');
