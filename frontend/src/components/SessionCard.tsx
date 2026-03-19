@@ -845,6 +845,8 @@ export function SessionCard({
             frame={leftPreview.frame}
             currentUrl={leftPreview.currentUrl}
             onNavigate={leftPreview.navigate}
+            onBack={leftPreview.goBack}
+            onForward={leftPreview.goForward}
             onMouse={leftPreview.sendMouse}
             onKey={leftPreview.sendKey}
             onScroll={leftPreview.sendScroll}
@@ -1342,6 +1344,8 @@ export function SessionCard({
                       frame={rightPreview.frame}
                       currentUrl={rightPreview.currentUrl}
                       onNavigate={rightPreview.navigate}
+                      onBack={rightPreview.goBack}
+                      onForward={rightPreview.goForward}
                       onMouse={rightPreview.sendMouse}
                       onKey={rightPreview.sendKey}
                       onScroll={rightPreview.sendScroll}

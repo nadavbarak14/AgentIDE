@@ -337,6 +337,12 @@ export function setupWebSocket(
               tap?.navigate(msg.url).catch(err => log.error({ err }, 'navigate failed'));
             }
             break;
+          case 'preview:back':
+            tap?.goBack().catch(err => log.error({ err }, 'back failed'));
+            break;
+          case 'preview:forward':
+            tap?.goForward().catch(err => log.error({ err }, 'forward failed'));
+            break;
           case 'preview:mouse':
             if (isRemote) {
               relayToRemoteAgent(sessionId, 'input', { inputType: 'mouse', x: msg.x, y: msg.y, button: msg.button, action: msg.action }).catch(() => {});
@@ -823,20 +829,34 @@ export async function handleViewCommand(
       }
 
       case 'view-record-start': {
-        await tap.startScreencast();
+        if (tap.isRecording()) return 'Already recording. Use view-record-stop to stop.';
+        await tap.startRecording();
         return 'Recording started. Use view-record-stop to stop and save.';
       }
 
       case 'view-record-stop': {
-        const screenshot = await tap.captureScreenshot();
+        const recording = tap.stopRecording();
+        if (!recording || recording.frames.length === 0) {
+          return 'No recording in progress or no frames captured.';
+        }
         const fs = await import('node:fs');
         const path = await import('node:path');
         const uploadsDir = path.join(process.cwd(), '.c3-uploads', 'recordings');
         fs.mkdirSync(uploadsDir, { recursive: true });
-        const filename = `recording-${sessionId.slice(0, 8)}-${Date.now()}.png`;
-        const filepath = path.join(uploadsDir, filename);
-        fs.writeFileSync(filepath, screenshot);
-        return `Recording stopped. Screenshot saved to ${filepath}. (Note: Full video recording is available via the toolbar button in the preview panel.)`;
+        const id = `recording-${sessionId.slice(0, 8)}-${Date.now()}`;
+        // Save frames as individual JPEGs in a directory
+        const framesDir = path.join(uploadsDir, id);
+        fs.mkdirSync(framesDir, { recursive: true });
+        for (let i = 0; i < recording.frames.length; i++) {
+          fs.writeFileSync(path.join(framesDir, `frame-${String(i).padStart(4, '0')}.jpg`), recording.frames[i]);
+        }
+        // Also save the last frame as a summary screenshot
+        const lastFrame = recording.frames[recording.frames.length - 1];
+        const screenshotPath = path.join(uploadsDir, `${id}.jpg`);
+        fs.writeFileSync(screenshotPath, lastFrame);
+        const durationSec = (recording.durationMs / 1000).toFixed(1);
+        log.info({ framesDir, frameCount: recording.frames.length, durationMs: recording.durationMs }, 'recording saved');
+        return `Recording stopped. ${recording.frames.length} frames captured over ${durationSec}s. Frames saved to ${framesDir}. Screenshot: ${screenshotPath}`;
       }
 
       default:

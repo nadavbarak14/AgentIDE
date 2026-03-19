@@ -331,7 +331,9 @@ export type PreviewClientMessage =
   | { type: 'preview:start' }
   | { type: 'preview:stop' }
   | { type: 'preview:navigate'; url: string }
-  | { type: 'preview:mouse'; x: number; y: number; button: 'left' | 'middle' | 'right'; action: 'click' | 'down' | 'up' | 'move' }
+  | { type: 'preview:back' }
+  | { type: 'preview:forward' }
+  | { type: 'preview:mouse'; x: number; y: number; button: 'left' | 'middle' | 'right' | 'none'; action: 'click' | 'down' | 'up' | 'move' }
   | { type: 'preview:key'; key: string; text: string; code: string; action: 'down' | 'up'; modifiers?: number }
   | { type: 'preview:scroll'; x: number; y: number; deltaX: number; deltaY: number }
   | { type: 'preview:resize'; width: number; height: number }
