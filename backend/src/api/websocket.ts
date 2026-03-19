@@ -523,7 +523,7 @@ export function setupWebSocket(
                 }
               }
             }
-          } catch {}
+          } catch { /* ignore malformed JSON from remote */ }
         }
       });
 
@@ -552,7 +552,7 @@ export function setupWebSocket(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-    } catch {}
+    } catch { /* fire-and-forget relay */ }
   }
 
   // Forward shell PTY output to connected shell WebSocket clients
