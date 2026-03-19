@@ -365,6 +365,9 @@ export function setupWebSocket(
           case 'preview:resize':
             if (isRemote) {
               relayToRemoteAgent(sessionId, 'input', { inputType: 'resize', width: msg.width, height: msg.height }).catch(() => {});
+            } else if (msg.width === 1280 && msg.height === 720) {
+              // Default size = responsive mode, clear device override
+              tap?.clearViewport().catch(err => log.error({ err }, 'clear viewport failed'));
             } else {
               tap?.setViewport(msg.width, msg.height).catch(err => log.error({ err }, 'resize failed'));
             }

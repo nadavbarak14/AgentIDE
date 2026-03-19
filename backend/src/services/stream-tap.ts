@@ -4,7 +4,7 @@ import { logger } from './logger.js';
 
 const DEFAULT_PORTS = [9222, 9223, 9224, 9225, 9226, 9227, 9228, 9229];
 const DEFAULT_DEBUG_PORT = 9222;
-const SCREENCAST_CONFIG = { format: 'jpeg' as const, quality: 70, everyNthFrame: 2 };
+const SCREENCAST_CONFIG = { format: 'jpeg' as const, quality: 40, everyNthFrame: 3, maxWidth: 1280, maxHeight: 960 };
 
 /** Chrome binary names to try, in order */
 const CHROME_BINARIES = [
@@ -244,7 +244,8 @@ export class StreamTap {
   }
 
   private handleScreencastFrame(params: any): void {
-    this.sendCdp('Page.screencastFrameAck', { sessionId: params.sessionId }).catch(() => {});
+    // Fire-and-forget ack — don't wait for response to unblock next frame
+    this.fireCdp('Page.screencastFrameAck', { sessionId: params.sessionId });
     const jpegBytes = Buffer.from(params.data, 'base64');
     const width = params.metadata?.deviceWidth || 1280;
     const height = params.metadata?.deviceHeight || 720;
@@ -338,6 +339,10 @@ export class StreamTap {
     await this.sendCdp('Emulation.setDeviceMetricsOverride', {
       width, height, deviceScaleFactor: 1, mobile: width <= 768,
     });
+  }
+
+  async clearViewport(): Promise<void> {
+    await this.sendCdp('Emulation.clearDeviceMetricsOverride');
   }
 
   async captureScreenshot(): Promise<Buffer> {

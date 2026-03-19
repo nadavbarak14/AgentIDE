@@ -110,18 +110,37 @@ export function StreamPreview({
     return () => { clearTimeout(timer); document.removeEventListener('click', handleClick); };
   }, [showDeviceMenu]);
 
-  /** Scale img-relative coords to Chrome viewport coords */
+  /** Scale img-relative coords to Chrome viewport coords, accounting for object-contain */
   const toViewportCoords = useCallback((clientX: number, clientY: number): { x: number; y: number } => {
     const img = imgRef.current;
     if (!img || !frame || img.clientWidth === 0 || img.clientHeight === 0) {
       return { x: 0, y: 0 };
     }
     const rect = img.getBoundingClientRect();
-    const relX = clientX - rect.left;
-    const relY = clientY - rect.top;
-    const x = Math.round((relX / img.clientWidth) * frame.width);
-    const y = Math.round((relY / img.clientHeight) * frame.height);
-    return { x, y };
+    // With object-contain, the image may be letterboxed. Calculate the actual rendered image bounds.
+    const elemW = rect.width;
+    const elemH = rect.height;
+    const imgAspect = frame.width / frame.height;
+    const elemAspect = elemW / elemH;
+    let renderW: number, renderH: number, offsetX: number, offsetY: number;
+    if (imgAspect > elemAspect) {
+      // Image wider than element — horizontal fit, vertical letterbox
+      renderW = elemW;
+      renderH = elemW / imgAspect;
+      offsetX = 0;
+      offsetY = (elemH - renderH) / 2;
+    } else {
+      // Image taller than element — vertical fit, horizontal letterbox
+      renderH = elemH;
+      renderW = elemH * imgAspect;
+      offsetX = (elemW - renderW) / 2;
+      offsetY = 0;
+    }
+    const relX = clientX - rect.left - offsetX;
+    const relY = clientY - rect.top - offsetY;
+    const x = Math.round((relX / renderW) * frame.width);
+    const y = Math.round((relY / renderH) * frame.height);
+    return { x: Math.max(0, Math.min(frame.width, x)), y: Math.max(0, Math.min(frame.height, y)) };
   }, [frame]);
 
   // Throttle mouse move to avoid flooding the WebSocket
