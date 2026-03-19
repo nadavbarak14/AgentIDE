@@ -8,6 +8,8 @@ interface StreamPreviewProps {
   frame: { objectUrl: string; width: number; height: number } | null;
   currentUrl: string;
   onNavigate: (url: string) => void;
+  onBack?: () => void;
+  onForward?: () => void;
   onClose: () => void;
   onMouse?: (x: number, y: number, button: string, action: string) => void;
   onKey?: (key: string, text: string, code: string, action: string, modifiers?: number) => void;
@@ -56,6 +58,8 @@ export function StreamPreview({
   frame,
   currentUrl,
   onNavigate,
+  onBack,
+  onForward,
   onClose,
   onMouse,
   onKey,
@@ -358,6 +362,24 @@ export function StreamPreview({
     <div className="flex flex-col h-full">
       {/* Browser chrome bar */}
       <div className="flex items-center gap-1.5 px-2 py-1 border-b border-gray-700 bg-gray-800 flex-shrink-0">
+        {/* Back button */}
+        <button
+          onClick={onBack}
+          className="w-6 h-6 flex items-center justify-center text-gray-400 hover:text-white hover:bg-gray-700 rounded text-sm"
+          title="Back"
+          disabled={!onBack}
+        >
+          &#9664;
+        </button>
+        {/* Forward button */}
+        <button
+          onClick={onForward}
+          className="w-6 h-6 flex items-center justify-center text-gray-400 hover:text-white hover:bg-gray-700 rounded text-sm"
+          title="Forward"
+          disabled={!onForward}
+        >
+          &#9654;
+        </button>
         {/* Reload button */}
         <button
           onClick={handleReload}

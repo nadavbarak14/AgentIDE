@@ -30,6 +30,8 @@ export class StreamTap {
   private streaming = false;
   private pendingCallbacks = new Map<number, (result: any) => void>();
   private chromeProcess: ChildProcess | null = null;
+  private recordingFrames: Buffer[] | null = null;
+  private recordingStartTime = 0;
 
   /**
    * Find a Chrome/Chromium binary on the system.
@@ -276,6 +278,20 @@ export class StreamTap {
     await this.sendCdp('Page.navigate', { url });
   }
 
+  async goBack(): Promise<void> {
+    const { currentIndex, entries } = await this.sendCdp('Page.getNavigationHistory');
+    if (currentIndex > 0) {
+      await this.sendCdp('Page.navigateToHistoryEntry', { entryId: entries[currentIndex - 1].id });
+    }
+  }
+
+  async goForward(): Promise<void> {
+    const { currentIndex, entries } = await this.sendCdp('Page.getNavigationHistory');
+    if (currentIndex < entries.length - 1) {
+      await this.sendCdp('Page.navigateToHistoryEntry', { entryId: entries[currentIndex + 1].id });
+    }
+  }
+
   async dispatchMouseEvent(type: string, x: number, y: number, button?: string, clickCount?: number): Promise<void> {
     const cdpButton = button === 'right' ? 'right' : button === 'middle' ? 'middle' : button === 'none' ? 'none' : 'left';
     this.fireCdp('Input.dispatchMouseEvent', {
@@ -339,15 +355,69 @@ export class StreamTap {
     await this.sendCdp('Emulation.setDeviceMetricsOverride', {
       width, height, deviceScaleFactor: 1, mobile: width <= 768,
     });
+    // Restart screencast to pick up new viewport dimensions
+    if (this.streaming) {
+      await this.sendCdp('Page.stopScreencast').catch(() => {});
+      await this.sendCdp('Page.startScreencast', SCREENCAST_CONFIG);
+    }
   }
 
   async clearViewport(): Promise<void> {
     await this.sendCdp('Emulation.clearDeviceMetricsOverride');
+    // Restart screencast to pick up new viewport dimensions
+    if (this.streaming) {
+      await this.sendCdp('Page.stopScreencast').catch(() => {});
+      await this.sendCdp('Page.startScreencast', SCREENCAST_CONFIG);
+    }
   }
 
   async captureScreenshot(): Promise<Buffer> {
     const result = await this.sendCdp('Page.captureScreenshot', { format: 'png' });
     return Buffer.from(result.data, 'base64');
+  }
+
+  private recordingInterval: ReturnType<typeof setInterval> | null = null;
+
+  /** Start collecting screenshots periodically for server-side recording */
+  async startRecording(): Promise<void> {
+    this.recordingFrames = [];
+    this.recordingStartTime = Date.now();
+    // Capture a screenshot every 500ms using Page.captureScreenshot
+    // This works on static pages unlike screencast which only sends on render
+    const capture = async () => {
+      if (!this.recordingFrames) return;
+      try {
+        const result = await this.sendCdp('Page.captureScreenshot', { format: 'jpeg', quality: 50 });
+        if (this.recordingFrames) {
+          this.recordingFrames.push(Buffer.from(result.data, 'base64'));
+        }
+      } catch { /* ignore capture errors */ }
+    };
+    await capture(); // Capture first frame immediately
+    this.recordingInterval = setInterval(capture, 500);
+    logger.info('startRecording: capturing screenshots every 500ms');
+  }
+
+  /** Stop recording and return collected frames + duration */
+  stopRecording(): { frames: Buffer[]; durationMs: number } | null {
+    if (this.recordingInterval) {
+      clearInterval(this.recordingInterval);
+      this.recordingInterval = null;
+    }
+    const frameCount = this.recordingFrames?.length ?? -1;
+    logger.info({ frameCount, durationMs: Date.now() - this.recordingStartTime }, 'stopRecording called');
+    if (!this.recordingFrames || this.recordingFrames.length === 0) return null;
+    const result = {
+      frames: this.recordingFrames,
+      durationMs: Date.now() - this.recordingStartTime,
+    };
+    this.recordingFrames = null;
+    this.recordingStartTime = 0;
+    return result;
+  }
+
+  isRecording(): boolean {
+    return this.recordingFrames !== null;
   }
 
   /** Get the accessibility tree as a text snapshot for the agent */

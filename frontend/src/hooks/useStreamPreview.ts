@@ -59,6 +59,14 @@ export function useStreamPreview(sessionId: string, enabled: boolean) {
     setCurrentUrl(url);
   }, []);
 
+  const goBack = useCallback(() => {
+    wsRef.current?.sendJson({ type: 'preview:back' });
+  }, []);
+
+  const goForward = useCallback(() => {
+    wsRef.current?.sendJson({ type: 'preview:forward' });
+  }, []);
+
   const sendMouse = useCallback((x: number, y: number, button: string, action: string) => {
     wsRef.current?.sendJson({ type: 'preview:mouse', x, y, button, action });
   }, []);
@@ -94,5 +102,5 @@ export function useStreamPreview(sessionId: string, enabled: boolean) {
     }
   }, [frame]);
 
-  return { frame, status, currentUrl, navigate, sendMouse, sendKey, sendScroll, sendResize, sendTouch, takeScreenshot };
+  return { frame, status, currentUrl, navigate, goBack, goForward, sendMouse, sendKey, sendScroll, sendResize, sendTouch, takeScreenshot };
 }
