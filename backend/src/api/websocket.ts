@@ -841,22 +841,46 @@ export async function handleViewCommand(
         }
         const fs = await import('node:fs');
         const path = await import('node:path');
+        const { execFileSync } = await import('node:child_process');
         const uploadsDir = path.join(process.cwd(), '.c3-uploads', 'recordings');
         fs.mkdirSync(uploadsDir, { recursive: true });
         const id = `recording-${sessionId.slice(0, 8)}-${Date.now()}`;
-        // Save frames as individual JPEGs in a directory
+        const fps = Math.max(1, Math.round(recording.frames.length / (recording.durationMs / 1000)));
+        const durationSec = (recording.durationMs / 1000).toFixed(1);
+
+        // Save frames to temp directory
         const framesDir = path.join(uploadsDir, id);
         fs.mkdirSync(framesDir, { recursive: true });
         for (let i = 0; i < recording.frames.length; i++) {
           fs.writeFileSync(path.join(framesDir, `frame-${String(i).padStart(4, '0')}.jpg`), recording.frames[i]);
         }
-        // Also save the last frame as a summary screenshot
-        const lastFrame = recording.frames[recording.frames.length - 1];
-        const screenshotPath = path.join(uploadsDir, `${id}.jpg`);
-        fs.writeFileSync(screenshotPath, lastFrame);
-        const durationSec = (recording.durationMs / 1000).toFixed(1);
-        log.info({ framesDir, frameCount: recording.frames.length, durationMs: recording.durationMs }, 'recording saved');
-        return `Recording stopped. ${recording.frames.length} frames captured over ${durationSec}s. Frames saved to ${framesDir}. Screenshot: ${screenshotPath}`;
+
+        // Try to encode video with ffmpeg
+        const videoPath = path.join(uploadsDir, `${id}.mp4`);
+        let hasVideo = false;
+        try {
+          execFileSync('ffmpeg', [
+            '-y', '-framerate', String(fps),
+            '-i', path.join(framesDir, 'frame-%04d.jpg'),
+            '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+            '-crf', '28', '-preset', 'ultrafast',
+            videoPath,
+          ], { stdio: 'pipe', timeout: 30000 });
+          hasVideo = fs.existsSync(videoPath) && fs.statSync(videoPath).size > 0;
+          if (hasVideo) {
+            // Clean up frames directory
+            for (const f of fs.readdirSync(framesDir)) fs.unlinkSync(path.join(framesDir, f));
+            fs.rmdirSync(framesDir);
+          }
+        } catch (ffErr) {
+          log.warn({ err: ffErr instanceof Error ? ffErr.message : ffErr }, 'ffmpeg encoding failed, keeping raw frames');
+        }
+
+        log.info({ videoPath: hasVideo ? videoPath : framesDir, frameCount: recording.frames.length, durationMs: recording.durationMs, hasVideo }, 'recording saved');
+        if (hasVideo) {
+          return `Recording stopped. ${recording.frames.length} frames over ${durationSec}s encoded to video: ${videoPath}`;
+        }
+        return `Recording stopped. ${recording.frames.length} frames over ${durationSec}s saved to: ${framesDir} (install ffmpeg for MP4 encoding)`;
       }
 
       default:
