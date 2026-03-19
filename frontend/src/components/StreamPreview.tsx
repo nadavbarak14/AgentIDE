@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { PHONE_PRESETS, TABLET_PRESETS, DESKTOP_PRESETS, getPresetById, type DevicePreset } from '../constants/devicePresets';
+import { PHONE_PRESETS, TABLET_PRESETS, DESKTOP_PRESETS, getPresetById } from '../constants/devicePresets';
 import { AnnotationCanvas } from './AnnotationCanvas';
 
 interface StreamPreviewProps {
@@ -77,7 +77,7 @@ export function StreamPreview({
   const [addressInput, setAddressInput] = useState(currentUrl);
   const [showDeviceMenu, setShowDeviceMenu] = useState(false);
   const [recording, setRecording] = useState(false);
-  const [recordingStartTime, setRecordingStartTime] = useState<number>(0);
+  const recordingStartRef = useRef<number>(0);
   const [annotating, setAnnotating] = useState(false);
   const [annotationImage, setAnnotationImage] = useState<string | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -268,7 +268,7 @@ export function StreamPreview({
     recorder.start(1000);
     recorderRef.current = recorder;
     setRecording(true);
-    setRecordingStartTime(Date.now());
+    recordingStartRef.current = Date.now();
   }, [frame, sessionId, currentUrl]);
 
   const stopRecording = useCallback(() => {

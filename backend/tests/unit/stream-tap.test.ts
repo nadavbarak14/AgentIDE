@@ -39,7 +39,7 @@ describe('StreamTap', () => {
         .mockResolvedValueOnce({ ok: true, json: async () => ({ webSocketDebuggerUrl: 'ws://localhost:9333/devtools/browser/ghi789' }) })
         .mockResolvedValueOnce({ ok: true, json: async () => ([{ type: 'page', webSocketDebuggerUrl: 'ws://localhost:9333/devtools/page/page3' }]) });
       const tap = new StreamTap();
-      const url = await tap.discoverChrome();
+      await tap.discoverChrome();
       expect(mockFetch).toHaveBeenCalledWith('http://localhost:9333/json/version');
       vi.unstubAllEnvs();
     });

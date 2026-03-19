@@ -33,7 +33,7 @@ export class PreviewWebSocket {
       } else {
         try {
           this.callbacks.onMessage(JSON.parse(event.data));
-        } catch {}
+        } catch { /* ignore malformed JSON */ }
       }
     };
   }
