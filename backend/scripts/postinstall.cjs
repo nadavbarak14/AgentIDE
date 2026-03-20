@@ -258,6 +258,41 @@ try {
     // Best effort
   }
 
+  // Fix skill and hook script permissions (npm strips +x on pack/install)
+  try {
+    const packageRoot = path.resolve(__dirname, '..');
+    const dirsToFix = [
+      path.join(packageRoot, '.claude-skills', 'skills'),
+      path.join(packageRoot, 'extensions'),
+      path.join(packageRoot, 'backend', 'hooks'),
+    ];
+    let fixedCount = 0;
+    function fixShellScripts(dir) {
+      if (!existsSync(dir)) return;
+      const entries = require('fs').readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          fixShellScripts(full);
+        } else if (entry.isFile() && entry.name.endsWith('.sh')) {
+          try {
+            const mode = statSync(full).mode;
+            if (!(mode & 0o111)) {
+              chmodSync(full, 0o755);
+              fixedCount++;
+            }
+          } catch {}
+        }
+      }
+    }
+    for (const d of dirsToFix) fixShellScripts(d);
+    if (fixedCount > 0) {
+      console.log(`  skill scripts ......... ${GREEN}fixed ${fixedCount} file(s)${RESET}`);
+    }
+  } catch (_chmodErr) {
+    // Best effort
+  }
+
   // Test node-pty
   const ptyResult = testNodePtySpawn();
   if (ptyResult.ok) {

@@ -83,6 +83,9 @@ export class PtySpawner extends EventEmitter {
     // Ensure node-pty spawn-helper is executable (npm pack strips +x)
     PtySpawner.fixSpawnHelperPermissions();
 
+    // Ensure skill and hook scripts are executable (npm pack strips +x)
+    PtySpawner.fixSkillScriptPermissions();
+
     // Generate hook settings file for spawned claude processes
     this.hookSettingsPath = this.generateHookSettings();
   }
@@ -111,6 +114,42 @@ export class PtySpawner extends EventEmitter {
       }
     } catch (err) {
       logger.warn({ err }, 'could not fix spawn-helper permissions');
+    }
+  }
+
+  /**
+   * Fix skill/hook script permissions. npm pack strips execute bits from .sh files,
+   * causing "not found" or "permission denied" when Claude Code runs them.
+   */
+  private static fixSkillScriptPermissions(): void {
+    const dirsToFix = [
+      path.resolve(import.meta.dirname, '../../../.claude-skills/skills'),
+      path.resolve(import.meta.dirname, '../../../extensions'),
+      path.resolve(import.meta.dirname, '../../hooks'),
+    ];
+    let fixedCount = 0;
+
+    function fixDir(dir: string): void {
+      if (!fs.existsSync(dir)) return;
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          fixDir(full);
+        } else if (entry.isFile() && entry.name.endsWith('.sh')) {
+          try {
+            const mode = fs.statSync(full).mode;
+            if (!(mode & 0o111)) {
+              fs.chmodSync(full, 0o755);
+              fixedCount++;
+            }
+          } catch { /* ignore */ }
+        }
+      }
+    }
+
+    for (const d of dirsToFix) fixDir(d);
+    if (fixedCount > 0) {
+      logger.info({ fixedCount }, 'fixed skill/hook script permissions');
     }
   }
 

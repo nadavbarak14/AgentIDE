@@ -35,6 +35,8 @@ export class StreamTap {
   private streaming = false;
   private pendingCallbacks = new Map<number, (result: any) => void>();
   private chromeProcess: ChildProcess | null = null;
+  private chromeTargetId: string | null = null;
+  private chromeDebugPort: number | null = null;
   private recordingFrames: Buffer[] | null = null;
   private recordingStartTime = 0;
 
@@ -63,8 +65,7 @@ export class StreamTap {
     const port = Number(process.env.CHROME_DEBUG_PORT) || DEFAULT_DEBUG_PORT;
 
     // Already running?
-    const existing = await this.tryPort(port);
-    if (existing) {
+    if (await this.isPortListening(port)) {
       logger.info({ port }, 'Chrome already running on debug port');
       return port;
     }
@@ -123,8 +124,7 @@ export class StreamTap {
     // Wait for Chrome to start listening
     for (let i = 0; i < 30; i++) {
       await new Promise(r => setTimeout(r, 200));
-      const url = await this.tryPort(port);
-      if (url) {
+      if (await this.isPortListening(port)) {
         logger.info({ port }, 'Chrome is ready');
         return port;
       }
@@ -136,33 +136,65 @@ export class StreamTap {
 
   /**
    * Discover Chrome and return a PAGE-level debugger WebSocket URL.
-   * Page.startScreencast requires a page target, not the browser target.
+   * Each StreamTap creates its own dedicated tab so sessions don't share a page.
    */
   async discoverChrome(): Promise<string | null> {
     const envPort = process.env.CHROME_DEBUG_PORT;
     if (envPort) {
-      const url = await this.tryPort(Number(envPort));
+      const url = await this.tryCreateTab(Number(envPort));
       if (url) return url;
     }
     for (const port of DEFAULT_PORTS) {
-      const url = await this.tryPort(port);
+      const url = await this.tryCreateTab(port);
       if (url) return url;
     }
     return null;
   }
 
-  private async tryPort(port: number): Promise<string | null> {
+  /** Quick check whether Chrome is listening on a given debug port. */
+  private async isPortListening(port: number): Promise<boolean> {
     try {
-      // First check if Chrome is listening at all
+      const resp = await fetch(`http://localhost:${port}/json/version`);
+      return resp.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Create a new browser tab for this session to ensure preview isolation.
+   * Falls back to finding an existing page if tab creation fails.
+   */
+  private async tryCreateTab(port: number): Promise<string | null> {
+    try {
+      // Check if Chrome is listening
       const versionResp = await fetch(`http://localhost:${port}/json/version`);
       if (!versionResp.ok) return null;
 
-      // Get the first page target — Page.startScreencast needs a page, not the browser
+      // Create a NEW tab for this session — each session gets its own page
+      try {
+        const newTabResp = await fetch(`http://localhost:${port}/json/new?about:blank`, { method: 'PUT' });
+        if (newTabResp.ok) {
+          const target = await newTabResp.json() as { type: string; id: string; webSocketDebuggerUrl: string };
+          if (target.webSocketDebuggerUrl) {
+            this.chromeTargetId = target.id;
+            this.chromeDebugPort = port;
+            logger.info({ port, targetId: target.id }, 'Created new Chrome tab for session');
+            return target.webSocketDebuggerUrl;
+          }
+        }
+      } catch {
+        // Tab creation failed — fall back to finding an existing page
+      }
+
+      // Fallback: find the first available page target
       const listResp = await fetch(`http://localhost:${port}/json/list`);
       if (!listResp.ok) return null;
-      const targets = await listResp.json() as Array<{ type: string; webSocketDebuggerUrl: string }>;
+      const targets = await listResp.json() as Array<{ type: string; id: string; webSocketDebuggerUrl: string }>;
       const page = targets.find(t => t.type === 'page');
       if (page?.webSocketDebuggerUrl) {
+        this.chromeTargetId = page.id;
+        this.chromeDebugPort = port;
         return page.webSocketDebuggerUrl;
       }
 
@@ -183,7 +215,7 @@ export class StreamTap {
       logger.info('Chrome not found, attempting to launch...');
       const port = await this.launchChrome();
       if (port) {
-        debugUrl = await this.tryPort(port);
+        debugUrl = await this.tryCreateTab(port);
       }
     }
 
@@ -513,8 +545,19 @@ export class StreamTap {
       this.cdpWs.close();
       this.cdpWs = null;
     }
-    // Don't kill Chrome — it's reused across preview reconnections.
-    // Call destroy() to fully tear down including the Chrome process.
+    // Close the dedicated tab for this session (Chrome itself stays alive for other sessions)
+    this.closeTab();
+  }
+
+  /** Close the Chrome tab created for this session. */
+  private closeTab(): void {
+    if (this.chromeTargetId && this.chromeDebugPort) {
+      const port = this.chromeDebugPort;
+      const targetId = this.chromeTargetId;
+      this.chromeTargetId = null;
+      // Fire-and-forget — don't block on tab close
+      fetch(`http://localhost:${port}/json/close/${targetId}`, { method: 'PUT' }).catch(() => {});
+    }
   }
 
   /** Fully tear down including killing the Chrome process. */
