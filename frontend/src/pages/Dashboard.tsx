@@ -5,6 +5,9 @@ import { SettingsPanel } from '../components/SettingsPanel';
 import { ShortcutsHelp } from '../components/ShortcutsHelp';
 import { SessionSwitcher } from '../components/SessionSwitcher';
 import { CommandPalette, BUTTON_ONLY_COMMANDS } from '../components/CommandPalette';
+import { ProjectList } from '../components/ProjectList';
+import { ProjectDetail } from '../components/ProjectDetail';
+import { useProjects } from '../hooks/useProjects';
 import { useSessionQueue } from '../hooks/useSessionQueue';
 import { useSession } from '../hooks/useSession';
 import { useKeyboardShortcuts, type ShortcutAction } from '../hooks/useKeyboardShortcuts';
@@ -38,6 +41,21 @@ export function Dashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem('c3-sidebar-open') !== 'false');
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(() => localStorage.getItem('c3-current-session'));
   const [addMachineTrigger, setAddMachineTrigger] = useState(0);
+
+  // ── Project-First View ──────────────────────────────────────────
+  const [currentView, setCurrentView] = useState<'projects' | 'sessions'>('projects');
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const { findProject } = useProjects();
+
+  const handleSelectProject = useCallback((projectId: string) => {
+    setSelectedProjectId(projectId);
+    setCurrentView('sessions');
+  }, []);
+
+  const handleBackToProjects = useCallback(() => {
+    setSelectedProjectId(null);
+    setCurrentView('projects');
+  }, []);
 
   useEffect(() => {
     settingsApi.get().then(setAppSettings).catch(() => {});
@@ -1002,22 +1020,59 @@ export function Dashboard() {
           </div>
         </div>
 
-        {/* Session Grid */}
-        <SessionGrid
-          displayedSessions={displayedSessions}
-          overflowSessions={overflowSessions}
-          currentSessionId={currentSessionId}
-          workers={workersList}
-          onKill={(id) => killSession(id).catch(() => {})}
-          onToggleLock={(id, lock) => toggleLock(id, lock).catch(() => {})}
-          onDelete={(id) => deleteSession(id).catch(() => {})}
-          onFocusSession={handleFocusSession}
-          onSetCurrent={handleSetCurrentSession}
-          zoomedSessionId={zoomedSessionId}
-          onToggleZoom={handleToggleZoom}
-          chordArmed={chordState.isArmed}
-          sessionNumbers={sessionNumbers}
-        />
+        {/* Main Content: Project List, Project Detail, or Session Grid */}
+        {currentView === 'projects' ? (
+          <div className="flex-1 overflow-auto">
+            <ProjectList
+              onSelectProject={handleSelectProject}
+              onCreateProject={() => {}}
+              onNewAgent={(projectId) => handleSelectProject(projectId)}
+              onViewTickets={(projectId) => handleSelectProject(projectId)}
+              onOpenGithub={(githubRepo) => window.open(`https://github.com/${githubRepo}`, '_blank')}
+            />
+          </div>
+        ) : selectedProjectId && findProject(selectedProjectId) ? (
+          <ProjectDetail
+            projectId={selectedProjectId}
+            project={findProject(selectedProjectId)!}
+            onBack={handleBackToProjects}
+            onStartAgent={(projectId, issueNumber) => {
+              // Navigate back to sessions view when starting an agent
+              console.log('[Dashboard] Start agent for project:', projectId, 'issue:', issueNumber);
+            }}
+          />
+        ) : (
+          <>
+            {selectedProjectId && (
+              <div className="flex items-center gap-2 px-4 py-1.5 border-b border-gray-700 bg-gray-800/30 flex-shrink-0">
+                <button
+                  onClick={handleBackToProjects}
+                  className="flex items-center gap-1 text-sm text-gray-400 hover:text-white transition-colors"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="15 18 9 12 15 6" />
+                  </svg>
+                  Back to Projects
+                </button>
+              </div>
+            )}
+            <SessionGrid
+              displayedSessions={displayedSessions}
+              overflowSessions={overflowSessions}
+              currentSessionId={currentSessionId}
+              workers={workersList}
+              onKill={(id) => killSession(id).catch(() => {})}
+              onToggleLock={(id, lock) => toggleLock(id, lock).catch(() => {})}
+              onDelete={(id) => deleteSession(id).catch(() => {})}
+              onFocusSession={handleFocusSession}
+              onSetCurrent={handleSetCurrentSession}
+              zoomedSessionId={zoomedSessionId}
+              onToggleZoom={handleToggleZoom}
+              chordArmed={chordState.isArmed}
+              sessionNumbers={sessionNumbers}
+            />
+          </>
+        )}
       </div>
 
       {/* Chord Indicator */}

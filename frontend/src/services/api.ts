@@ -32,6 +32,7 @@ export interface Session {
   continuationCount: number;
   worktree: boolean;
   flags: string;
+  projectId: string | null;
   createdAt: string;
   startedAt: string | null;
   completedAt: string | null;
@@ -58,11 +59,25 @@ export interface Project {
   displayName: string;
   bookmarked: boolean;
   position: number | null;
+  parentId: string | null;
+  githubRepo: string | null;
   lastUsedAt: string;
   createdAt: string;
   workerName?: string;
   workerType?: 'local' | 'remote';
   workerStatus?: 'connected' | 'disconnected' | 'error';
+  // For tree responses:
+  children?: ProjectTree[];
+  activeAgents?: number;
+  waitingAgents?: number;
+  sessionCount?: number;
+}
+
+export interface ProjectTree extends Project {
+  children: ProjectTree[];
+  activeAgents: number;
+  waitingAgents: number;
+  sessionCount: number;
 }
 
 export interface Settings {
@@ -99,10 +114,10 @@ export const sessions = {
   list: (status?: SessionStatus) =>
     request<Session[]>(`/sessions${status ? `?status=${status}` : ''}`),
 
-  create: (data: { workingDirectory: string; title: string; targetWorker?: string | null; worktree?: boolean; continueLatest?: boolean; resume?: boolean; flags?: string }) =>
+  create: (data: { workingDirectory: string; title: string; targetWorker?: string | null; worktree?: boolean; continueLatest?: boolean; resume?: boolean; flags?: string; projectId?: string }) =>
     request<Session>('/sessions', { method: 'POST', body: JSON.stringify(data) }),
 
-  update: (id: string, data: { title?: string; lock?: boolean }) =>
+  update: (id: string, data: { title?: string; lock?: boolean; projectId?: string | null }) =>
     request<Session>(`/sessions/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
 
   delete: (id: string) => request<void>(`/sessions/${id}`, { method: 'DELETE' }),
@@ -170,13 +185,51 @@ export const projects = {
     return request<{ projects: Project[] }>(`/projects${query ? `?${query}` : ''}`);
   },
 
-  create: (data: { workerId: string; directoryPath: string; displayName?: string; bookmarked?: boolean }) =>
+  create: (data: { workerId: string; directoryPath?: string; displayName?: string; bookmarked?: boolean; parentId?: string; githubRepo?: string }) =>
     request<Project>('/projects', { method: 'POST', body: JSON.stringify(data) }),
 
-  update: (id: string, data: { displayName?: string; bookmarked?: boolean; position?: number | null }) =>
+  update: (id: string, data: { displayName?: string; bookmarked?: boolean; position?: number | null; githubRepo?: string; parentId?: string | null }) =>
     request<Project>(`/projects/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
 
   delete: (id: string) => request<void>(`/projects/${id}`, { method: 'DELETE' }),
+
+  tree: (workerId?: string) => {
+    const params = new URLSearchParams();
+    if (workerId) params.set('workerId', workerId);
+    const query = params.toString();
+    return request<{ projects: ProjectTree[] }>(`/projects${query ? `?${query}` : ''}`);
+  },
+
+  issues: (projectId: string, filters?: { state?: string; label?: string; assignee?: string; refresh?: boolean }) => {
+    const params = new URLSearchParams();
+    if (filters?.state) params.set('state', filters.state);
+    if (filters?.label) params.set('label', filters.label);
+    if (filters?.assignee) params.set('assignee', filters.assignee);
+    if (filters?.refresh) params.set('refresh', 'true');
+    const query = params.toString();
+    return request<{ issues: GitHubIssue[]; fetchedAt: string; cached: boolean }>(`/projects/${projectId}/issues${query ? `?${query}` : ''}`);
+  },
+
+  issueDetail: (projectId: string, issueNumber: number) =>
+    request<GitHubIssueDetail & { fetchedAt: string; cached: boolean }>(`/projects/${projectId}/issues/${issueNumber}`),
+
+  prs: (projectId: string, filters?: { state?: string; label?: string; refresh?: boolean }) => {
+    const params = new URLSearchParams();
+    if (filters?.state) params.set('state', filters.state);
+    if (filters?.label) params.set('label', filters.label);
+    if (filters?.refresh) params.set('refresh', 'true');
+    const query = params.toString();
+    return request<{ prs: GitHubPR[]; fetchedAt: string; cached: boolean }>(`/projects/${projectId}/prs${query ? `?${query}` : ''}`);
+  },
+
+  createSessionFromIssue: (projectId: string, data: { issueNumber: number; targetWorker?: string }) =>
+    request<{ session: Session; branchName: string; issueTitle: string }>(`/projects/${projectId}/sessions/from-issue`, { method: 'POST', body: JSON.stringify(data) }),
+
+  suggestedSessions: (projectId: string) =>
+    request<{ sessions: Session[] }>(`/projects/${projectId}/suggested-sessions`),
+
+  associateSessions: (projectId: string, sessionIds: string[]) =>
+    request<{ ok: boolean }>(`/projects/${projectId}/associate-sessions`, { method: 'POST', body: JSON.stringify({ sessionIds }) }),
 };
 
 // ─── Files ───
@@ -460,6 +513,22 @@ export interface GitHubIssueDetail extends GitHubIssue {
   comments: GitHubComment[];
 }
 
+export interface GitHubPR {
+  number: number;
+  title: string;
+  state: 'OPEN' | 'CLOSED' | 'MERGED';
+  body: string;
+  author: { login: string };
+  headRefName: string;
+  baseRefName: string;
+  isDraft: boolean;
+  labels: Array<{ name: string; color: string }>;
+  reviewDecision: string | null;
+  url: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface GitHubIssueList {
   issues: GitHubIssue[];
   totalCount: number;
@@ -467,6 +536,8 @@ export interface GitHubIssueList {
 }
 
 export const github = {
+  check: () => request<{ available: boolean; version?: string; user?: string; error?: string }>('/github/check'),
+
   status: (sessionId: string) =>
     request<GitHubStatus>(`/sessions/${sessionId}/github/status`),
 

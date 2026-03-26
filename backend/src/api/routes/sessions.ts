@@ -23,12 +23,33 @@ export function createSessionsRouter(repo: Repository, sessionManager: SessionMa
       return;
     }
     const sessions = repo.listSessions(status);
-    res.json(sessions);
+
+    // Enrich sessions with projectId by matching working_directory to projects
+    if (projectService) {
+      const projects = projectService.listProjects();
+      // Build a map from normalized directory path to project id
+      const dirToProject = new Map<string, string>();
+      for (const p of projects) {
+        const normalizedDir = p.directoryPath.replace(/\\/g, '/').replace(/\/+$/, '');
+        if (normalizedDir) {
+          dirToProject.set(normalizedDir, p.id);
+        }
+      }
+
+      const enriched = sessions.map((s) => {
+        const normalizedSessionDir = s.workingDirectory.replace(/\\/g, '/').replace(/\/+$/, '');
+        const projectId = dirToProject.get(normalizedSessionDir) ?? null;
+        return { ...s, projectId };
+      });
+      res.json(enriched);
+    } else {
+      res.json(sessions);
+    }
   });
 
   // POST /api/sessions — create a new session (or auto-continue if existing session in same dir)
   router.post('/', validateBody(['workingDirectory', 'title']), async (req, res) => {
-    const { workingDirectory, title, targetWorker, worktree, continueLatest, resume, flags } = req.body;
+    const { workingDirectory, title, targetWorker, worktree, continueLatest, resume, flags, projectId } = req.body;
     if (typeof workingDirectory !== 'string' || typeof title !== 'string') {
       res.status(400).json({ error: 'workingDirectory and title must be strings' });
       return;
@@ -140,7 +161,15 @@ export function createSessionsRouter(repo: Repository, sessionManager: SessionMa
     // Auto-track project (FR-003)
     if (projectService && effectiveWorker) {
       try {
-        projectService.touchProject(effectiveWorker, resolvedDir);
+        if (projectId) {
+          // Explicitly associate with the given project
+          const project = projectService.getProject(projectId);
+          if (project) {
+            projectService.touchProject(project.workerId, project.directoryPath);
+          }
+        } else {
+          projectService.touchProject(effectiveWorker, resolvedDir);
+        }
       } catch (err) {
         logger.warn({ err, workerId: effectiveWorker, dir: resolvedDir }, 'failed to auto-track project');
       }
@@ -179,7 +208,7 @@ export function createSessionsRouter(repo: Repository, sessionManager: SessionMa
     }
   });
 
-  // PATCH /api/sessions/:id — update session (reorder, title, lock)
+  // PATCH /api/sessions/:id — update session (reorder, title, lock, projectId)
   router.patch('/:id', validateUuid('id'), (req, res) => {
     const id = String(req.params.id);
     const session = repo.getSession(id);
@@ -187,7 +216,21 @@ export function createSessionsRouter(repo: Repository, sessionManager: SessionMa
       res.status(404).json({ error: 'Session not found' });
       return;
     }
-    const updated = repo.updateSession(id, req.body);
+    const { projectId, ...sessionUpdates } = req.body;
+    const updated = repo.updateSession(id, sessionUpdates);
+
+    // If projectId is provided, associate the session's directory with that project
+    if (projectId && projectService) {
+      try {
+        const project = projectService.getProject(projectId);
+        if (project) {
+          projectService.touchProject(project.workerId, project.directoryPath);
+        }
+      } catch (err) {
+        logger.warn({ err, sessionId: id, projectId }, 'failed to associate session with project');
+      }
+    }
+
     res.json(updated);
   });
 

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import type { Repository } from '../../models/repository.js';
+import type { GitHubService } from '../../services/github-service.js';
 import { validateUuid } from '../middleware.js';
 import { checkGhStatus, listIssues, getIssueDetail } from '../../worker/github-cli.js';
 import { logger } from '../../services/logger.js';
@@ -114,6 +115,18 @@ export function createGitHubRouter(repo: Repository): Router {
       logger.error({ sessionId, issueNumber, err }, 'failed to get issue detail');
       res.status(500).json({ error: message });
     }
+  });
+
+  return router;
+}
+
+export function createGithubCheckRouter(githubService: GitHubService): Router {
+  const router = Router();
+
+  // GET /api/github/check
+  router.get('/check', async (_req, res) => {
+    const result = await githubService.checkGhAvailable();
+    res.json(result);
   });
 
   return router;
