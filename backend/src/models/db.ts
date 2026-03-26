@@ -427,6 +427,16 @@ function migrate(database: Database.Database): void {
     database.exec(`UPDATE video_recordings SET video_path = events_path WHERE video_path IS NULL`);
   }
 
+  // Add parent_id and github_repo columns to projects (046-project-first-ui)
+  const projectCols = database.pragma('table_info(projects)') as Array<{ name: string }>;
+  const projectColNames = new Set(projectCols.map((c) => c.name));
+  if (!projectColNames.has('parent_id')) {
+    database.exec('ALTER TABLE projects ADD COLUMN parent_id TEXT DEFAULT NULL REFERENCES projects(id) ON DELETE SET NULL');
+  }
+  if (!projectColNames.has('github_repo')) {
+    database.exec('ALTER TABLE projects ADD COLUMN github_repo TEXT DEFAULT NULL');
+  }
+
   // Add panel_layout_snapshots table (035-save-panel-position)
   const layoutSnapshotTableExists = database.prepare(
     "SELECT name FROM sqlite_master WHERE type='table' AND name='panel_layout_snapshots'"

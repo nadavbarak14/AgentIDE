@@ -139,6 +139,8 @@ function rowToProject(row: Record<string, unknown>): Project {
     workerId: row.worker_id as string,
     directoryPath: row.directory_path as string,
     displayName: row.display_name as string,
+    parentId: (row.parent_id as string) || null,
+    githubRepo: (row.github_repo as string) || null,
     bookmarked: Boolean(row.bookmarked),
     position: row.position as number | null,
     lastUsedAt: row.last_used_at as string,
@@ -888,14 +890,16 @@ export class Repository {
     // Upsert: if the worker_id+directory_path pair already exists, update it
     this.db
       .prepare(
-        `INSERT INTO projects (id, worker_id, directory_path, display_name, bookmarked, last_used_at, created_at)
-         VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+        `INSERT INTO projects (id, worker_id, directory_path, display_name, bookmarked, parent_id, github_repo, last_used_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
          ON CONFLICT(worker_id, directory_path) DO UPDATE SET
            display_name = CASE WHEN excluded.display_name != '' THEN excluded.display_name ELSE projects.display_name END,
            bookmarked = excluded.bookmarked,
+           parent_id = COALESCE(excluded.parent_id, projects.parent_id),
+           github_repo = COALESCE(excluded.github_repo, projects.github_repo),
            last_used_at = datetime('now')`,
       )
-      .run(id, input.workerId, input.directoryPath, displayName, input.bookmarked ? 1 : 0);
+      .run(id, input.workerId, input.directoryPath, displayName, input.bookmarked ? 1 : 0, input.parentId || null, input.githubRepo || null);
 
     // Return the actual row (may be existing row on conflict)
     const row = this.db
@@ -953,6 +957,14 @@ export class Repository {
       updates.push('position = ?');
       params.push(input.position);
     }
+    if (input.githubRepo !== undefined) {
+      updates.push('github_repo = ?');
+      params.push(input.githubRepo);
+    }
+    if (input.parentId !== undefined) {
+      updates.push('parent_id = ?');
+      params.push(input.parentId);
+    }
     if (updates.length === 0) return this.getProject(id);
 
     params.push(id);
@@ -990,6 +1002,43 @@ export class Repository {
          )`,
       )
       .run(maxRecent);
+  }
+
+  getChildProjects(parentId: string): Project[] {
+    const rows = this.db
+      .prepare('SELECT * FROM projects WHERE parent_id = ? ORDER BY display_name ASC')
+      .all(parentId) as Record<string, unknown>[];
+    return rows.map(rowToProject);
+  }
+
+  /**
+   * Get session counts (active, waiting, total) for each project,
+   * matched by working_directory = project.directory_path AND worker_id = project.worker_id.
+   */
+  getSessionCountsByProject(): Map<string, { active: number; waiting: number; total: number }> {
+    const rows = this.db
+      .prepare(
+        `SELECT p.id AS project_id,
+                COUNT(s.id) AS total,
+                SUM(CASE WHEN s.status = 'active' AND s.needs_input = 0 THEN 1 ELSE 0 END) AS active,
+                SUM(CASE WHEN s.status = 'active' AND s.needs_input = 1 THEN 1 ELSE 0 END) AS waiting
+         FROM projects p
+         LEFT JOIN sessions s ON s.working_directory = p.directory_path
+           AND (s.worker_id = p.worker_id OR s.worker_id IS NULL)
+           AND s.status = 'active'
+         GROUP BY p.id`,
+      )
+      .all() as Array<{ project_id: string; total: number; active: number; waiting: number }>;
+
+    const map = new Map<string, { active: number; waiting: number; total: number }>();
+    for (const row of rows) {
+      map.set(row.project_id, {
+        active: Number(row.active) || 0,
+        waiting: Number(row.waiting) || 0,
+        total: Number(row.total) || 0,
+      });
+    }
+    return map;
   }
 
   // ─── Preview Comments ───

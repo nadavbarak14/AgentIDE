@@ -18,10 +18,11 @@ import { createDirectoriesRouter } from './api/routes/directories.js';
 import { createProjectsRouter } from './api/routes/projects.js';
 import { createHooksRouter } from './api/routes/hooks.js';
 import { createHealthRouter } from './api/routes/health.js';
-import { createGitHubRouter } from './api/routes/github.js';
+import { createGitHubRouter, createGithubCheckRouter } from './api/routes/github.js';
 import { createPreviewRouter } from './api/routes/preview.js';
 import { createUploadsRouter } from './api/routes/uploads.js';
 import { PreviewService } from './services/preview-service.js';
+import { GitHubService } from './services/github-service.js';
 import { setupWebSocket, broadcastToSession, broadcastSessionStateChanged, handleViewCommand } from './api/websocket.js';
 import { FileWatcher } from './worker/file-watcher.js';
 import { requestLogger, errorHandler } from './api/middleware.js';
@@ -159,6 +160,7 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
   const sessionManager = new SessionManager(repo, ptySpawner, shellSpawner, remotePtyBridge, tunnelManager);
   const projectService = new ProjectService(repo);
   const previewService = new PreviewService(repo, sessionManager);
+  const githubService = new GitHubService(repo);
 
   // File watcher — watches session working directories for changes
   const fileWatcher = new FileWatcher();
@@ -442,6 +444,7 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
   app.use('/api/directories', createDirectoriesRouter());
   app.use('/api/projects', createProjectsRouter(repo, projectService));
   app.use('/api/sessions', createGitHubRouter(repo));
+  app.use('/api/github', createGithubCheckRouter(githubService));
   app.use('/api/sessions', createPreviewRouter(repo, previewService, agentTunnelManager));
   app.use('/api/sessions', createUploadsRouter(repo, previewService));
 

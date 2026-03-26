@@ -83,10 +83,19 @@ export interface Project {
   workerId: string;
   directoryPath: string;
   displayName: string;
+  parentId: string | null;
+  githubRepo: string | null;
   bookmarked: boolean;
   position: number | null;
   lastUsedAt: string;
   createdAt: string;
+}
+
+export interface ProjectTree extends Project {
+  children: ProjectTree[];
+  activeAgents: number;
+  waitingAgents: number;
+  sessionCount: number;
 }
 
 export interface CreateProjectInput {
@@ -94,12 +103,16 @@ export interface CreateProjectInput {
   directoryPath: string;
   displayName?: string;
   bookmarked?: boolean;
+  parentId?: string;
+  githubRepo?: string;
 }
 
 export interface UpdateProjectInput {
   displayName?: string;
   bookmarked?: boolean;
   position?: number | null;
+  githubRepo?: string;
+  parentId?: string | null;
 }
 
 // Artifact
