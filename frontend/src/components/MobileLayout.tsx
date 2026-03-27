@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, type ReactNode } from 'react';
+import { useState, useRef, useCallback, useEffect, forwardRef, useImperativeHandle, type ReactNode } from 'react';
 import { MobileTopBar } from './MobileTopBar';
 import { MobileActionBar } from './MobileActionBar';
 import { MobileHamburgerMenu } from './MobileHamburgerMenu';
@@ -11,12 +11,17 @@ import { DiffViewer } from './DiffViewer';
 import { ShellTerminal } from './ShellTerminal';
 import { GitHubIssues } from './GitHubIssues';
 import { WidgetPanel } from './WidgetPanel';
-import { ExtensionPanel } from './ExtensionPanel';
+import { ExtensionPanel, type ExtensionPanelHandle } from './ExtensionPanel';
 import { SettingsPanel } from './SettingsPanel';
 import { useMobilePanel, type MobilePanelName } from '../hooks/useMobilePanel';
 import { useExtensions } from '../hooks/useExtensions';
 import { useWidgets } from '../hooks/useWidgets';
 import type { Settings, Worker, Session } from '../services/api';
+
+export interface MobileLayoutHandle {
+  /** Forward file_changed paths from WS so extensions (e.g. work-report) can react */
+  handleFileChanged: (paths: string[]) => void;
+}
 
 interface MobileLayoutProps {
   viewportHeight: number;
@@ -47,7 +52,7 @@ interface MobileLayoutProps {
   onWorkersChange?: (workers: Worker[]) => void;
 }
 
-export function MobileLayout({
+export const MobileLayout = forwardRef<MobileLayoutHandle, MobileLayoutProps>(function MobileLayout({
   viewportHeight,
   keyboardOpen,
   keyboardOffset,
@@ -72,15 +77,60 @@ export function MobileLayout({
   onSettingsChange,
   workers,
   onWorkersChange,
-}: MobileLayoutProps) {
+}, ref) {
   const { activePanel, open, close } = useMobilePanel();
 
-  // Extensions and widgets (per-session hooks, same as SessionCard)
+  // Extensions and widgets
   const { extensionsWithPanel } = useExtensions();
   const { widgets, activeWidget, removeWidget, widgetCount } = useWidgets();
 
+  // Per-session extension enablement (same as SessionCard)
+  const [enabledExtensions, setEnabledExtensions] = useState<string[]>([]);
+
+  // Load enabled extensions from server when session changes
+  useEffect(() => {
+    if (!currentSessionId) { setEnabledExtensions([]); return; }
+    fetch(`/api/sessions/${currentSessionId}/metadata`)
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data.extensions)) setEnabledExtensions(data.extensions);
+      })
+      .catch(() => {});
+  }, [currentSessionId]);
+
+  const toggleExtension = useCallback((name: string) => {
+    if (!currentSessionId) return;
+    setEnabledExtensions((prev) => {
+      const next = prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name];
+      fetch(`/api/sessions/${currentSessionId}/extensions`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: next }),
+      }).catch(() => {});
+      return next;
+    });
+  }, [currentSessionId]);
+
   // Extension panel state
   const [activeExtensionName, setActiveExtensionName] = useState<string | null>(null);
+  // Ref to the currently rendered extension panel for forwarding board commands
+  const extensionPanelRef = useRef<ExtensionPanelHandle | null>(null);
+
+  // Expose handleFileChanged so Dashboard can forward WS file_changed events
+  useImperativeHandle(ref, () => ({
+    handleFileChanged: (paths: string[]) => {
+      if (paths.some((p: string) => p.endsWith('report.html') || p.endsWith('/report.html'))) {
+        // Forward to work-report extension if it's currently rendered
+        if (activeExtensionName === 'work-report' && extensionPanelRef.current) {
+          extensionPanelRef.current.sendToExtension({
+            type: 'board-command',
+            command: 'report.file_changed',
+            params: {},
+          });
+        }
+      }
+    },
+  }), [activeExtensionName]);
 
   const currentSession = sessions.find((s) => s.id === currentSessionId);
   const waitingCount = activeSessions.filter(
@@ -123,10 +173,14 @@ export function MobileLayout({
   }, [onFocusSession, close]);
 
   const handleSelectExtension = useCallback((name: string) => {
-    close(); // Close hamburger
+    // Auto-enable extension for this session when opened on mobile
+    if (!enabledExtensions.includes(name)) {
+      toggleExtension(name);
+    }
+    close(); // Close extensions list
     setActiveExtensionName(name);
     setTimeout(() => open('extension'), 50);
-  }, [open, close]);
+  }, [open, close, enabledExtensions, toggleExtension]);
 
   const handleExtensionClose = useCallback(() => {
     setActiveExtensionName(null);
@@ -277,25 +331,40 @@ export function MobileLayout({
         </MobileSheetOverlay>
       )}
 
-      {/* Extensions List Overlay */}
+      {/* Extensions List Overlay — shows enable toggle + open button */}
       {activePanel === 'extensions' && (
         <MobileSheetOverlay title="Extensions" onClose={close}>
           <div className="flex flex-col p-2 gap-1">
-            {extensionsWithPanel.map((ext) => (
-              <button
-                key={ext.name}
-                type="button"
-                onClick={() => handleSelectExtension(ext.name)}
-                className="flex items-center gap-3 w-full min-h-[52px] px-4 rounded-lg bg-gray-900 hover:bg-gray-800 text-gray-200 transition-colors"
-              >
-                <span className="flex-shrink-0 text-gray-400">
-                  <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M13 2H7v4H3v6h4v4h6v-4h4V6h-4V2z" />
-                  </svg>
-                </span>
-                <span className="text-sm font-medium">{ext.displayName}</span>
-              </button>
-            ))}
+            {extensionsWithPanel.map((ext) => {
+              const enabled = enabledExtensions.includes(ext.name);
+              return (
+                <div
+                  key={ext.name}
+                  className="flex items-center gap-3 w-full min-h-[52px] px-4 rounded-lg bg-gray-900"
+                >
+                  <button
+                    type="button"
+                    onClick={() => handleSelectExtension(ext.name)}
+                    className="flex items-center gap-3 flex-1 min-w-0 text-gray-200 hover:text-white"
+                  >
+                    <span className="flex-shrink-0 text-gray-400">
+                      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M13 2H7v4H3v6h4v4h6v-4h4V6h-4V2z" />
+                      </svg>
+                    </span>
+                    <span className="text-sm font-medium truncate">{ext.displayName}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => toggleExtension(ext.name)}
+                    className={`flex-shrink-0 w-10 h-6 rounded-full transition-colors ${enabled ? 'bg-blue-600' : 'bg-gray-600'}`}
+                    title={enabled ? 'Disable extension' : 'Enable extension'}
+                  >
+                    <div className={`w-4 h-4 bg-white rounded-full transition-transform mx-1 ${enabled ? 'translate-x-4' : 'translate-x-0'}`} />
+                  </button>
+                </div>
+              );
+            })}
           </div>
         </MobileSheetOverlay>
       )}
@@ -307,6 +376,7 @@ export function MobileLayout({
         return (
           <MobileSheetOverlay title={ext.displayName} onClose={handleExtensionClose}>
             <ExtensionPanel
+              ref={(handle) => { extensionPanelRef.current = handle; }}
               extension={ext}
               sessionId={currentSessionId}
               onClose={handleExtensionClose}
@@ -328,4 +398,4 @@ export function MobileLayout({
       )}
     </div>
   );
-}
+});

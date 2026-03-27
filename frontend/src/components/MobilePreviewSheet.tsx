@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { StreamPreview } from './StreamPreview';
 import { useStreamPreview } from '../hooks/useStreamPreview';
+import { getPresetById } from '../constants/devicePresets';
 
 interface MobilePreviewSheetProps {
   sessionId: string;
@@ -21,6 +22,10 @@ export function MobilePreviewSheet({
   const [visible, setVisible] = useState(false);
   const preview = useStreamPreview(sessionId, true);
 
+  // Local viewport state for mobile preview sheet
+  const [viewport, setViewport] = useState<'desktop' | 'mobile' | 'custom' | null>(null);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
+
   useEffect(() => {
     requestAnimationFrame(() => setVisible(true));
   }, []);
@@ -29,6 +34,20 @@ export function MobilePreviewSheet({
     setVisible(false);
     setTimeout(onClose, 300);
   };
+
+  const handleViewportChange = useCallback((vp: 'desktop' | 'mobile' | 'custom' | null, deviceId?: string) => {
+    setViewport(vp);
+    if ((vp === 'mobile' || vp === 'desktop') && deviceId) {
+      setSelectedDeviceId(deviceId);
+      const preset = getPresetById(deviceId);
+      if (preset) {
+        preview.sendResize(preset.width, preset.height);
+      }
+    } else if (vp === null) {
+      setSelectedDeviceId(null);
+      preview.sendResize(1280, 720);
+    }
+  }, [preview]);
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex flex-col bg-gray-900">
@@ -49,6 +68,9 @@ export function MobilePreviewSheet({
           onResize={preview.sendResize}
           onClose={handleClose}
           detectedPorts={detectedPorts}
+          viewport={viewport}
+          selectedDeviceId={selectedDeviceId}
+          onViewportChange={handleViewportChange}
         />
       </div>
     </div>,
