@@ -15,7 +15,7 @@ import { settings as settingsApi, workers as workersApi, type Settings, type Ses
 import { WorkerHealth } from '../components/WorkerHealth';
 import { MobileSessionSelector } from '../components/MobileSessionSelector';
 import { WaitingSessionAlert } from '../components/WaitingSessionAlert';
-import { MobileLayout } from '../components/MobileLayout';
+import { MobileLayout, type MobileLayoutHandle } from '../components/MobileLayout';
 import { TerminalView, type TerminalViewHandle } from '../components/TerminalView';
 import { useClaudeMode } from '../hooks/useClaudeMode';
 import { useVisualViewport } from '../hooks/useVisualViewport';
@@ -816,6 +816,7 @@ export function Dashboard() {
   }, [activeSessions]);
 
   // ── Mobile Terminal State ──────────────────────────────────────────
+  const mobileLayoutRef = useRef<MobileLayoutHandle>(null);
   const mobileTerminalRef = useRef<TerminalViewHandle>(null);
   const mobileOutputBufferRef = useRef<string[]>([]);
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -832,6 +833,11 @@ export function Dashboard() {
   const handleMobileWsMessage = useCallback((msg: WsServerMessage) => {
     if (msg.type === 'port_detected') {
       setMobileDetectedPort({ port: msg.port, localPort: msg.localPort });
+    }
+    // Forward file_changed events to MobileLayout for extension handling (e.g. work-report)
+    if (msg.type === 'file_changed') {
+      const paths = (msg as { paths?: string[] }).paths ?? [];
+      mobileLayoutRef.current?.handleFileChanged(paths);
     }
   }, []);
 
@@ -857,6 +863,7 @@ export function Dashboard() {
     return (
       <>
         <MobileLayout
+          ref={mobileLayoutRef}
           viewportHeight={viewportHeight}
           keyboardOpen={false}
           keyboardOffset={keyboardOffset}

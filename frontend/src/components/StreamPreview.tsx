@@ -91,9 +91,9 @@ export function StreamPreview({
     setAddressInput(currentUrl);
   }, [currentUrl]);
 
-  // Notify parent of container resize
+  // Notify parent of container resize — only in responsive mode (no device preset active)
   useEffect(() => {
-    if (!containerRef.current || !onResize) return;
+    if (!containerRef.current || !onResize || viewport) return;
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
@@ -102,7 +102,7 @@ export function StreamPreview({
     });
     observer.observe(containerRef.current);
     return () => observer.disconnect();
-  }, [onResize]);
+  }, [onResize, viewport]);
 
   // Close device menu when clicking outside
   useEffect(() => {
