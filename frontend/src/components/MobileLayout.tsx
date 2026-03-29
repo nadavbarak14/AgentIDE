@@ -16,7 +16,6 @@ import { SettingsPanel } from './SettingsPanel';
 import { useMobilePanel, type MobilePanelName } from '../hooks/useMobilePanel';
 import { useExtensions } from '../hooks/useExtensions';
 import { useWidgets } from '../hooks/useWidgets';
-import { ProjectSidePanel } from './ProjectSidePanel';
 import { ProjectDetail } from './ProjectDetail';
 import { CreateProjectModal } from './CreateProjectModal';
 import type { Settings, Worker, Session, ProjectTree } from '../services/api';
@@ -86,8 +85,8 @@ export const MobileLayout = forwardRef<MobileLayoutHandle, MobileLayoutProps>(fu
   workers,
   onWorkersChange,
   projectTree,
-  selectedProjectId,
-  onSelectProject,
+  selectedProjectId: _selectedProjectId,
+  onSelectProject: _onSelectProject,
   onStartAgent: onStartAgentProp,
 }, ref) {
   const { activePanel, open, close } = useMobilePanel();
@@ -381,7 +380,7 @@ export const MobileLayout = forwardRef<MobileLayoutHandle, MobileLayoutProps>(fu
                 projectId={mobileOpenProjectId}
                 project={project}
                 onBack={close}
-                onStartAgent={(projectId, issueNumber) => {
+                onStartAgent={(projectId, _issueNumber) => {
                   const workDir = project.directoryPath
                     || (project.githubRepo ? `/home/ubuntu/projects/${project.githubRepo.split('/').pop()}` : '');
                   if (!workDir) return;
