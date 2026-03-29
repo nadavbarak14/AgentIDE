@@ -198,6 +198,16 @@ export function ProjectDetail({
       <div className="flex-1 overflow-hidden">
         {activeTab === 'sessions' && (
           <div className="h-full overflow-y-auto p-4">
+            {/* Start new agent button — always visible */}
+            {onStartAgent && (
+              <button
+                onClick={() => onStartAgent(projectId)}
+                className="w-full mb-3 py-2 text-sm text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 rounded-lg transition"
+              >
+                + Start New Agent
+              </button>
+            )}
+
             {/* Suggested Sessions Banner */}
             {!suggestedDismissed && suggestedSessions.length > 0 && (
               <div className="mb-4 bg-blue-500/10 border border-blue-500/30 rounded-lg p-3 flex items-center justify-between">

@@ -944,6 +944,35 @@ export function Dashboard() {
             </div>
           </>
         )}
+
+        {/* Start Agent Modal (mobile) */}
+        {startAgentModal && (
+          <StartAgentModal
+            defaultName={startAgentModal.defaultName || startAgentModal.project?.displayName || 'New agent'}
+            projectName={startAgentModal.project?.displayName || 'Project'}
+            onClose={() => setStartAgentModal(null)}
+            onConfirm={async (options) => {
+              const { projectId, workDir } = startAgentModal;
+              setStartAgentModal(null);
+              try {
+                const { sessions: sApi } = await import('../services/api');
+                const session = await sApi.create({
+                  workingDirectory: workDir,
+                  title: options.title,
+                  targetWorker: startAgentModal.project?.workerId,
+                  projectId,
+                  worktree: options.worktree || undefined,
+                  resume: options.resume || undefined,
+                  continueLatest: options.continueLatest || undefined,
+                  flags: options.flags || undefined,
+                });
+                handleFocusSession(session.id);
+              } catch (err) {
+                console.error('Failed to start agent:', err);
+              }
+            }}
+          />
+        )}
       </>
     );
   }
