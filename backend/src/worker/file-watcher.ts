@@ -1,20 +1,6 @@
-import { watch, type FSWatcher } from 'chokidar';
 import { EventEmitter } from 'node:events';
 import { logger } from '../services/logger.js';
 import { scanPorts, type DetectedPort } from './port-scanner.js';
-
-/** Directories to ignore when watching for changes */
-const IGNORED_PATTERNS = [
-  '**/node_modules/**',
-  '**/.git/**',
-  '**/dist/**',
-  '**/.next/**',
-  '**/__pycache__/**',
-  '**/.pytest_cache/**',
-  '**/coverage/**',
-];
-
-const DEBOUNCE_MS = 500;
 
 export interface FileChangeEvent {
   sessionId: string;
@@ -32,85 +18,47 @@ export interface PortChangeEvent {
 
 const PORT_SCAN_INTERVAL = 5000;
 
+/**
+ * Lightweight session monitor — port scanning only, no filesystem watching.
+ *
+ * Chokidar file watching was removed because:
+ * - It created 100K+ inotify watches on large projects, consuming 4-6 GB of RAM
+ * - It blocked the event loop during startup (initial directory scan)
+ * - Real-time file change notifications aren't needed — Claude's terminal output
+ *   already tells the UI what happened
+ *
+ * Port scanning is kept because the preview panel needs to auto-detect dev servers.
+ * The class name is kept as FileWatcher for backwards compatibility.
+ */
 export class FileWatcher extends EventEmitter {
-  private watchers = new Map<string, FSWatcher>();
-  private pendingChanges = new Map<string, Set<string>>();
-  private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private activeSessions = new Set<string>();
   private portScanTimers = new Map<string, ReturnType<typeof setInterval>>();
   private knownPorts = new Map<string, Map<number, DetectedPort>>();
   private sessionPids = new Map<string, number>();
 
   /**
-   * Start watching a directory for file changes and scanning for ports.
-   * Changes are debounced over 500ms before being emitted.
-   * @param sessionId - The session to associate changes with
-   * @param directory - The directory to watch recursively
-   * @param pid - Optional PID of the session's process (for port filtering)
+   * Start monitoring a session (port scanning only).
    */
-  startWatching(sessionId: string, directory: string, pid?: number): void {
-    // Stop any existing watcher for this session
-    if (this.watchers.has(sessionId)) {
+  startWatching(sessionId: string, _directory: string, pid?: number): void {
+    if (this.activeSessions.has(sessionId)) {
       this.stopWatching(sessionId);
     }
 
-    logger.info({ sessionId, directory }, 'starting file watcher');
+    this.activeSessions.add(sessionId);
 
-    // WSL2: inotify works on native filesystem; /mnt/c/ may have delayed events
-    const watcher = watch(directory, {
-      ignored: IGNORED_PATTERNS,
-      persistent: true,
-      ignoreInitial: true,
-      awaitWriteFinish: {
-        stabilityThreshold: 200,
-        pollInterval: 100,
-      },
-    });
-
-    const handleChange = (filePath: string) => {
-      this.queueChange(sessionId, filePath);
-    };
-
-    watcher.on('add', handleChange);
-    watcher.on('change', handleChange);
-    watcher.on('unlink', handleChange);
-    watcher.on('addDir', handleChange);
-    watcher.on('unlinkDir', handleChange);
-
-    watcher.on('error', (err: unknown) => {
-      logger.error({ err, sessionId, directory }, 'file watcher error');
-    });
-
-    this.watchers.set(sessionId, watcher);
-
-    // Start port scanning if PID provided
     if (pid) {
       this.sessionPids.set(sessionId, pid);
       this.knownPorts.set(sessionId, new Map());
       this.startPortScanning(sessionId, pid);
+      logger.info({ sessionId, pid }, 'started port scanning');
     }
   }
 
   /**
-   * Stop watching for a given session and clean up resources.
-   * @param sessionId - The session to stop watching
+   * Stop monitoring a session and clean up resources.
    */
   stopWatching(sessionId: string): void {
-    const watcher = this.watchers.get(sessionId);
-    if (watcher) {
-      logger.info({ sessionId }, 'stopping file watcher');
-      watcher.close().catch((err: unknown) => {
-        logger.error({ err, sessionId }, 'error closing file watcher');
-      });
-      this.watchers.delete(sessionId);
-    }
-
-    // Clear pending changes and timers
-    const timer = this.debounceTimers.get(sessionId);
-    if (timer) {
-      clearTimeout(timer);
-      this.debounceTimers.delete(sessionId);
-    }
-    this.pendingChanges.delete(sessionId);
+    this.activeSessions.delete(sessionId);
 
     // Stop port scanning
     const portTimer = this.portScanTimers.get(sessionId);
@@ -137,54 +85,10 @@ export class FileWatcher extends EventEmitter {
   }
 
   /**
-   * Queue a file change and schedule a debounced emission.
-   */
-  private queueChange(sessionId: string, filePath: string): void {
-    let changes = this.pendingChanges.get(sessionId);
-    if (!changes) {
-      changes = new Set();
-      this.pendingChanges.set(sessionId, changes);
-    }
-    changes.add(filePath);
-
-    // Reset the debounce timer
-    const existingTimer = this.debounceTimers.get(sessionId);
-    if (existingTimer) {
-      clearTimeout(existingTimer);
-    }
-
-    const timer = setTimeout(() => {
-      this.flushChanges(sessionId);
-    }, DEBOUNCE_MS);
-
-    this.debounceTimers.set(sessionId, timer);
-  }
-
-  /**
-   * Emit all queued changes for a session.
-   */
-  private flushChanges(sessionId: string): void {
-    const changes = this.pendingChanges.get(sessionId);
-    if (!changes || changes.size === 0) return;
-
-    const event: FileChangeEvent = {
-      sessionId,
-      paths: Array.from(changes),
-      timestamp: new Date().toISOString(),
-    };
-
-    this.emit('changes', event);
-
-    // Clear the pending set and timer
-    this.pendingChanges.delete(sessionId);
-    this.debounceTimers.delete(sessionId);
-  }
-
-  /**
-   * Check whether a session is currently being watched.
+   * Check whether a session is currently being monitored.
    */
   isWatching(sessionId: string): boolean {
-    return this.watchers.has(sessionId);
+    return this.activeSessions.has(sessionId);
   }
 
   /**
@@ -240,10 +144,10 @@ export class FileWatcher extends EventEmitter {
   }
 
   /**
-   * Stop all watchers and clean up all resources.
+   * Stop all monitoring and clean up all resources.
    */
   destroy(): void {
-    for (const [sessionId] of this.watchers) {
+    for (const sessionId of [...this.activeSessions]) {
       this.stopWatching(sessionId);
     }
   }

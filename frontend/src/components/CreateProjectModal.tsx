@@ -60,15 +60,28 @@ export function CreateProjectModal({
 
   const repoPattern = /^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/;
 
+  /** Normalize a GitHub repo input — accepts "owner/repo", full URLs, or .git URLs */
+  const normalizeRepo = (input: string): string | null => {
+    const trimmed = input.trim();
+    if (!trimmed) return '';
+    // Already owner/repo format
+    if (repoPattern.test(trimmed)) return trimmed;
+    // Extract from URL: https://github.com/owner/repo(.git)
+    const urlMatch = trimmed.match(/github\.com\/([a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+)/);
+    if (urlMatch) return urlMatch[1].replace(/\.git$/, '');
+    return null; // invalid
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
-    const trimmedRepo = githubRepo.trim();
-    if (trimmedRepo && !repoPattern.test(trimmedRepo)) {
-      setError('Invalid repo format. Use "owner/repo" (e.g. "acme/my-project").');
+    const normalized = normalizeRepo(githubRepo);
+    if (normalized === null) {
+      setError('Invalid repo format. Use "owner/repo" or paste a GitHub URL.');
       return;
     }
+    const trimmedRepo = normalized;
 
     if (!trimmedRepo && !displayName.trim() && !directoryPath.trim()) {
       setError('Please provide at least a GitHub repo, display name, or directory path.');
@@ -125,7 +138,7 @@ export function CreateProjectModal({
               type="text"
               value={githubRepo}
               onChange={(e) => setGithubRepo(e.target.value)}
-              placeholder="owner/repo"
+              placeholder="owner/repo or paste GitHub URL"
               className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition"
             />
             <p className="text-xs text-gray-500 mt-1">

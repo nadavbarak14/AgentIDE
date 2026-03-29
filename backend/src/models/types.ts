@@ -113,6 +113,7 @@ export interface UpdateProjectInput {
   position?: number | null;
   githubRepo?: string;
   parentId?: string | null;
+  directoryPath?: string;
 }
 
 // Artifact

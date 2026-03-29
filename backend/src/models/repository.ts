@@ -965,6 +965,10 @@ export class Repository {
       updates.push('parent_id = ?');
       params.push(input.parentId);
     }
+    if (input.directoryPath !== undefined) {
+      updates.push('directory_path = ?');
+      params.push(input.directoryPath);
+    }
     if (updates.length === 0) return this.getProject(id);
 
     params.push(id);

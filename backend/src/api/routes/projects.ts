@@ -4,7 +4,7 @@ import type { ProjectService } from '../../services/project-service.js';
 import { validateUuid, validateBody } from '../middleware.js';
 import { logger } from '../../services/logger.js';
 import { generateBranchName } from '../../services/github-service.js';
-import { getIssueDetail } from '../../worker/github-cli.js';
+import { getIssueDetail, listIssues, listPRs } from '../../worker/github-cli.js';
 
 export function createProjectsRouter(repo: Repository, projectService: ProjectService): Router {
   const router = Router();
@@ -41,10 +41,17 @@ export function createProjectsRouter(repo: Repository, projectService: ProjectSe
       return;
     }
 
-    // Validate githubRepo format if provided
-    if (githubRepo && !/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(githubRepo)) {
-      res.status(400).json({ error: 'githubRepo must match owner/repo format' });
-      return;
+    // Normalize githubRepo — accept full URLs like https://github.com/owner/repo
+    let normalizedRepo = githubRepo;
+    if (normalizedRepo) {
+      const urlMatch = normalizedRepo.match(/github\.com\/([a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+)/);
+      if (urlMatch) {
+        normalizedRepo = urlMatch[1].replace(/\.git$/, '');
+      }
+      if (!/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(normalizedRepo)) {
+        res.status(400).json({ error: 'Invalid repo format. Use "owner/repo" or paste a GitHub URL' });
+        return;
+      }
     }
 
     try {
@@ -54,7 +61,7 @@ export function createProjectsRouter(repo: Repository, projectService: ProjectSe
         displayName,
         bookmarked,
         parentId,
-        githubRepo,
+        githubRepo: normalizedRepo,
       });
       res.status(201).json(project);
     } catch (err) {
@@ -67,9 +74,16 @@ export function createProjectsRouter(repo: Repository, projectService: ProjectSe
   // PATCH /api/projects/:id — update alias, bookmark, position, githubRepo, parentId
   router.patch('/:id', validateUuid('id'), (req, res) => {
     const id = String(req.params.id);
-    const { displayName, bookmarked, position, githubRepo, parentId } = req.body;
+    const { displayName, bookmarked, position, parentId, directoryPath } = req.body;
+    let { githubRepo } = req.body;
 
-    const updated = projectService.updateProject(id, { displayName, bookmarked, position, githubRepo, parentId });
+    // Normalize githubRepo URL to owner/repo
+    if (githubRepo) {
+      const urlMatch = githubRepo.match(/github\.com\/([a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+)/);
+      if (urlMatch) githubRepo = urlMatch[1].replace(/\.git$/, '');
+    }
+
+    const updated = projectService.updateProject(id, { displayName, bookmarked, position, githubRepo, parentId, directoryPath });
     if (!updated) {
       res.status(404).json({ error: 'Project not found' });
       return;
@@ -154,6 +168,94 @@ export function createProjectsRouter(repo: Repository, projectService: ProjectSe
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to get suggested sessions';
       logger.error({ err, projectId: id }, 'failed to get suggested sessions');
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // GET /api/projects/:id/issues — list GitHub issues for this project
+  router.get('/:id/issues', validateUuid('id'), (req, res) => {
+    const id = String(req.params.id);
+    const project = projectService.getProject(id);
+    if (!project) {
+      res.status(404).json({ error: 'Project not found' });
+      return;
+    }
+    if (!project.directoryPath) {
+      res.status(400).json({ error: 'Project has no directory path configured' });
+      return;
+    }
+
+    const state = req.query.state as string | undefined;
+    const label = req.query.label as string | undefined;
+    const assignee = req.query.assignee?.toString().replace(/^@/, '').trim() || undefined;
+    const labels = label ? label.split(',').map(l => l.trim()).filter(Boolean) : undefined;
+
+    try {
+      const result = listIssues(project.directoryPath, { state, assignee, labels });
+      res.json({ issues: result.issues, fetchedAt: new Date().toISOString(), cached: false });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to list issues';
+      logger.error({ err, projectId: id }, 'failed to list project issues');
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // GET /api/projects/:id/issues/:number — get issue detail
+  router.get('/:id/issues/:number', validateUuid('id'), (req, res) => {
+    const id = String(req.params.id);
+    const project = projectService.getProject(id);
+    if (!project) {
+      res.status(404).json({ error: 'Project not found' });
+      return;
+    }
+    if (!project.directoryPath) {
+      res.status(400).json({ error: 'Project has no directory path configured' });
+      return;
+    }
+
+    const issueNumber = parseInt(req.params.number as string, 10);
+    if (isNaN(issueNumber) || issueNumber < 1) {
+      res.status(400).json({ error: 'Invalid issue number' });
+      return;
+    }
+
+    try {
+      const result = getIssueDetail(project.directoryPath, issueNumber);
+      if (!result.issue) {
+        res.status(404).json({ error: result.error || 'Issue not found' });
+        return;
+      }
+      res.json({ ...result.issue, fetchedAt: new Date().toISOString(), cached: false });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to get issue detail';
+      logger.error({ err, projectId: id, issueNumber }, 'failed to get project issue detail');
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // GET /api/projects/:id/prs — list GitHub PRs for this project
+  router.get('/:id/prs', validateUuid('id'), (req, res) => {
+    const id = String(req.params.id);
+    const project = projectService.getProject(id);
+    if (!project) {
+      res.status(404).json({ error: 'Project not found' });
+      return;
+    }
+    if (!project.directoryPath) {
+      res.status(400).json({ error: 'Project has no directory path configured' });
+      return;
+    }
+
+    const state = req.query.state as string | undefined;
+    const label = req.query.label as string | undefined;
+    const labels = label ? label.split(',').map(l => l.trim()).filter(Boolean) : undefined;
+
+    try {
+      const result = listPRs(project.directoryPath, { state, labels });
+      res.json({ prs: result.prs, fetchedAt: new Date().toISOString(), cached: false });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to list PRs';
+      logger.error({ err, projectId: id }, 'failed to list project PRs');
       res.status(500).json({ error: message });
     }
   });
