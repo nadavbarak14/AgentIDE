@@ -15,12 +15,13 @@ interface StartAgentModalProps {
   onClose: () => void;
 }
 
-const FLAG_OPTIONS = [
-  { id: 'skip-permissions', label: 'Skip Permissions', flag: '--dangerously-skip-permissions', warn: true },
-  { id: 'worktree', label: 'Worktree', description: 'Isolated git branch' },
-  { id: 'resume', label: 'Resume', description: 'Resume last conversation' },
-  { id: 'continue', label: 'Continue', description: 'Continue latest session' },
-] as const;
+// Flag options for reference (used in the UI below)
+// const FLAG_OPTIONS = [
+//   { id: 'skip-permissions', label: 'Skip Permissions', flag: '--dangerously-skip-permissions', warn: true },
+//   { id: 'worktree', label: 'Worktree', description: 'Isolated git branch' },
+//   { id: 'resume', label: 'Resume', description: 'Resume last conversation' },
+//   { id: 'continue', label: 'Continue', description: 'Continue latest session' },
+// ];
 
 export function StartAgentModal({ defaultName, projectName, onConfirm, onClose }: StartAgentModalProps) {
   const [title, setTitle] = useState(defaultName);

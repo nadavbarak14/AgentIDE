@@ -33,7 +33,7 @@ export function ProjectSidePanel({
   onOpenProject,
   onFocusSession,
   onStartAgent,
-  onNewSession,
+  onNewSession: _onNewSession,
   onCreateProject,
   onCollapse,
 }: ProjectSidePanelProps) {

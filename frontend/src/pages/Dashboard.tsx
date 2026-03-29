@@ -5,7 +5,6 @@ import { SettingsPanel } from '../components/SettingsPanel';
 import { ShortcutsHelp } from '../components/ShortcutsHelp';
 import { SessionSwitcher } from '../components/SessionSwitcher';
 import { CommandPalette, BUTTON_ONLY_COMMANDS } from '../components/CommandPalette';
-import { ProjectList } from '../components/ProjectList';
 import { ProjectSidePanel } from '../components/ProjectSidePanel';
 import { ProjectDetail } from '../components/ProjectDetail';
 import { CreateProjectModal } from '../components/CreateProjectModal';
@@ -46,23 +45,12 @@ export function Dashboard() {
   const [addMachineTrigger, setAddMachineTrigger] = useState(0);
 
   // ── Project-First View ──────────────────────────────────────────
-  const [currentView, setCurrentView] = useState<'projects' | 'sessions'>('projects');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const { findProject, projectTree } = useProjects();
   const [startAgentModal, setStartAgentModal] = useState<{ projectId: string; workDir: string; project: ReturnType<typeof findProject>; issueNumber?: number; defaultName?: string } | null>(null);
   const [projectSidebarOpen, setProjectSidebarOpen] = useState(() => localStorage.getItem('c3-project-sidebar') !== 'false');
   const [openProjectId, setOpenProjectId] = useState<string | null>(null);
   const [createProjectOpen, setCreateProjectOpen] = useState(false);
-
-  const handleSelectProject = useCallback((projectId: string) => {
-    setSelectedProjectId(projectId);
-    setCurrentView('sessions');
-  }, []);
-
-  const handleBackToProjects = useCallback(() => {
-    setSelectedProjectId(null);
-    setCurrentView('projects');
-  }, []);
 
   useEffect(() => {
     settingsApi.get().then(setAppSettings).catch(() => {});
@@ -375,8 +363,6 @@ export function Dashboard() {
 
         handleSetCurrentSession(id);
         markManualSwitch();
-        // Switch from project detail to session view so the terminal is visible
-        setCurrentView('sessions');
         setDisplayedIds((prev) => {
           if (prev.includes(id)) {
             console.log('[handleFocusSession] target already displayed, no swap needed. displayed:', prev);
