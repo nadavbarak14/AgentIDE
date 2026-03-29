@@ -16,7 +16,10 @@ import { SettingsPanel } from './SettingsPanel';
 import { useMobilePanel, type MobilePanelName } from '../hooks/useMobilePanel';
 import { useExtensions } from '../hooks/useExtensions';
 import { useWidgets } from '../hooks/useWidgets';
-import type { Settings, Worker, Session } from '../services/api';
+import { ProjectSidePanel } from './ProjectSidePanel';
+import { ProjectDetail } from './ProjectDetail';
+import { CreateProjectModal } from './CreateProjectModal';
+import type { Settings, Worker, Session, ProjectTree } from '../services/api';
 
 export interface MobileLayoutHandle {
   /** Forward file_changed paths from WS so extensions (e.g. work-report) can react */
@@ -50,6 +53,11 @@ interface MobileLayoutProps {
   onSettingsChange?: (settings: Settings) => void;
   workers?: Worker[];
   onWorkersChange?: (workers: Worker[]) => void;
+  /** Project props */
+  projectTree?: ProjectTree[];
+  selectedProjectId?: string | null;
+  onSelectProject?: (id: string | null) => void;
+  onStartAgent?: (projectId: string, workDir: string, project: ProjectTree) => void;
 }
 
 export const MobileLayout = forwardRef<MobileLayoutHandle, MobileLayoutProps>(function MobileLayout({
@@ -77,12 +85,20 @@ export const MobileLayout = forwardRef<MobileLayoutHandle, MobileLayoutProps>(fu
   onSettingsChange,
   workers,
   onWorkersChange,
+  projectTree,
+  selectedProjectId,
+  onSelectProject,
+  onStartAgent: onStartAgentProp,
 }, ref) {
   const { activePanel, open, close } = useMobilePanel();
 
   // Extensions and widgets
   const { extensionsWithPanel } = useExtensions();
   const { widgets, activeWidget, removeWidget, widgetCount } = useWidgets();
+
+  // Projects state
+  const [mobileOpenProjectId, setMobileOpenProjectId] = useState<string | null>(null);
+  const [createProjectOpen, setCreateProjectOpen] = useState(false);
 
   // Per-session extension enablement (same as SessionCard)
   const [enabledExtensions, setEnabledExtensions] = useState<string[]>([]);
@@ -304,6 +320,87 @@ export const MobileLayout = forwardRef<MobileLayoutHandle, MobileLayoutProps>(fu
           detectedPorts={detectedPorts}
           isLocalSession={isLocalSession}
           onClose={close}
+        />
+      )}
+
+      {/* Projects Overlay */}
+      {activePanel === 'projects' && (
+        <MobileSheetOverlay title="Projects" onClose={close}>
+          <div className="flex flex-col h-full">
+            {projectTree && projectTree.length > 0 ? (
+              <div className="flex-1 overflow-y-auto">
+                {projectTree.map((project) => {
+                  const activeSess = sessions.filter(s => {
+                    if (s.status !== 'active') return false;
+                    const nd = s.workingDirectory.replace(/\\/g, '/').replace(/\/+$/, '');
+                    const pd = project.directoryPath.replace(/\\/g, '/').replace(/\/+$/, '');
+                    return pd && (nd === pd || nd.startsWith(pd + '/'));
+                  });
+                  return (
+                    <button
+                      key={project.id}
+                      onClick={() => { setMobileOpenProjectId(project.id); close(); setTimeout(() => open('project-detail'), 50); }}
+                      className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-800 transition border-b border-gray-800"
+                    >
+                      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${activeSess.length > 0 ? 'bg-green-500' : 'bg-gray-600'}`} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-white truncate">{project.displayName}</p>
+                        {project.githubRepo && <p className="text-xs text-gray-500 truncate">{project.githubRepo}</p>}
+                      </div>
+                      {activeSess.length > 0 && <span className="text-xs text-green-400">{activeSess.length} active</span>}
+                      <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6" /></svg>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-12 text-gray-500">
+                <p className="text-sm mb-3">No projects yet</p>
+              </div>
+            )}
+            <div className="p-3 border-t border-gray-700">
+              <button
+                onClick={() => { close(); setCreateProjectOpen(true); }}
+                className="w-full py-2.5 text-sm text-blue-400 bg-gray-800 rounded-lg hover:bg-gray-700 transition"
+              >
+                + Add Project
+              </button>
+            </div>
+          </div>
+        </MobileSheetOverlay>
+      )}
+
+      {/* Project Detail Overlay */}
+      {activePanel === 'project-detail' && mobileOpenProjectId && projectTree && (
+        <MobileSheetOverlay title={projectTree.find(p => p.id === mobileOpenProjectId)?.displayName || 'Project'} onClose={close}>
+          {(() => {
+            const project = projectTree.find(p => p.id === mobileOpenProjectId);
+            if (!project) return null;
+            return (
+              <ProjectDetail
+                projectId={mobileOpenProjectId}
+                project={project}
+                onBack={close}
+                onStartAgent={(projectId, issueNumber) => {
+                  const workDir = project.directoryPath
+                    || (project.githubRepo ? `/home/ubuntu/projects/${project.githubRepo.split('/').pop()}` : '');
+                  if (!workDir) return;
+                  close();
+                  onStartAgentProp?.(projectId, workDir, project);
+                }}
+              />
+            );
+          })()}
+        </MobileSheetOverlay>
+      )}
+
+      {/* Create Project Modal (mobile) */}
+      {createProjectOpen && workers && workers.length > 0 && (
+        <CreateProjectModal
+          isOpen={createProjectOpen}
+          onClose={() => setCreateProjectOpen(false)}
+          onCreated={() => setCreateProjectOpen(false)}
+          workerId={workers[0].id}
         />
       )}
 

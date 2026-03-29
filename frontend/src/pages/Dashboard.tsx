@@ -895,6 +895,12 @@ export function Dashboard() {
           onSettingsChange={handleSettingsChange}
           workers={workersList}
           onWorkersChange={setWorkersList}
+          projectTree={projectTree}
+          selectedProjectId={selectedProjectId}
+          onSelectProject={setSelectedProjectId}
+          onStartAgent={(projectId, workDir, project) => {
+            setStartAgentModal({ projectId, workDir, project });
+          }}
         >
           {currentSessionId && (
             <TerminalView
