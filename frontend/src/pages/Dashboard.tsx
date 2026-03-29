@@ -6,7 +6,10 @@ import { ShortcutsHelp } from '../components/ShortcutsHelp';
 import { SessionSwitcher } from '../components/SessionSwitcher';
 import { CommandPalette, BUTTON_ONLY_COMMANDS } from '../components/CommandPalette';
 import { ProjectList } from '../components/ProjectList';
+import { ProjectSidePanel } from '../components/ProjectSidePanel';
 import { ProjectDetail } from '../components/ProjectDetail';
+import { CreateProjectModal } from '../components/CreateProjectModal';
+import { StartAgentModal } from '../components/StartAgentModal';
 import { useProjects } from '../hooks/useProjects';
 import { useSessionQueue } from '../hooks/useSessionQueue';
 import { useSession } from '../hooks/useSession';
@@ -45,7 +48,11 @@ export function Dashboard() {
   // ── Project-First View ──────────────────────────────────────────
   const [currentView, setCurrentView] = useState<'projects' | 'sessions'>('projects');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
-  const { findProject } = useProjects();
+  const { findProject, projectTree } = useProjects();
+  const [startAgentModal, setStartAgentModal] = useState<{ projectId: string; workDir: string; project: ReturnType<typeof findProject>; issueNumber?: number; defaultName?: string } | null>(null);
+  const [projectSidebarOpen, setProjectSidebarOpen] = useState(() => localStorage.getItem('c3-project-sidebar') !== 'false');
+  const [openProjectId, setOpenProjectId] = useState<string | null>(null);
+  const [createProjectOpen, setCreateProjectOpen] = useState(false);
 
   const handleSelectProject = useCallback((projectId: string) => {
     setSelectedProjectId(projectId);
@@ -368,6 +375,8 @@ export function Dashboard() {
 
         handleSetCurrentSession(id);
         markManualSwitch();
+        // Switch from project detail to session view so the terminal is visible
+        setCurrentView('sessions');
         setDisplayedIds((prev) => {
           if (prev.includes(id)) {
             console.log('[handleFocusSession] target already displayed, no swap needed. displayed:', prev);
@@ -1027,42 +1036,67 @@ export function Dashboard() {
           </div>
         </div>
 
-        {/* Main Content: Project List, Project Detail, or Session Grid */}
-        {currentView === 'projects' ? (
-          <div className="flex-1 overflow-auto">
-            <ProjectList
-              onSelectProject={handleSelectProject}
-              onCreateProject={() => {}}
-              onNewAgent={(projectId) => handleSelectProject(projectId)}
-              onViewTickets={(projectId) => handleSelectProject(projectId)}
-              onOpenGithub={(githubRepo) => window.open(`https://github.com/${githubRepo}`, '_blank')}
-            />
-          </div>
-        ) : selectedProjectId && findProject(selectedProjectId) ? (
-          <ProjectDetail
-            projectId={selectedProjectId}
-            project={findProject(selectedProjectId)!}
-            onBack={handleBackToProjects}
-            onStartAgent={(projectId, issueNumber) => {
-              // Navigate back to sessions view when starting an agent
-              console.log('[Dashboard] Start agent for project:', projectId, 'issue:', issueNumber);
-            }}
-          />
-        ) : (
-          <>
-            {selectedProjectId && (
-              <div className="flex items-center gap-2 px-4 py-1.5 border-b border-gray-700 bg-gray-800/30 flex-shrink-0">
-                <button
-                  onClick={handleBackToProjects}
-                  className="flex items-center gap-1 text-sm text-gray-400 hover:text-white transition-colors"
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="15 18 9 12 15 6" />
-                  </svg>
-                  Back to Projects
-                </button>
-              </div>
-            )}
+        {/* Main Content: Collapsible sidebar + Session Grid */}
+        <div className="flex-1 flex min-h-0">
+          {/* Left Sidebar — collapsible */}
+          {projectSidebarOpen ? (
+            <div className="w-60 flex-shrink-0 border-r border-gray-700 bg-gray-800/30 flex flex-col">
+              <ProjectSidePanel
+                projects={projectTree}
+                sessions={sessions}
+                currentSessionId={currentSessionId}
+                selectedProjectId={selectedProjectId}
+                onSelectProject={setSelectedProjectId}
+                onOpenProject={(id) => setOpenProjectId(id)}
+                onFocusSession={handleFocusSession}
+                onStartAgent={(projectId, workDir, project) => {
+                  setStartAgentModal({ projectId, workDir, project });
+                }}
+                onNewSession={() => setSidebarOpen(true)}
+                onCreateProject={() => setCreateProjectOpen(true)}
+                onCollapse={() => { setProjectSidebarOpen(false); localStorage.setItem('c3-project-sidebar', 'false'); }}
+              />
+            </div>
+          ) : (
+            <button
+              onClick={() => { setProjectSidebarOpen(true); localStorage.setItem('c3-project-sidebar', 'true'); }}
+              className="w-10 flex-shrink-0 border-r border-gray-700 bg-gray-800/20 flex flex-col items-center justify-start pt-3 gap-2 hover:bg-gray-700/30 transition group"
+              title="Show projects"
+            >
+              <svg className="w-4 h-4 text-gray-500 group-hover:text-gray-300 transition" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+              </svg>
+              {projectTree.length > 0 && (
+                <span className="text-[10px] text-gray-500 group-hover:text-gray-300">{projectTree.length}</span>
+              )}
+              {activeSessions.length > 0 && (
+                <span className="w-2 h-2 rounded-full bg-green-500" title={`${activeSessions.length} active`} />
+              )}
+            </button>
+          )}
+
+          {/* Project Detail overlay panel */}
+          {openProjectId && findProject(openProjectId) && (
+            <div className="w-96 flex-shrink-0 border-r border-gray-700 bg-gray-800 flex flex-col overflow-y-auto">
+              <ProjectDetail
+                projectId={openProjectId}
+                project={findProject(openProjectId)!}
+                onBack={() => setOpenProjectId(null)}
+                onStartAgent={(projectId, issueNumber) => {
+                  const project = findProject(projectId);
+                  if (!project) return;
+                  const workDir = project.directoryPath
+                    || (project.githubRepo ? `/home/ubuntu/projects/${project.githubRepo.split('/').pop()}` : '');
+                  if (!workDir) return;
+                  const defaultName = issueNumber ? `#${issueNumber}` : (project.displayName || 'New agent');
+                  setStartAgentModal({ projectId, workDir, project, issueNumber, defaultName } as any);
+                }}
+              />
+            </div>
+          )}
+
+          {/* Session Grid — always visible */}
+          <div className="flex-1 min-w-0 flex flex-col">
             <SessionGrid
               displayedSessions={displayedSessions}
               overflowSessions={overflowSessions}
@@ -1078,8 +1112,8 @@ export function Dashboard() {
               chordArmed={chordState.isArmed}
               sessionNumbers={sessionNumbers}
             />
-          </>
-        )}
+          </div>
+        </div>
       </div>
 
       {/* Chord Indicator */}
@@ -1098,6 +1132,45 @@ export function Dashboard() {
         onSelect={handleSessionSwitcherSelect}
         onClose={handleSessionSwitcherClose}
       />
+
+      {/* Create Project Modal */}
+      {createProjectOpen && (
+        <CreateProjectModal
+          isOpen={createProjectOpen}
+          onClose={() => setCreateProjectOpen(false)}
+          onCreated={() => { setCreateProjectOpen(false); }}
+          workerId={workersList[0]?.id || ''}
+        />
+      )}
+
+      {/* Start Agent Modal */}
+      {startAgentModal && (
+        <StartAgentModal
+          defaultName={startAgentModal.defaultName || startAgentModal.project?.displayName || 'New agent'}
+          projectName={startAgentModal.project?.displayName || 'Project'}
+          onClose={() => setStartAgentModal(null)}
+          onConfirm={async (options) => {
+            const { projectId, workDir } = startAgentModal;
+            setStartAgentModal(null);
+            try {
+              const { sessions: sApi } = await import('../services/api');
+              const session = await sApi.create({
+                workingDirectory: workDir,
+                title: options.title,
+                targetWorker: startAgentModal.project?.workerId,
+                projectId,
+                worktree: options.worktree || undefined,
+                resume: options.resume || undefined,
+                continueLatest: options.continueLatest || undefined,
+                flags: options.flags || undefined,
+              });
+              handleFocusSession(session.id);
+            } catch (err) {
+              console.error('Failed to start agent:', err);
+            }
+          }}
+        />
+      )}
 
       {/* Shortcuts Help Overlay */}
       <ShortcutsHelp open={shortcutsHelpOpen} onClose={() => setShortcutsHelpOpen(false)} />

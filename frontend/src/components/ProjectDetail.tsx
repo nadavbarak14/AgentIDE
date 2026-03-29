@@ -106,15 +106,8 @@ export function ProjectDetail({
   };
 
   const handleStartAgent = async (issueNumber: number) => {
-    try {
-      await projectsApi.createSessionFromIssue(projectId, { issueNumber });
-      // Refresh sessions list after creating a new one
-      await fetchSessions();
-      // Also notify parent
-      onStartAgent?.(projectId, issueNumber);
-    } catch (err) {
-      console.error('Failed to start agent from issue:', err);
-    }
+    // Delegate to parent — it handles session creation
+    onStartAgent?.(projectId, issueNumber);
   };
 
   const handleAssociateAll = async () => {

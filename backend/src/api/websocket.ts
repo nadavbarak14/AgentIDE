@@ -478,7 +478,9 @@ export function setupWebSocket(
       }
     }
 
-    await tap.startScreencast();
+    await tap.startScreencast().catch((err: unknown) => {
+      log.warn({ err }, 'StreamTap startScreencast failed (Chrome may have disconnected)');
+    });
   }
 
   async function handleRemotePreviewStart(sessionId: string, agentPort: number, log: ReturnType<typeof createSessionLogger>): Promise<void> {

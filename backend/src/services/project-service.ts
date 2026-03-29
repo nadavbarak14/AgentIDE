@@ -1,4 +1,7 @@
 import path from 'node:path';
+import fs from 'node:fs';
+import { execSync } from 'node:child_process';
+
 import type { Repository } from '../models/repository.js';
 import type { Project, CreateProjectInput, UpdateProjectInput, ProjectTree } from '../models/types.js';
 import { logger } from './logger.js';
@@ -13,15 +16,48 @@ export class ProjectService {
       throw new Error(`Worker not found: ${input.workerId}`);
     }
 
-    // Auto-derive display name if not provided
-    const displayName = input.displayName || path.basename(input.directoryPath) || 'Untitled';
+    // If githubRepo is set but no directoryPath, clone the repo
+    let directoryPath = input.directoryPath;
+    if (input.githubRepo && !directoryPath) {
+      const repoName = input.githubRepo.split('/').pop()!;
+      const projectsDir = path.resolve(process.cwd(), '..');
+      const targetDir = path.join(projectsDir, repoName);
+
+      if (fs.existsSync(targetDir)) {
+        // Directory already exists — use it as-is
+        logger.info({ targetDir, githubRepo: input.githubRepo }, 'project directory already exists, skipping clone');
+        directoryPath = targetDir;
+      } else {
+        // Clone the repo
+        try {
+          if (!fs.existsSync(projectsDir)) {
+            fs.mkdirSync(projectsDir, { recursive: true });
+          }
+          const cloneUrl = `https://github.com/${input.githubRepo}.git`;
+          logger.info({ cloneUrl, targetDir }, 'cloning GitHub repo for new project');
+          execSync(`git clone ${cloneUrl} ${targetDir}`, { stdio: 'pipe', timeout: 60000 });
+          directoryPath = targetDir;
+          logger.info({ targetDir }, 'clone complete');
+        } catch (err) {
+          logger.error({ err, githubRepo: input.githubRepo }, 'failed to clone repo');
+          // Still create the project without a directory — user can fix later
+        }
+      }
+    }
+
+    // Auto-derive display name: explicit name > directory basename > repo name > Untitled
+    const displayName = input.displayName
+      || (directoryPath ? path.basename(directoryPath) : '')
+      || (input.githubRepo ? input.githubRepo.split('/').pop()! : '')
+      || 'Untitled';
 
     const project = this.repo.createProject({
       ...input,
+      directoryPath: directoryPath || '',
       displayName,
     });
 
-    logger.info({ projectId: project.id, path: input.directoryPath, workerId: input.workerId }, 'project created');
+    logger.info({ projectId: project.id, path: directoryPath, workerId: input.workerId }, 'project created');
     return project;
   }
 

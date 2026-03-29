@@ -188,7 +188,7 @@ export const projects = {
   create: (data: { workerId: string; directoryPath?: string; displayName?: string; bookmarked?: boolean; parentId?: string; githubRepo?: string }) =>
     request<Project>('/projects', { method: 'POST', body: JSON.stringify(data) }),
 
-  update: (id: string, data: { displayName?: string; bookmarked?: boolean; position?: number | null; githubRepo?: string; parentId?: string | null }) =>
+  update: (id: string, data: { displayName?: string; bookmarked?: boolean; position?: number | null; githubRepo?: string; parentId?: string | null; directoryPath?: string }) =>
     request<Project>(`/projects/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
 
   delete: (id: string) => request<void>(`/projects/${id}`, { method: 'DELETE' }),

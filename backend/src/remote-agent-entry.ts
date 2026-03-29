@@ -19,7 +19,7 @@ export interface AgentResult {
 
 export async function startAgent(options: AgentOptions = {}): Promise<AgentResult> {
   const port = options.port ?? 4100;
-  const host = options.host ?? '127.0.0.1';
+  const host = options.host ?? '0.0.0.0';
 
   // Initialize file watcher
   const fileWatcher = new FileWatcher();

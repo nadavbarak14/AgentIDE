@@ -38,7 +38,16 @@ export function createSessionsRouter(repo: Repository, sessionManager: SessionMa
 
       const enriched = sessions.map((s) => {
         const normalizedSessionDir = s.workingDirectory.replace(/\\/g, '/').replace(/\/+$/, '');
-        const projectId = dirToProject.get(normalizedSessionDir) ?? null;
+        // Exact match first, then prefix match (for worktree sessions under project dir)
+        let projectId = dirToProject.get(normalizedSessionDir) ?? null;
+        if (!projectId) {
+          for (const [dir, pId] of dirToProject) {
+            if (normalizedSessionDir.startsWith(dir + '/')) {
+              projectId = pId;
+              break;
+            }
+          }
+        }
         return { ...s, projectId };
       });
       res.json(enriched);

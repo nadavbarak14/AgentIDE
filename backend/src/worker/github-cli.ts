@@ -185,3 +185,54 @@ export function getIssueDetail(
     return { issue: null, error: 'Failed to parse issue detail output' };
   }
 }
+
+/**
+ * List GitHub pull requests for the repo in the given working directory.
+ */
+export function listPRs(
+  workingDir: string,
+  params: {
+    state?: string;
+    limit?: number;
+    labels?: string[];
+  } = {},
+): { prs: Array<{ number: number; title: string; state: string; url: string; author: { login: string }; createdAt: string; updatedAt: string; labels: Array<{ name: string }> }>; totalCount: number; error?: string } {
+  const fields = 'number,title,state,labels,author,createdAt,updatedAt,url';
+  const args: string[] = ['pr', 'list', '--json', fields];
+
+  const state = params.state || 'open';
+  args.push('--state', state);
+
+  const limit = params.limit || 50;
+  args.push('--limit', String(limit));
+
+  if (params.labels && params.labels.length > 0) {
+    for (const label of params.labels) {
+      args.push('--label', label);
+    }
+  }
+
+  const result = runGh(workingDir, args);
+
+  if (result.exitCode === 4) {
+    return { prs: [], totalCount: 0, error: 'gh CLI not authenticated — run `gh auth login`' };
+  }
+
+  if (result.exitCode !== 0) {
+    const msg = result.stderr.trim() || `gh pr list failed (exit ${result.exitCode})`;
+    logger.warn({ workingDir, exitCode: result.exitCode, stderr: result.stderr }, 'gh pr list failed');
+    return { prs: [], totalCount: 0, error: msg };
+  }
+
+  if (result.exitCode === null) {
+    return { prs: [], totalCount: 0, error: 'gh command timed out' };
+  }
+
+  try {
+    const prs = JSON.parse(result.stdout || '[]');
+    return { prs, totalCount: prs.length };
+  } catch {
+    logger.warn({ stdout: result.stdout }, 'failed to parse gh pr list output');
+    return { prs: [], totalCount: 0, error: 'Failed to parse PR list output' };
+  }
+}

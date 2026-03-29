@@ -309,6 +309,7 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
     fileWatcher.stopWatching(sessionId);
     widgetStore.delete(sessionId);
     broadcastSessionStateChanged(sessionId, { status: 'completed' });
+    repo.deleteSession(sessionId);
   });
 
   sessionManager.on('session_failed', (sessionId: string) => {
@@ -322,6 +323,7 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
     fileWatcher.stopWatching(sessionId);
     widgetStore.delete(sessionId);
     broadcastSessionStateChanged(sessionId, { status: 'failed' });
+    repo.deleteSession(sessionId);
   });
 
   sessionManager.on('session_recovering', (sessionId: string, workerId: string) => {
