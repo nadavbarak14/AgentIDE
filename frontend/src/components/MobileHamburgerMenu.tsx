@@ -11,6 +11,7 @@ interface MobileHamburgerMenuProps {
   showIssues?: boolean;
   extensionCount?: number;
   widgetCount?: number;
+  hasPreview?: boolean;
 }
 
 const menuItems: { panel: MobilePanelName; label: string; icon: React.ReactNode }[] = [
@@ -100,7 +101,7 @@ const menuItems: { panel: MobilePanelName; label: string; icon: React.ReactNode 
   },
 ];
 
-export function MobileHamburgerMenu({ onSelectPanel, onClose, onNewSession, onKillSession, hasActiveSession, showIssues, extensionCount, widgetCount }: MobileHamburgerMenuProps) {
+export function MobileHamburgerMenu({ onSelectPanel, onClose, onNewSession, onKillSession, hasActiveSession, showIssues, extensionCount, widgetCount, hasPreview }: MobileHamburgerMenuProps) {
   const handleSelect = (panel: MobilePanelName) => {
     onSelectPanel(panel);
   };
@@ -140,6 +141,7 @@ export function MobileHamburgerMenu({ onSelectPanel, onClose, onNewSession, onKi
     <MobileSheetOverlay onClose={onClose} title="Menu">
       <div className="flex flex-col p-2 gap-1">
         {menuItems.filter(item => {
+          if (item.panel === 'preview' && !hasPreview) return false;
           if (item.panel === 'issues' && !showIssues) return false;
           if (item.panel === 'widgets' && !(widgetCount && widgetCount > 0)) return false;
           if (item.panel === 'extensions' && !(extensionCount && extensionCount > 0)) return false;

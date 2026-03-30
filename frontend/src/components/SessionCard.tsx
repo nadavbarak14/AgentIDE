@@ -393,15 +393,16 @@ export function SessionCard({
       panel.setMobileDeviceId(deviceId);
       const preset = getPresetById(deviceId);
       if (preset) {
-        rightPreview.sendResize(preset.width, preset.height);
-        leftPreview.sendResize(preset.width, preset.height);
+        const isMobile = preset.category === 'phone' || preset.category === 'tablet';
+        rightPreview.sendResize(preset.width, preset.height, isMobile);
+        leftPreview.sendResize(preset.width, preset.height, isMobile);
       }
     } else if (viewport === 'desktop' && deviceId) {
       panel.setDesktopDeviceId(deviceId);
       const preset = getPresetById(deviceId);
       if (preset) {
-        rightPreview.sendResize(preset.width, preset.height);
-        leftPreview.sendResize(preset.width, preset.height);
+        rightPreview.sendResize(preset.width, preset.height, false);
+        leftPreview.sendResize(preset.width, preset.height, false);
       }
     }
     if (viewport === null) {

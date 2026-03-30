@@ -816,7 +816,11 @@ export function Dashboard() {
   const mobileOutputBufferRef = useRef<string[]>([]);
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [_mobileOutputBuffer, setMobileOutputBuffer] = useState<string[]>([]);
-  const [mobileDetectedPort, setMobileDetectedPort] = useState<{ port: number; localPort: number } | null>(null);
+  // Per-session port tracking (preserves ports when switching sessions)
+  const sessionPortsRef = useRef<Record<string, { port: number; localPort: number }>>({});
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [_sessionPortsVersion, setSessionPortsVersion] = useState(0);
+  const mobileDetectedPort = currentSessionId ? sessionPortsRef.current[currentSessionId] ?? null : null;
 
   const currentMobileSession = sessions.find((s) => s.id === currentSessionId);
   const { mode: mobileClaudeMode } = useClaudeMode(
@@ -826,15 +830,16 @@ export function Dashboard() {
   );
 
   const handleMobileWsMessage = useCallback((msg: WsServerMessage) => {
-    if (msg.type === 'port_detected') {
-      setMobileDetectedPort({ port: msg.port, localPort: msg.localPort });
+    if (msg.type === 'port_detected' && currentSessionId) {
+      sessionPortsRef.current[currentSessionId] = { port: msg.port, localPort: msg.localPort };
+      setSessionPortsVersion(v => v + 1); // trigger re-render
     }
     // Forward file_changed events to MobileLayout for extension handling (e.g. work-report)
     if (msg.type === 'file_changed') {
       const paths = (msg as { paths?: string[] }).paths ?? [];
       mobileLayoutRef.current?.handleFileChanged(paths);
     }
-  }, []);
+  }, [currentSessionId]);
 
   const handleMobileBinaryData = useCallback((data: ArrayBuffer) => {
     const text = new TextDecoder().decode(data);
@@ -884,8 +889,9 @@ export function Dashboard() {
           projectTree={projectTree}
           selectedProjectId={selectedProjectId}
           onSelectProject={setSelectedProjectId}
-          onStartAgent={(projectId, workDir, project) => {
-            setStartAgentModal({ projectId, workDir, project });
+          onStartAgent={(projectId, workDir, project, issueNumber, issueTitle) => {
+            const defaultName = issueTitle ? `#${issueNumber} ${issueTitle}` : issueNumber ? `#${issueNumber}` : (project?.displayName || 'New agent');
+            setStartAgentModal({ projectId, workDir, project, issueNumber, defaultName } as any);
           }}
         >
           {currentSessionId && (
@@ -1103,13 +1109,13 @@ export function Dashboard() {
                 projectId={openProjectId}
                 project={findProject(openProjectId)!}
                 onBack={() => setOpenProjectId(null)}
-                onStartAgent={(projectId, issueNumber) => {
+                onStartAgent={(projectId, issueNumber, issueTitle) => {
                   const project = findProject(projectId);
                   if (!project) return;
                   const workDir = project.directoryPath
                     || (project.githubRepo ? `/home/ubuntu/projects/${project.githubRepo.split('/').pop()}` : '');
                   if (!workDir) return;
-                  const defaultName = issueNumber ? `#${issueNumber}` : (project.displayName || 'New agent');
+                  const defaultName = issueTitle ? `#${issueNumber} ${issueTitle}` : issueNumber ? `#${issueNumber}` : (project.displayName || 'New agent');
                   setStartAgentModal({ projectId, workDir, project, issueNumber, defaultName } as any);
                 }}
               />

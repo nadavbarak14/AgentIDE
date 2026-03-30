@@ -350,7 +350,7 @@ export type PreviewClientMessage =
   | { type: 'preview:mouse'; x: number; y: number; button: 'left' | 'middle' | 'right' | 'none'; action: 'click' | 'down' | 'up' | 'move' }
   | { type: 'preview:key'; key: string; text: string; code: string; action: 'down' | 'up'; modifiers?: number }
   | { type: 'preview:scroll'; x: number; y: number; deltaX: number; deltaY: number }
-  | { type: 'preview:resize'; width: number; height: number }
+  | { type: 'preview:resize'; width: number; height: number; mobile?: boolean }
   | { type: 'preview:touch'; x: number; y: number; action: 'tap' | 'start' | 'move' | 'end' };
 
 // Server → Client (JSON text frames — binary frames are raw JPEG with 8-byte header)

@@ -428,6 +428,34 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
     });
   }
 
+  // Extension static files — serve before auth (public assets, no user data).
+  // Without this, iframes on non-localhost get redirected to /login.
+  app.use('/extensions', (req, res, next) => {
+    const extensionsDir = path.join(import.meta.dirname, '../../extensions');
+    if (!req.url) return next();
+    const filePath = path.join(extensionsDir, req.url);
+    // Prevent path traversal
+    if (!filePath.startsWith(extensionsDir)) {
+      res.status(403).end('Forbidden');
+      return;
+    }
+    if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+      const ext = path.extname(filePath).toLowerCase();
+      const mimeTypes: Record<string, string> = {
+        '.html': 'text/html',
+        '.js': 'application/javascript',
+        '.css': 'text/css',
+        '.json': 'application/json',
+        '.png': 'image/png',
+        '.svg': 'image/svg+xml',
+      };
+      res.setHeader('Content-Type', mimeTypes[ext] || 'application/octet-stream');
+      res.sendFile(filePath);
+    } else {
+      next();
+    }
+  });
+
   // Auth middleware — gates all subsequent routes for non-localhost
   app.use(requireAuth(repo));
 
@@ -487,32 +515,8 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
     }
   });
 
-  // Serve extension files dynamically from extensions/ directory (after requireAuth)
-  app.use('/extensions', (req, res, next) => {
-    const extensionsDir = path.join(import.meta.dirname, '../../extensions');
-    if (!req.url) return next();
-    const filePath = path.join(extensionsDir, req.url);
-    // Prevent path traversal
-    if (!filePath.startsWith(extensionsDir)) {
-      res.status(403).end('Forbidden');
-      return;
-    }
-    if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
-      const ext = path.extname(filePath).toLowerCase();
-      const mimeTypes: Record<string, string> = {
-        '.html': 'text/html',
-        '.js': 'application/javascript',
-        '.css': 'text/css',
-        '.json': 'application/json',
-        '.png': 'image/png',
-        '.svg': 'image/svg+xml',
-      };
-      res.setHeader('Content-Type', mimeTypes[ext] || 'application/octet-stream');
-      res.sendFile(filePath);
-    } else {
-      next();
-    }
-  });
+  // NOTE: Extension static files are served before auth middleware (see above).
+  // The /api/extensions index and per-session management routes below still require auth.
 
   // ─── Per-session extension management ───
 
@@ -671,9 +675,31 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
     return { added, removed };
   }
 
-  // GET per-session enabled extensions
+  // Helper: get all available extension names
+  function getAllExtensionNames(): string[] {
+    const extensionsDir = path.join(import.meta.dirname, '../../extensions');
+    if (!fs.existsSync(extensionsDir)) return [];
+    try {
+      return fs.readdirSync(extensionsDir, { withFileTypes: true })
+        .filter(e => e.isDirectory() && fs.existsSync(path.join(extensionsDir, e.name, 'manifest.json')))
+        .map(e => e.name)
+        .sort();
+    } catch { return []; }
+  }
+
+  // GET per-session enabled extensions (auto-enables all on first access)
   app.get('/api/sessions/:id/extensions', (req, res) => {
-    const enabled = repo.getSessionExtensions(req.params.id);
+    let enabled = repo.getSessionExtensions(req.params.id);
+    // Auto-enable all extensions for new sessions that haven't been configured yet
+    if (enabled.length === 0) {
+      const all = getAllExtensionNames();
+      if (all.length > 0) {
+        repo.setSessionExtensions(req.params.id, all);
+        const session = repo.getSession(req.params.id);
+        if (session) syncSessionSkills(session.workingDirectory, all);
+        enabled = all;
+      }
+    }
     res.json({ enabled });
   });
 
@@ -1109,6 +1135,29 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
 
   // Start worker health checks
   workerManager.startHealthCheck();
+
+  // Sync extension skills for all active sessions on startup
+  // (ensures skills persist after server restarts, worktree recreation, etc.)
+  try {
+    const activeSess = repo.listSessions('active');
+    const allExts = getAllExtensionNames();
+    for (const s of activeSess) {
+      let enabled = repo.getSessionExtensions(s.id);
+      // Auto-enable all extensions for sessions that haven't been configured
+      if (enabled.length === 0 && allExts.length > 0) {
+        repo.setSessionExtensions(s.id, allExts);
+        enabled = allExts;
+      }
+      if (enabled.length > 0) {
+        syncSessionSkills(s.workingDirectory, enabled);
+      }
+    }
+    if (activeSess.length > 0) {
+      logger.info({ count: activeSess.length }, 'synced extension skills for active sessions on startup');
+    }
+  } catch (err) {
+    logger.warn({ err }, 'failed to sync extension skills on startup');
+  }
 
   // Check platform prerequisites (non-blocking warnings)
   detectWSLVersion();

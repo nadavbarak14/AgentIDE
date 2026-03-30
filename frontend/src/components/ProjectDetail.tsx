@@ -7,7 +7,7 @@ interface ProjectDetailProps {
   projectId: string;
   project: ProjectTree;
   onBack: () => void;
-  onStartAgent?: (projectId: string, issueNumber?: number) => void;
+  onStartAgent?: (projectId: string, issueNumber?: number, issueTitle?: string) => void;
 }
 
 type Tab = 'sessions' | 'issues' | 'prs';
@@ -79,35 +79,39 @@ export function ProjectDetail({
     };
   }, [fetchSessions]);
 
-  // Fetch suggested sessions when sessions tab is active
+  // Auto-associate sessions that match this project's directory (no prompt needed)
   useEffect(() => {
     if (activeTab !== 'sessions' || suggestedDismissed) return;
     let cancelled = false;
-    async function fetchSuggested() {
+    async function autoAssociate() {
       try {
         const data = await projectsApi.suggestedSessions(projectId);
-        if (!cancelled) {
-          // Filter out sessions already associated with this project
-          const unassociated = data.sessions.filter(
-            (s) => !projectSessions.some((ps) => ps.id === s.id),
-          );
-          setSuggestedSessions(unassociated);
+        if (cancelled) return;
+        const unassociated = data.sessions.filter(
+          (s) => !projectSessions.some((ps) => ps.id === s.id),
+        );
+        if (unassociated.length > 0) {
+          await projectsApi.associateSessions(projectId, unassociated.map(s => s.id));
+          if (!cancelled) {
+            setSuggestedSessions([]);
+            fetchSessions();
+          }
         }
       } catch {
-        // Best-effort — don't show banner if fetch fails
+        // Best-effort
       }
     }
-    fetchSuggested();
+    autoAssociate();
     return () => { cancelled = true; };
-  }, [activeTab, projectId, suggestedDismissed, projectSessions]);
+  }, [activeTab, projectId, suggestedDismissed, projectSessions, fetchSessions]);
 
   const handleSelectIssue = (issueNumber: number) => {
     setSelectedIssueNumber(issueNumber);
   };
 
-  const handleStartAgent = async (issueNumber: number) => {
+  const handleStartAgent = async (issueNumber: number, issueTitle?: string) => {
     // Delegate to parent — it handles session creation
-    onStartAgent?.(projectId, issueNumber);
+    onStartAgent?.(projectId, issueNumber, issueTitle);
   };
 
   const handleAssociateAll = async () => {
@@ -208,29 +212,7 @@ export function ProjectDetail({
               </button>
             )}
 
-            {/* Suggested Sessions Banner */}
-            {!suggestedDismissed && suggestedSessions.length > 0 && (
-              <div className="mb-4 bg-blue-500/10 border border-blue-500/30 rounded-lg p-3 flex items-center justify-between">
-                <span className="text-sm text-blue-300">
-                  {suggestedSessions.length} session{suggestedSessions.length !== 1 ? 's' : ''} match{suggestedSessions.length === 1 ? 'es' : ''} this project's directory. Associate them?
-                </span>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <button
-                    onClick={handleAssociateAll}
-                    disabled={associating}
-                    className="text-sm text-blue-400 hover:text-blue-300 transition px-3 py-1 rounded bg-blue-500/20 hover:bg-blue-500/30 disabled:opacity-50"
-                  >
-                    {associating ? 'Associating...' : 'Associate All'}
-                  </button>
-                  <button
-                    onClick={() => setSuggestedDismissed(true)}
-                    className="text-sm text-gray-400 hover:text-gray-300 transition px-2 py-1"
-                  >
-                    Dismiss
-                  </button>
-                </div>
-              </div>
-            )}
+            {/* Sessions are auto-associated silently — no banner needed */}
 
             {sessionsLoading && (
               <div className="flex items-center justify-center py-8 text-gray-500 text-sm">

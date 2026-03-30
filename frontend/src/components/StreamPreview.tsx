@@ -15,7 +15,7 @@ interface StreamPreviewProps {
   onKey?: (key: string, text: string, code: string, action: string, modifiers?: number) => void;
   onScroll?: (x: number, y: number, deltaX: number, deltaY: number) => void;
   onTouch?: (x: number, y: number, action: string) => void;
-  onResize?: (width: number, height: number) => void;
+  onResize?: (width: number, height: number, mobile?: boolean) => void;
   onScreenshot?: () => void;
   detectedPorts?: { port: number; localPort: number }[];
   isFullscreen?: boolean;

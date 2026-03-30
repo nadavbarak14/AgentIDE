@@ -5,7 +5,7 @@ interface IssuePanelProps {
   projectId: string;
   mode: 'issues' | 'prs';
   onSelectIssue?: (issueNumber: number) => void;
-  onStartAgent?: (issueNumber: number) => void;
+  onStartAgent?: (issueNumber: number, issueTitle?: string) => void;
 }
 
 function timeAgo(dateStr: string): string {
@@ -189,7 +189,7 @@ export function IssuePanel({ projectId, mode, onSelectIssue, onStartAgent }: Iss
                   className="flex-shrink-0 text-xs text-blue-400 hover:text-blue-300 opacity-0 group-hover:opacity-100 transition px-2 py-1 rounded hover:bg-blue-500/10"
                   onClick={(e) => {
                     e.stopPropagation();
-                    onStartAgent(issue.number);
+                    onStartAgent(issue.number, issue.title);
                   }}
                 >
                   Start Agent
