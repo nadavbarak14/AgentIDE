@@ -11,7 +11,8 @@ import { DiffViewer } from './DiffViewer';
 import { ShellTerminal } from './ShellTerminal';
 import { GitHubIssues } from './GitHubIssues';
 import { WidgetPanel } from './WidgetPanel';
-import { ExtensionPanel, type ExtensionPanelHandle } from './ExtensionPanel';
+import { type ExtensionPanelHandle } from './ExtensionPanel';
+import { MobileExtensionTabs } from './MobileExtensionTabs';
 import { SettingsPanel } from './SettingsPanel';
 import { useMobilePanel, type MobilePanelName } from '../hooks/useMobilePanel';
 import { useExtensions } from '../hooks/useExtensions';
@@ -225,6 +226,8 @@ export const MobileLayout = forwardRef<MobileLayoutHandle, MobileLayoutProps>(fu
         onHamburgerTap={handleHamburgerTap}
         onSessionTap={handleSessionTap}
         onNewSession={onNewSession}
+        onProjectsTap={() => open('projects')}
+        hasProjects={!!(projectTree && projectTree.length > 0)}
       />
 
       {/* Content Area — terminal fills this */}
@@ -310,8 +313,8 @@ export const MobileLayout = forwardRef<MobileLayoutHandle, MobileLayoutProps>(fu
         </MobileSheetOverlay>
       )}
 
-      {/* Preview Overlay */}
-      {activePanel === 'preview' && currentSessionId && (
+      {/* Preview Overlay — mount when panel is active OR when port exists (to preserve iframe state) */}
+      {currentSessionId && (activePanel === 'preview' || previewPort) && (
         <MobilePreviewSheet
           sessionId={currentSessionId}
           port={previewPort || 0}
@@ -319,6 +322,7 @@ export const MobileLayout = forwardRef<MobileLayoutHandle, MobileLayoutProps>(fu
           detectedPorts={detectedPorts}
           isLocalSession={isLocalSession}
           onClose={close}
+          visible={activePanel === 'preview'}
         />
       )}
 
@@ -465,21 +469,21 @@ export const MobileLayout = forwardRef<MobileLayoutHandle, MobileLayoutProps>(fu
         </MobileSheetOverlay>
       )}
 
-      {/* Extension Panel Overlay */}
-      {activePanel === 'extension' && activeExtensionName && currentSessionId && (() => {
-        const ext = extensionsWithPanel.find(e => e.name === activeExtensionName);
-        if (!ext) return null;
-        return (
-          <MobileSheetOverlay title={ext.displayName} onClose={handleExtensionClose}>
-            <ExtensionPanel
-              ref={(handle) => { extensionPanelRef.current = handle; }}
-              extension={ext}
-              sessionId={currentSessionId}
-              onClose={handleExtensionClose}
-            />
-          </MobileSheetOverlay>
-        );
-      })()}
+      {/* Extension Panel Overlay — tabbed view for quick-switching between enabled extensions */}
+      {activePanel === 'extension' && activeExtensionName && currentSessionId && (
+        <MobileSheetOverlay title="Extensions" onClose={handleExtensionClose}>
+          <MobileExtensionTabs
+            extensions={extensionsWithPanel}
+            enabledExtensions={enabledExtensions}
+            activeExtensionName={activeExtensionName}
+            sessionId={currentSessionId}
+            onSelectExtension={(name) => setActiveExtensionName(name)}
+            onManageExtensions={() => { close(); setTimeout(() => open('extensions'), 50); }}
+            onClose={handleExtensionClose}
+            extensionPanelRef={extensionPanelRef}
+          />
+        </MobileSheetOverlay>
+      )}
 
       {/* Settings Overlay */}
       {activePanel === 'settings' && settings && (

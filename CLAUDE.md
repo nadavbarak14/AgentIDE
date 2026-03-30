@@ -61,6 +61,7 @@ Auto-generated from all feature plans. Last updated: 2026-02-17
 - TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, Tailwind CSS 3, Vite 6, ws 8 (038-fix-preview-background-cache)
 - TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, Tailwind CSS 3, Vite 6, ws 8, chokidar 4 (all existing) (040-agent-work-report)
 - Filesystem only — `report.html` + `.report-assets/` in session working directory. No database changes. (040-agent-work-report)
+- TypeScript 5.7, Node.js 20 LTS + React 18 + React 18, Tailwind CSS 3, Vite 6 (all existing) (044-mobile-extensions-projects)
 
 - TypeScript 5.x, Node.js 20 LTS + React 18, Tailwind CSS 3, xterm.js 5, Monaco Editor, Express, node-pty, ssh2, chokidar, diff2html, ws (001-c3-dashboard)
 
@@ -80,9 +81,9 @@ npm test && npm run lint
 TypeScript 5.x, Node.js 20 LTS: Follow standard conventions
 
 ## Recent Changes
+- 044-mobile-extensions-projects: Added TypeScript 5.7, Node.js 20 LTS + React 18 + React 18, Tailwind CSS 3, Vite 6 (all existing)
 - 040-agent-work-report: Added TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, Tailwind CSS 3, Vite 6, ws 8, chokidar 4 (all existing)
 - 038-fix-preview-background-cache: Added TypeScript 5.7, Node.js 20 LTS + React 18, Express 4, Tailwind CSS 3, Vite 6, ws 8
-- 036-mobile-preview-fixes: Added TypeScript 5.7, Node.js 20 LTS + React 18, Tailwind CSS 3, Vite 6
 
 
 <!-- MANUAL ADDITIONS START -->
