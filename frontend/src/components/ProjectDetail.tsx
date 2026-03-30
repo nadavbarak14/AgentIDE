@@ -49,10 +49,8 @@ export function ProjectDetail({
   const [sessionsLoading, setSessionsLoading] = useState(true);
   const [selectedIssueNumber, setSelectedIssueNumber] = useState<number | null>(null);
 
-  // Suggested sessions state (Phase 8)
-  const [suggestedSessions, setSuggestedSessions] = useState<Session[]>([]);
-  const [suggestedDismissed, setSuggestedDismissed] = useState(false);
-  const [associating, setAssociating] = useState(false);
+  // Suggested sessions state (auto-associated silently)
+  const [suggestedDismissed] = useState(false);
 
   // Fetch sessions for this project
   const fetchSessions = useCallback(async () => {
@@ -92,10 +90,7 @@ export function ProjectDetail({
         );
         if (unassociated.length > 0) {
           await projectsApi.associateSessions(projectId, unassociated.map(s => s.id));
-          if (!cancelled) {
-            setSuggestedSessions([]);
-            fetchSessions();
-          }
+          if (!cancelled) fetchSessions();
         }
       } catch {
         // Best-effort
@@ -114,20 +109,6 @@ export function ProjectDetail({
     onStartAgent?.(projectId, issueNumber, issueTitle);
   };
 
-  const handleAssociateAll = async () => {
-    setAssociating(true);
-    try {
-      const sessionIds = suggestedSessions.map((s) => s.id);
-      await projectsApi.associateSessions(projectId, sessionIds);
-      setSuggestedSessions([]);
-      // Refresh sessions to pick up the newly associated ones
-      await fetchSessions();
-    } catch (err) {
-      console.error('Failed to associate sessions:', err);
-    } finally {
-      setAssociating(false);
-    }
-  };
 
   const handleBackFromIssue = () => {
     setSelectedIssueNumber(null);
