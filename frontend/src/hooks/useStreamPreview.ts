@@ -79,8 +79,8 @@ export function useStreamPreview(sessionId: string, enabled: boolean) {
     wsRef.current?.sendJson({ type: 'preview:scroll', x, y, deltaX, deltaY });
   }, []);
 
-  const sendResize = useCallback((width: number, height: number) => {
-    wsRef.current?.sendJson({ type: 'preview:resize', width, height });
+  const sendResize = useCallback((width: number, height: number, mobile?: boolean) => {
+    wsRef.current?.sendJson({ type: 'preview:resize', width, height, mobile });
   }, []);
 
   const sendTouch = useCallback((x: number, y: number, action: string) => {

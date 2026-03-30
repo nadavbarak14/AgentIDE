@@ -32,6 +32,9 @@ export class StreamTap {
   private chromeProcess: ChildProcess | null = null;
   private recordingFrames: Buffer[] | null = null;
   private recordingStartTime = 0;
+  private currentMobile = false;
+  private chromeTabId: string | null = null;
+  private chromeDebugPort: number | null = null;
 
   /**
    * Find a Chrome/Chromium binary on the system.
@@ -58,8 +61,7 @@ export class StreamTap {
     const port = Number(process.env.CHROME_DEBUG_PORT) || DEFAULT_DEBUG_PORT;
 
     // Already running?
-    const existing = await this.tryPort(port);
-    if (existing) {
+    if (await this.isPortListening(port)) {
       logger.info({ port }, 'Chrome already running on debug port');
       return port;
     }
@@ -116,8 +118,7 @@ export class StreamTap {
     // Wait for Chrome to start listening
     for (let i = 0; i < 30; i++) {
       await new Promise(r => setTimeout(r, 200));
-      const url = await this.tryPort(port);
-      if (url) {
+      if (await this.isPortListening(port)) {
         logger.info({ port }, 'Chrome is ready');
         return port;
       }
@@ -129,41 +130,65 @@ export class StreamTap {
 
   /**
    * Discover Chrome and return a PAGE-level debugger WebSocket URL.
-   * Page.startScreencast requires a page target, not the browser target.
+   * Each StreamTap creates its own tab so sessions don't share a page.
    */
   async discoverChrome(): Promise<string | null> {
-    const envPort = process.env.CHROME_DEBUG_PORT;
-    if (envPort) {
-      const url = await this.tryPort(Number(envPort));
-      if (url) return url;
-    }
-    for (const port of DEFAULT_PORTS) {
-      const url = await this.tryPort(port);
-      if (url) return url;
-    }
-    return null;
-  }
+    const port = await this.findChromePort();
+    if (port == null) return null;
 
-  private async tryPort(port: number): Promise<string | null> {
     try {
-      // First check if Chrome is listening at all
-      const versionResp = await fetch(`http://localhost:${port}/json/version`);
-      if (!versionResp.ok) return null;
+      // Create a new tab for this session — each session gets isolated page state
+      const newTabResp = await fetch(`http://localhost:${port}/json/new?about:blank`, { method: 'PUT' });
+      if (newTabResp.ok) {
+        const tab = await newTabResp.json() as { id: string; webSocketDebuggerUrl: string };
+        if (tab.webSocketDebuggerUrl) {
+          this.chromeTabId = tab.id;
+          this.chromeDebugPort = port;
+          return tab.webSocketDebuggerUrl;
+        }
+      }
 
-      // Get the first page target — Page.startScreencast needs a page, not the browser
+      // Fallback: reuse existing page (single-session mode)
       const listResp = await fetch(`http://localhost:${port}/json/list`);
       if (!listResp.ok) return null;
       const targets = await listResp.json() as Array<{ type: string; webSocketDebuggerUrl: string }>;
       const page = targets.find(t => t.type === 'page');
-      if (page?.webSocketDebuggerUrl) {
-        return page.webSocketDebuggerUrl;
-      }
-
-      // No page target — fall back to browser-level (won't support screencast but will connect)
-      const data = await versionResp.json();
-      return data.webSocketDebuggerUrl || null;
+      return page?.webSocketDebuggerUrl ?? null;
     } catch {
       return null;
+    }
+  }
+
+  /** Find a Chrome debug port that's listening. */
+  private async findChromePort(): Promise<number | null> {
+    const envPort = process.env.CHROME_DEBUG_PORT;
+    if (envPort) {
+      const ok = await this.isPortListening(Number(envPort));
+      if (ok) return Number(envPort);
+    }
+    for (const port of DEFAULT_PORTS) {
+      const ok = await this.isPortListening(port);
+      if (ok) return port;
+    }
+    return null;
+  }
+
+  private async isPortListening(port: number): Promise<boolean> {
+    try {
+      const resp = await fetch(`http://localhost:${port}/json/version`);
+      return resp.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Close the dedicated tab when this StreamTap disconnects. */
+  private async closeTab(): Promise<void> {
+    if (this.chromeTabId && this.chromeDebugPort) {
+      try {
+        await fetch(`http://localhost:${this.chromeDebugPort}/json/close/${this.chromeTabId}`, { method: 'PUT' });
+      } catch { /* best effort */ }
+      this.chromeTabId = null;
     }
   }
 
@@ -176,7 +201,7 @@ export class StreamTap {
       logger.info('Chrome not found, attempting to launch...');
       const port = await this.launchChrome();
       if (port) {
-        debugUrl = await this.tryPort(port);
+        debugUrl = await this.discoverChrome();
       }
     }
 
@@ -359,10 +384,27 @@ export class StreamTap {
     }
   }
 
-  async setViewport(width: number, height: number): Promise<void> {
+  async setViewport(width: number, height: number, mobile?: boolean): Promise<void> {
+    const isMobile = mobile ?? width <= 768;
+    const wasMobile = this.currentMobile;
+    this.currentMobile = isMobile;
     await this.sendCdp('Emulation.setDeviceMetricsOverride', {
-      width, height, deviceScaleFactor: 1, mobile: width <= 768,
+      width, height, deviceScaleFactor: isMobile ? 3 : 1, mobile: isMobile,
     });
+    // Set mobile user-agent so sites serve mobile versions
+    if (isMobile) {
+      await this.sendCdp('Emulation.setUserAgentOverride', {
+        userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.4 Mobile/15E148 Safari/604.1',
+        platform: 'iPhone',
+      });
+    } else {
+      // Desktop device selected — clear any mobile UA override
+      await this.sendCdp('Emulation.setUserAgentOverride', { userAgent: '' });
+    }
+    // Reload page when switching between mobile/desktop so the new user-agent takes effect
+    if (isMobile !== wasMobile) {
+      await this.sendCdp('Page.reload', {}).catch(() => {});
+    }
     // Restart screencast to pick up new viewport dimensions
     if (this.streaming) {
       await this.sendCdp('Page.stopScreencast').catch(() => {});
@@ -371,7 +413,15 @@ export class StreamTap {
   }
 
   async clearViewport(): Promise<void> {
+    const wasMobile = this.currentMobile;
+    this.currentMobile = false;
     await this.sendCdp('Emulation.clearDeviceMetricsOverride');
+    // Clear any mobile user-agent override
+    await this.sendCdp('Emulation.setUserAgentOverride', { userAgent: '' });
+    // Reload if we were in mobile mode so page gets desktop UA
+    if (wasMobile) {
+      await this.sendCdp('Page.reload', {}).catch(() => {});
+    }
     // Restart screencast to pick up new viewport dimensions
     if (this.streaming) {
       await this.sendCdp('Page.stopScreencast').catch(() => {});
@@ -506,8 +556,8 @@ export class StreamTap {
       this.cdpWs.close();
       this.cdpWs = null;
     }
-    // Don't kill Chrome — it's reused across preview reconnections.
-    // Call destroy() to fully tear down including the Chrome process.
+    // Close this session's dedicated tab (Chrome process stays for other sessions)
+    this.closeTab();
   }
 
   /** Fully tear down including killing the Chrome process. */

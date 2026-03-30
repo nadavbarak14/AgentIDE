@@ -47,7 +47,8 @@ export function MobilePreviewSheet({
       setSelectedDeviceId(deviceId);
       const preset = getPresetById(deviceId);
       if (preset) {
-        preview.sendResize(preset.width, preset.height);
+        const isMobile = preset.category === 'phone' || preset.category === 'tablet';
+        preview.sendResize(preset.width, preset.height, isMobile);
       }
     } else if (vp === null) {
       setSelectedDeviceId(null);

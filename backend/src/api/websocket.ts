@@ -370,12 +370,12 @@ export function setupWebSocket(
             break;
           case 'preview:resize':
             if (isRemote) {
-              relayToRemoteAgent(sessionId, 'input', { inputType: 'resize', width: msg.width, height: msg.height }).catch(() => {});
-            } else if (msg.width === 1280 && msg.height === 720) {
+              relayToRemoteAgent(sessionId, 'input', { inputType: 'resize', width: msg.width, height: msg.height, mobile: msg.mobile }).catch(() => {});
+            } else if (msg.width === 1280 && msg.height === 720 && !msg.mobile) {
               // Default size = responsive mode, clear device override
               tap?.clearViewport().catch(err => log.error({ err }, 'clear viewport failed'));
             } else {
-              tap?.setViewport(msg.width, msg.height).catch(err => log.error({ err }, 'resize failed'));
+              tap?.setViewport(msg.width, msg.height, msg.mobile).catch(err => log.error({ err }, 'resize failed'));
             }
             break;
           case 'preview:touch':

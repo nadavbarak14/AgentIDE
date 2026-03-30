@@ -15,14 +15,18 @@ import type { TunnelManager } from '../../hub/tunnel.js';
 export function createSessionsRouter(repo: Repository, sessionManager: SessionManager, projectService?: ProjectService, tunnelManager?: TunnelManager, widgetStore?: Map<string, Map<string, { name: string; html: string; createdAt: number; result: Record<string, unknown> | null }>>): Router {
   const router = Router();
 
-  // GET /api/sessions — list all sessions
+  // GET /api/sessions — list sessions (excludes completed/failed by default)
   router.get('/', (req, res) => {
     const status = req.query.status as SessionStatus | undefined;
     if (status && !['active', 'completed', 'failed', 'crashed'].includes(status)) {
       res.status(400).json({ error: 'Invalid status filter' });
       return;
     }
-    const sessions = repo.listSessions(status);
+    let sessions = repo.listSessions(status);
+    // By default (no explicit status filter), hide completed and failed sessions
+    if (!status) {
+      sessions = sessions.filter(s => s.status !== 'completed' && s.status !== 'failed');
+    }
 
     // Enrich sessions with projectId by matching working_directory to projects
     if (projectService) {

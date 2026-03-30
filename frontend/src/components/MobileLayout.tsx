@@ -57,7 +57,7 @@ interface MobileLayoutProps {
   projectTree?: ProjectTree[];
   selectedProjectId?: string | null;
   onSelectProject?: (id: string | null) => void;
-  onStartAgent?: (projectId: string, workDir: string, project: ProjectTree) => void;
+  onStartAgent?: (projectId: string, workDir: string, project: ProjectTree, issueNumber?: number, issueTitle?: string) => void;
 }
 
 export const MobileLayout = forwardRef<MobileLayoutHandle, MobileLayoutProps>(function MobileLayout({
@@ -256,6 +256,7 @@ export const MobileLayout = forwardRef<MobileLayoutHandle, MobileLayoutProps>(fu
           showIssues={!!currentSessionId}
           extensionCount={extensionsWithPanel.length}
           widgetCount={widgetCount}
+          hasPreview={!!previewPort}
         />
       )}
 
@@ -313,8 +314,8 @@ export const MobileLayout = forwardRef<MobileLayoutHandle, MobileLayoutProps>(fu
         </MobileSheetOverlay>
       )}
 
-      {/* Preview Overlay — mount when panel is active OR when port exists (to preserve iframe state) */}
-      {currentSessionId && (activePanel === 'preview' || previewPort) && (
+      {/* Preview Overlay — only mount when current session has a detected port */}
+      {currentSessionId && previewPort && (
         <MobilePreviewSheet
           sessionId={currentSessionId}
           port={previewPort || 0}
@@ -384,12 +385,12 @@ export const MobileLayout = forwardRef<MobileLayoutHandle, MobileLayoutProps>(fu
                 projectId={mobileOpenProjectId}
                 project={project}
                 onBack={close}
-                onStartAgent={(projectId, _issueNumber) => {
+                onStartAgent={(projectId, issueNumber, issueTitle) => {
                   const workDir = project.directoryPath
                     || (project.githubRepo ? `/home/ubuntu/projects/${project.githubRepo.split('/').pop()}` : '');
                   if (!workDir) return;
                   close();
-                  onStartAgentProp?.(projectId, workDir, project);
+                  onStartAgentProp?.(projectId, workDir, project, issueNumber, issueTitle);
                 }}
               />
             );
