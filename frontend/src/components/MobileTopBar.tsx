@@ -9,6 +9,8 @@ interface MobileTopBarProps {
   onHamburgerTap: () => void;
   onSessionTap: () => void;
   onNewSession: () => void;
+  onProjectsTap?: () => void;
+  hasProjects?: boolean;
 }
 
 function useFullscreen() {
@@ -56,6 +58,8 @@ export const MobileTopBar = React.memo(function MobileTopBar({
   onHamburgerTap,
   onSessionTap,
   onNewSession,
+  onProjectsTap,
+  hasProjects,
 }: MobileTopBarProps) {
   const statusColor = isWaiting ? 'bg-amber-400' : 'bg-green-500';
   const truncatedPath = projectPath
@@ -136,6 +140,20 @@ export const MobileTopBar = React.memo(function MobileTopBar({
               <line x1="3" y1="21" x2="10" y2="14" />
             </svg>
           )}
+        </button>
+      )}
+
+      {/* Projects button */}
+      {hasProjects && onProjectsTap && (
+        <button
+          type="button"
+          onClick={onProjectsTap}
+          className="w-9 h-9 flex items-center justify-center text-gray-400 hover:text-white rounded transition-colors"
+          aria-label="Projects"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+          </svg>
         </button>
       )}
 

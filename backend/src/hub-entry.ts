@@ -536,6 +536,7 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
 
   // Helper: sync skills into a session's .claude/skills/ directory based on enabled extensions.
   // Only works for local sessions — remote session paths are not accessible from the hub.
+  // Also syncs into any active worktree directories under .claude/worktrees/.
   function syncSessionSkills(sessionWorkDir: string, enabled: string[]): { added: number; removed: number } {
     const extensionsDir = path.join(import.meta.dirname, '../../extensions');
     const hubSkillsDir = path.join(import.meta.dirname, '../../.claude-skills/skills');
@@ -632,6 +633,40 @@ export async function startHub(options: HubOptions = {}): Promise<HubResult> {
         }
       }
     }
+
+    // Also sync skills into active worktree directories (Claude --worktree runs from .claude/worktrees/<name>/)
+    const worktreesDir = path.join(sessionWorkDir, '.claude', 'worktrees');
+    try {
+      if (fs.existsSync(worktreesDir)) {
+        for (const entry of fs.readdirSync(worktreesDir, { withFileTypes: true })) {
+          if (!entry.isDirectory()) continue;
+          const wtSkillsDir = path.join(worktreesDir, entry.name, '.claude', 'skills');
+          try {
+            if (!fs.existsSync(wtSkillsDir)) fs.mkdirSync(wtSkillsDir, { recursive: true });
+            // Copy each enabled skill into the worktree's skills dir
+            for (const skillName of enabledSkillNames) {
+              const srcSkill = path.join(sessionSkillsDir, skillName);
+              const destSkill = path.join(wtSkillsDir, skillName);
+              if (fs.existsSync(srcSkill) && fs.statSync(srcSkill).isDirectory() && !fs.existsSync(destSkill)) {
+                copySkillDir(srcSkill, destSkill);
+              }
+            }
+            // Remove skills that shouldn't be in the worktree
+            for (const wtEntry of fs.readdirSync(wtSkillsDir, { withFileTypes: true })) {
+              if (!wtEntry.isDirectory() && !wtEntry.isSymbolicLink()) continue;
+              if (!enabledSkillNames.has(wtEntry.name)) {
+                const p = path.join(wtSkillsDir, wtEntry.name);
+                try {
+                  const stat = fs.lstatSync(p);
+                  if (stat.isSymbolicLink()) fs.unlinkSync(p);
+                  else fs.rmSync(p, { recursive: true });
+                } catch { /* ignore */ }
+              }
+            }
+          } catch { /* skip inaccessible worktrees */ }
+        }
+      }
+    } catch { /* ignore worktree sync errors */ }
 
     return { added, removed };
   }

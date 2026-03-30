@@ -11,27 +11,33 @@ interface MobilePreviewSheetProps {
   detectedPorts?: Array<{ port: number; localPort: number }>;
   isLocalSession?: boolean;
   onClose: () => void;
+  /** When false, the preview is hidden (display:none) but stays mounted so the iframe stays alive */
+  visible?: boolean;
 }
 
 export function MobilePreviewSheet({
   sessionId,
   detectedPorts,
   onClose,
+  visible: visibleProp = true,
   // port, localPort, isLocalSession are no longer used — StreamPreview manages its own connection
 }: MobilePreviewSheetProps) {
-  const [visible, setVisible] = useState(false);
+  const [slideIn, setSlideIn] = useState(false);
   const preview = useStreamPreview(sessionId, true);
 
   // Local viewport state for mobile preview sheet
   const [viewport, setViewport] = useState<'desktop' | 'mobile' | 'custom' | null>(null);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
 
+  // Slide in on mount, and re-trigger when becoming visible
   useEffect(() => {
-    requestAnimationFrame(() => setVisible(true));
-  }, []);
+    if (visibleProp) {
+      requestAnimationFrame(() => setSlideIn(true));
+    }
+  }, [visibleProp]);
 
   const handleClose = () => {
-    setVisible(false);
+    setSlideIn(false);
     setTimeout(onClose, 300);
   };
 
@@ -50,10 +56,10 @@ export function MobilePreviewSheet({
   }, [preview]);
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex flex-col bg-gray-900">
+    <div className="fixed inset-0 z-50 flex flex-col bg-gray-900" style={{ display: visibleProp ? 'flex' : 'none' }}>
       <div
         className="flex flex-col flex-1 transition-transform duration-300 ease-out overflow-hidden"
-        style={{ transform: visible ? 'translateY(0)' : 'translateY(100%)' }}
+        style={{ transform: slideIn ? 'translateY(0)' : 'translateY(100%)' }}
       >
         <StreamPreview
           sessionId={sessionId}
